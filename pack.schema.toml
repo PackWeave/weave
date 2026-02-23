@@ -1,0 +1,112 @@
+# pack.schema.toml
+#
+# Annotated reference for the weave pack manifest format.
+# This file documents every field, its type, whether it's required,
+# and what it does.
+#
+# This is not a functional file — it's documentation.
+# Generate a real pack.toml with: weave init
+
+# ─────────────────────────────────────────────
+# [pack] — required
+# Core metadata about the pack.
+# ─────────────────────────────────────────────
+
+[pack]
+
+# Required. Lowercase letters, numbers, and hyphens only.
+# Must be unique in the registry if publishing.
+# Example: "webdev", "rust-embedded", "databases"
+name = "my-pack"
+
+# Required. Follows semver: MAJOR.MINOR.PATCH
+# Increment PATCH for fixes, MINOR for new servers/commands, MAJOR for breaking changes.
+version = "1.0.0"
+
+# Required. One or two sentences describing what this pack does.
+description = "A short description of what this pack provides."
+
+# Required for publishing. Your registry username or GitHub handle.
+author = "yourname"
+
+# Optional. SPDX license identifier.
+license = "MIT"
+
+# Optional. List of tags for registry search.
+# Keep them lowercase and general: ["web", "browser", "git", "databases"]
+tags = []
+
+# ─────────────────────────────────────────────
+# [dependencies] — optional
+# Other packs this pack depends on.
+# Keys are pack names; values are semver version requirements.
+# ─────────────────────────────────────────────
+
+[dependencies]
+
+# "@core/filesystem" = "^1.0"
+# "@core/git" = ">=2.0, <3.0"
+
+# ─────────────────────────────────────────────
+# [[mcp.servers]] — optional, repeatable
+# Each entry defines one MCP server to register.
+# ─────────────────────────────────────────────
+
+[[mcp.servers]]
+
+# Required. The name used to identify this server in the CLI config.
+# Must be unique within the pack. Avoid names that conflict with well-known servers.
+name = "my-server"
+
+# Required. The executable to run.
+# Use "npx" for npm-distributed servers, "uvx" for Python, full paths for local binaries.
+command = "npx"
+
+# Optional. Arguments passed to the command.
+args = ["-y", "@modelcontextprotocol/server-example"]
+
+# Optional. Environment variables set when running this server.
+# Use for API keys, config paths, etc.
+# Values are strings. Do not hardcode secrets — document what the user needs to set.
+[mcp.servers.env]
+# EXAMPLE_API_KEY = "set-this-to-your-key"
+
+# ─────────────────────────────────────────────
+# [targets] — optional
+# Which CLIs this pack supports.
+# Defaults to true for all supported CLIs if omitted.
+# Set to false to explicitly exclude a CLI.
+# ─────────────────────────────────────────────
+
+[targets]
+claude_code = true
+gemini_cli = true
+codex_cli = true
+
+# ─────────────────────────────────────────────
+# File layout
+#
+# In addition to pack.toml, a pack directory may contain:
+#
+# mcp/
+#   servers.toml       Alternative to [[mcp.servers]] in pack.toml for long definitions.
+#                      If present, merged with any servers defined inline.
+#
+# commands/
+#   <name>.md          Slash command files. Installed into the CLI's command directory.
+#                      Each file becomes one slash command: /name
+#
+# prompts/
+#   system.md          Appended to the CLI's global system prompt / instructions file.
+#
+# settings/
+#   claude.json        Deep-merged into Claude Code's settings.json.
+#   gemini.json        Deep-merged into Gemini CLI's settings file.
+#   codex.json         Deep-merged into Codex CLI's settings file.
+#
+# hooks/
+#   post-install.sh    Executed after the pack is installed. Optional.
+#   pre-remove.sh      Executed before the pack is removed. Optional.
+#                      Hooks run in the pack directory. Keep them simple.
+#
+# ─────────────────────────────────────────────
