@@ -50,7 +50,7 @@ Not yet available. Will be distributed via Homebrew, `cargo install`, and a shel
 
 ```bash
 # Coming soon
-brew install weave/tap/weave
+brew install packweave/tap/weave
 ```
 
 ---
