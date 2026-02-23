@@ -4,7 +4,7 @@ weave accepts two kinds of contributions: **code** and **packs**.
 
 ## AI assistant instructions
 
-If you use AI assistants for contributions, please follow the repo guidance in `CLAUDE.md` (Claude) or `CODEX.md` (Codex).
+If you use AI assistants for contributions, please follow the repo guidance in `CLAUDE.md` (Claude), `GEMINI.md` (Gemini), or `CODEX.md` (Codex).
 
 -----
 
@@ -52,6 +52,22 @@ Use the issue templates in `.github/ISSUE_TEMPLATE/`. For bugs, include your OS,
 ## Contributing packs
 
 Packs are published to the `PackWeave/registry` repo via pull request.
+
+### Pack creation quickstart (5 minutes)
+
+1. Create a new folder and add a `pack.toml` with basic metadata and `[[servers]]` entries.
+2. Add optional files under `prompts/`, `commands/`, or `settings/` as needed.
+3. Run `weave init` once available to scaffold a pack, then validate with `weave publish`.
+
+If you are not ready to build a pack, open a **Pack request** issue using the template in `.github/ISSUE_TEMPLATE/pack_request.md`.
+
+### Pack quality bar
+
+- Include a clear description and at least one keyword.
+- Never include secrets or credential values.
+- Prefer namespaces when tools may conflict.
+- Declare tool lists when possible to enable conflict checks.
+- Use CLI-specific prompts if behavior differs by CLI.
 
 ### Requirements for a pack to be accepted
 

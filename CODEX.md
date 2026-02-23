@@ -92,7 +92,7 @@ The adapters are opaque. They expose only the `CliAdapter` trait. The core does 
 
 ## What not to do
 
-- Do not write to `~/.codex/`, `~/.gemini/`, or any real user config in tests
+- Do not write to `~/.codex/`, `~/.gemini/`, `~/.claude/`, or any real user config in tests
 - Do not add dependencies without a clear reason — keep the dependency tree lean
 - Do not put business logic in CLI handlers
 - Do not put CLI-specific knowledge (file paths, config schemas) outside of adapters

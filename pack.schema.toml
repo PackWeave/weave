@@ -26,15 +26,21 @@ version = "1.0.0"
 # Required. One or two sentences describing what this pack does.
 description = "A short description of what this pack provides."
 
-# Required for publishing. Your registry username or GitHub handle.
-author = "yourname"
+# Required for publishing. One or more authors.
+authors = ["yourname"]
 
 # Optional. SPDX license identifier.
 license = "MIT"
 
-# Optional. List of tags for registry search.
+# Optional. URL to the pack repository.
+repository = "https://github.com/yourname/my-pack"
+
+# Optional. List of keywords for registry search.
 # Keep them lowercase and general: ["web", "browser", "git", "databases"]
-tags = []
+keywords = []
+
+# Optional. Minimum supported weave version.
+min_tool_version = "0.1.0"
 
 # ─────────────────────────────────────────────
 # [dependencies] — optional
@@ -48,28 +54,62 @@ tags = []
 # "@core/git" = ">=2.0, <3.0"
 
 # ─────────────────────────────────────────────
-# [[mcp.servers]] — optional, repeatable
+# [[servers]] — optional, repeatable
 # Each entry defines one MCP server to register.
 # ─────────────────────────────────────────────
 
-[[mcp.servers]]
+[[servers]]
 
-# Required. The name used to identify this server in the CLI config.
-# Must be unique within the pack. Avoid names that conflict with well-known servers.
-name = "my-server"
+# Required. The name used to identify this server in the pack.
+# Must be unique within the pack.
+name = "github"
+
+# Optional. Package type used for installation metadata.
+# Examples: "npm", "pip", "cargo", "brew", "binary".
+# This is informational in v0.1 and may be used by future installers.
+type = "npm"
+
+# Optional. Package identifier if using a package manager.
+package = "@modelcontextprotocol/server-github"
 
 # Required. The executable to run.
 # Use "npx" for npm-distributed servers, "uvx" for Python, full paths for local binaries.
 command = "npx"
 
 # Optional. Arguments passed to the command.
-args = ["-y", "@modelcontextprotocol/server-example"]
+args = ["-y", "@modelcontextprotocol/server-github"]
 
-# Optional. Environment variables set when running this server.
-# Use for API keys, config paths, etc.
-# Values are strings. Do not hardcode secrets — document what the user needs to set.
-[mcp.servers.env]
-# EXAMPLE_API_KEY = "set-this-to-your-key"
+# Optional. Transport type. Values: "stdio" or "http".
+# If omitted, adapters infer transport from command/url fields where possible.
+transport = "stdio"
+
+# Optional. Namespace used to prefix tools and avoid conflicts.
+namespace = "github"
+
+# Optional. Declared tool list for conflict detection and filtering.
+tools = ["create_pr", "list_issues"]
+
+# Optional. Environment variable metadata for this server.
+# Values are objects, not secrets. The installer writes env var references only.
+[servers.env.GITHUB_TOKEN]
+required = true
+secret = true
+description = "GitHub PAT with repo scope"
+
+# ─────────────────────────────────────────────
+# [extensions] — optional
+# CLI-specific configuration that only applies to the target CLI.
+# Adapters ignore extensions they don't understand.
+# ─────────────────────────────────────────────
+
+[extensions.claude_code]
+# hooks.PostToolUse = { matcher = "Write|Edit", command = "prettier --write \"$CLAUDE_PROJECT_DIR\"" }
+
+[extensions.gemini_cli]
+# trust = false
+
+[extensions.codex_cli]
+# startup_timeout_sec = 30
 
 # ─────────────────────────────────────────────
 # [targets] — optional
@@ -89,7 +129,7 @@ codex_cli = true
 # In addition to pack.toml, a pack directory may contain:
 #
 # mcp/
-#   servers.toml       Alternative to [[mcp.servers]] in pack.toml for long definitions.
+#   servers.toml       Alternative to [[servers]] in pack.toml for long definitions.
 #                      If present, merged with any servers defined inline.
 #
 # commands/
@@ -97,16 +137,17 @@ codex_cli = true
 #                      Each file becomes one slash command: /name
 #
 # prompts/
-#   system.md          Appended to the CLI's global system prompt / instructions file.
+#   claude.md          Appended to Claude Code's system prompt file.
+#   gemini.md          Appended to Gemini CLI's system prompt file.
+#   codex.md           Appended to Codex CLI's system prompt file.
+#   system.md          Fallback prompt applied when a CLI-specific file is absent.
 #
 # settings/
-#   claude.json        Deep-merged into Claude Code's settings.json.
-#   gemini.json        Deep-merged into Gemini CLI's settings file.
-#   codex.json         Deep-merged into Codex CLI's settings file.
+#   claude.json        Deep-merged into Claude Code's settings.
+#   gemini.json        Deep-merged into Gemini CLI's settings.
+#   codex.json         Deep-merged into Codex CLI's settings.
 #
 # hooks/
-#   post-install.sh    Executed after the pack is installed. Optional.
-#   pre-remove.sh      Executed before the pack is removed. Optional.
-#                      Hooks run in the pack directory. Keep them simple.
+#   Hooks are deferred to v0.3. If enabled later, they will require explicit opt-in.
 #
 # ─────────────────────────────────────────────

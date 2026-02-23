@@ -4,6 +4,8 @@
 
 Weave is a command-line tool that installs, manages, and publishes **packs** — versioned bundles of MCP server configurations, slash commands, system prompts, and tool settings — across multiple AI CLIs.
 
+Think **oh-my-zsh for AI CLIs**: portable, shareable packs that configure Claude Code, Gemini CLI, and Codex CLI with a single command.
+
 ```bash
 weave install @webdev
 weave use work
@@ -32,7 +34,7 @@ Weave ships with **adapters** for each supported CLI. An adapter knows exactly h
 
 > **Pre-release.** Not yet functional. See [docs/ROADMAP.md](./docs/ROADMAP.md) for what's planned.
 
-AI assistants should read the repo instructions in `CLAUDE.md` (Claude) or `CODEX.md` (Codex).
+AI assistants should read the repo instructions in `CLAUDE.md` (Claude), `GEMINI.md` (Gemini), or `CODEX.md` (Codex).
 
 ## Docs
 
@@ -48,9 +50,9 @@ See [docs/README.md](./docs/README.md) for the full index, or jump straight to:
 
 | CLI | Status |
 |-----|--------|
-| Claude Code | Planned (v1) |
-| Gemini CLI | Planned (v2) |
-| OpenAI Codex CLI | Planned (v2) |
+| Claude Code | Planned (v0.1) |
+| Gemini CLI | Planned (v0.1) |
+| OpenAI Codex CLI | Planned (v0.2) |
 
 ---
 
@@ -101,18 +103,22 @@ A pack is a directory with a `pack.toml` manifest:
 name = "webdev"
 version = "1.0.0"
 description = "Web development MCP stack"
-author = "yourname"
-tags = ["web", "browser", "git"]
+authors = ["yourname"]
+keywords = ["web", "browser", "git"]
 
-[[mcp.servers]]
+[[servers]]
 name = "puppeteer"
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-puppeteer"]
+transport = "stdio"
+namespace = "browser"
 
-[[mcp.servers]]
+[[servers]]
 name = "filesystem"
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-filesystem"]
+transport = "stdio"
+namespace = "fs"
 ```
 
 See [pack.schema.toml](./pack.schema.toml) for the full annotated schema.
