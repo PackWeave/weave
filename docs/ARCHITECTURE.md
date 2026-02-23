@@ -166,6 +166,8 @@ Packs never store secret values. Instead they declare env var metadata (required
 
 The central abstraction. Every supported CLI implements this trait. The core calls these methods; it never touches CLI config files directly.
 
+Adapters ignore unknown `extensions.<cli>` keys to preserve forward compatibility. Packs can add future CLI-specific fields without breaking older weave versions.
+
 ```rust
 pub trait CliAdapter: Send + Sync {
     /// Human-readable name, e.g. "Claude Code"

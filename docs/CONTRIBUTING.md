@@ -61,6 +61,14 @@ Packs are published to the `PackWeave/registry` repo via pull request.
 
 If you are not ready to build a pack, open a **Pack request** issue using the template in `.github/ISSUE_TEMPLATE/pack_request.md`.
 
+### Pack quality bar
+
+- Include a clear description and at least one keyword.
+- Never include secrets or credential values.
+- Prefer namespaces when tools may conflict.
+- Declare tool lists when possible to enable conflict checks.
+- Use CLI-specific prompts if behavior differs by CLI.
+
 ### Requirements for a pack to be accepted
 
 - `pack.toml` is valid and passes `weave publish` validation
