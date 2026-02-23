@@ -11,12 +11,13 @@ The milestones below are sequential. Each one produces something usable before t
 > The repo is set up with clear documentation, architecture design, and contribution guidelines. No functional code yet.
 
 - [x] README
-- [x] ARCHITECTURE.md
-- [x] ROADMAP.md
-- [x] CONTRIBUTING.md
+- [x] docs/ARCHITECTURE.md
+- [x] docs/ROADMAP.md
+- [x] docs/CONTRIBUTING.md
 - [x] CLAUDE.md
+- [x] CODEX.md
 - [x] pack.schema.toml
-- [x] GitHub issue templates
+- [x] GitHub issue templates (bug, feature, pack)
 
 -----
 
@@ -97,7 +98,7 @@ The milestones below are sequential. Each one produces something usable before t
 - [ ] `weave auth login` — GitHub OAuth device flow
 - [ ] `weave publish` — pack into archive, submit PR to registry repo
 - [ ] Pre-publish validation (manifest, required files, naming rules)
-- [ ] Registry review process documented in CONTRIBUTING.md
+- [ ] Registry review process documented in docs/CONTRIBUTING.md
 
 -----
 

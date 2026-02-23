@@ -1,6 +1,6 @@
-# weave — AI Assistant Instructions
+# weave — AI Assistant Instructions (Codex)
 
-This file is read by Claude and other AI assistants when working in this repository. It describes the codebase, conventions, and how to work effectively in it.
+This file is read by Codex and other AI assistants when working in this repository. It describes the codebase, conventions, and how to work effectively in it.
 
 -----
 
@@ -49,7 +49,7 @@ Read docs/ARCHITECTURE.md before writing any code. It defines the module structu
 
 - Unit tests go in `#[cfg(test)]` blocks in the same file
 - Integration tests go in `tests/`
-- Adapter tests use fixture directories under `tests/fixtures/` — never write to the real `~/.claude/` in tests
+- Adapter tests use fixture directories under `tests/fixtures/` — never write to the real `~/.codex/` in tests
 - No network calls in tests — mock the registry client
 
 ### Naming
@@ -76,7 +76,7 @@ src/config.rs     Global weave config
 
 The CLI handlers are thin. They parse arguments, call into `core/` or `adapters/`, and format output. Business logic does not live in `cli/`.
 
-The adapters are opaque. They expose only the `CliAdapter` trait. The core does not know about `settings.json` or `CLAUDE.md` — that's the adapter's concern.
+The adapters are opaque. They expose only the `CliAdapter` trait. The core does not know about `settings.json` or `CODEX.md` — that's the adapter's concern.
 
 -----
 
@@ -92,7 +92,7 @@ The adapters are opaque. They expose only the `CliAdapter` trait. The core does 
 
 ## What not to do
 
-- Do not write to `~/.claude/`, `~/.gemini/`, or any real user config in tests
+- Do not write to `~/.codex/`, `~/.gemini/`, or any real user config in tests
 - Do not add dependencies without a clear reason — keep the dependency tree lean
 - Do not put business logic in CLI handlers
 - Do not put CLI-specific knowledge (file paths, config schemas) outside of adapters

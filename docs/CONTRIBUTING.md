@@ -2,6 +2,10 @@
 
 weave accepts two kinds of contributions: **code** and **packs**.
 
+## AI assistant instructions
+
+If you use AI assistants for contributions, please follow the repo guidance in `CLAUDE.md` (Claude) or `CODEX.md` (Codex).
+
 -----
 
 ## Contributing code
@@ -10,6 +14,8 @@ weave accepts two kinds of contributions: **code** and **packs**.
 
 - Rust stable (latest)
 - `cargo`, `clippy`, `rustfmt`
+
+Note: The repo is still pre-release and does not yet include a Rust crate. Until Milestone 2 lands, the commands below will fail.
 
 ```bash
 git clone https://github.com/PackWeave/weave
