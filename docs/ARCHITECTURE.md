@@ -16,6 +16,8 @@ This document describes the internal design of weave. It is intended for contrib
 
 **5. The registry is pluggable.** The registry client is behind a trait. The v1 implementation is GitHub-backed, but the core doesn't depend on it.
 
+**6. Packs sit above MCP registries.** weave does not curate individual MCP servers. It consumes upstream registries and focuses on composable packs.
+
 -----
 
 ## High-level data flow
@@ -83,8 +85,8 @@ src/
   adapters/
     mod.rs                 CliAdapter trait definition.
     claude_code.rs         Claude Code adapter (~/.claude/).
-    gemini_cli.rs          Gemini CLI adapter (~/.gemini/).       [planned v2]
-    codex_cli.rs           Codex CLI adapter (~/.codex/).         [planned v2]
+    gemini_cli.rs          Gemini CLI adapter (~/.gemini/).
+    codex_cli.rs           Codex CLI adapter (~/.codex/).
 
   error.rs                 Unified error types via thiserror.
   util.rs                  Shared helpers (file ops, path resolution, etc.)
@@ -103,24 +105,39 @@ pub struct Pack {
     pub name: String,
     pub version: semver::Version,
     pub description: String,
-    pub author: String,
-    pub tags: Vec<String>,
-    pub mcp_servers: Vec<McpServer>,
+    pub authors: Vec<String>,
+    pub license: Option<String>,
+    pub repository: Option<String>,
+    pub keywords: Vec<String>,
+    pub min_tool_version: Option<semver::Version>,
+    pub servers: Vec<McpServer>,
     pub dependencies: HashMap<String, semver::VersionReq>,
+    pub extensions: PackExtensions,
     pub targets: PackTargets,
 }
 
 pub struct McpServer {
     pub name: String,
+    pub package_type: Option<String>,
+    pub package: Option<String>,
     pub command: String,
     pub args: Vec<String>,
-    pub env: HashMap<String, String>,
+    pub transport: Option<Transport>,
+    pub namespace: Option<String>,
+    pub tools: Vec<String>,
+    pub env: HashMap<String, EnvVar>,
 }
 
 pub struct PackTargets {
     pub claude_code: bool,
     pub gemini_cli: bool,
     pub codex_cli: bool,
+}
+
+pub struct EnvVar {
+    pub required: bool,
+    pub secret: bool,
+    pub description: Option<String>,
 }
 ```
 
@@ -140,6 +157,10 @@ pub struct InstalledPack {
     pub source: PackSource,        // registry, local path, git
 }
 ```
+
+### Secrets and environment variables
+
+Packs never store secret values. Instead they declare env var metadata (required/secret/description). Adapters write only env var references into CLI config files (for example, `${VAR}`, `$VAR`, or `bearer_token_env_var = "VAR"` depending on the CLI).
 
 ### `CliAdapter` trait
 
@@ -212,22 +233,28 @@ pub trait Registry: Send + Sync {
 
 The default implementation (`GitHubRegistry`) reads a JSON index from the `PackWeave/registry` GitHub repo and resolves download URLs to GitHub Releases assets.
 
+### Upstream MCP registries
+
+The pack registry is distinct from MCP server registries. Packs may reference servers listed in upstream registries (official MCP Registry, Smithery, or other indexes), but weave does not attempt to curate a server list. Adapters only care about the resolved server definitions included in a pack.
+
 -----
 
 ## Claude Code adapter — design detail
 
-Claude Code stores its config in `~/.claude/`:
+Claude Code stores configuration across user and project scopes:
 
 ```
-~/.claude/
-  settings.json       MCP servers, permissions, model preferences
-  commands/           Slash commands (.md files)
-  CLAUDE.md           Global system prompt / instructions
+~/.claude.json            User-scope MCP servers
+.mcp.json                 Project-scope MCP servers
+~/.claude/settings.json   User-scope settings + hooks
+.claude/settings.json     Project-scope settings + hooks
+~/.claude/commands/       Slash commands (.md files)
+~/.claude/CLAUDE.md       Global system prompt / instructions
 ```
 
 ### MCP servers
 
-`settings.json` contains a `mcpServers` key. The adapter merges pack-defined servers into this map. To track ownership, it maintains a sidecar file at `~/.claude/.packweave_manifest.json`:
+`~/.claude.json` and `.mcp.json` contain a `mcpServers` key. The adapter merges pack-defined servers into this map (per scope). To track ownership, it maintains a sidecar file at `~/.claude/.packweave_manifest.json`:
 
 ```json
 {
@@ -252,7 +279,7 @@ Symlinks are avoided because some editors and sync tools (iCloud, Dropbox) don't
 
 ### System prompt
 
-The adapter appends pack prompt content to `CLAUDE.md` between tagged delimiters:
+The adapter appends pack prompt content from `prompts/claude.md` (or `prompts/system.md` as a fallback) to `CLAUDE.md` between tagged delimiters:
 
 ```markdown
 <!-- packweave:begin:webdev -->
@@ -264,7 +291,37 @@ On removal, everything between the tags (inclusive) is deleted. The rest of `CLA
 
 ### Settings fragments
 
-Pack settings (`settings/claude.json`) are deep-merged into `settings.json`. On removal, only the keys originally written by this pack (recorded in the manifest) are deleted. If the user has manually modified a key that a pack wrote, the adapter leaves it alone and emits a warning.
+Pack settings (`settings/claude.json`) are deep-merged into `~/.claude/settings.json` or `.claude/settings.json` (matching the target scope). On removal, only the keys originally written by this pack (recorded in the manifest) are deleted. If the user has manually modified a key that a pack wrote, the adapter leaves it alone and emits a warning.
+
+### Hooks
+
+Hooks are deferred until v0.3. When introduced, they will live under `extensions.claude_code.hooks` and require explicit opt-in (for example, `--allow-hooks`).
+
+-----
+
+## Gemini CLI adapter — design detail
+
+Gemini CLI stores MCP configuration in JSON:
+
+```
+~/.gemini/settings.json   User-scope settings + MCP servers
+.gemini/settings.json     Project-scope settings + MCP servers
+```
+
+The adapter translates pack servers into Gemini's schema (for example, `httpUrl`, `includeTools`, `excludeTools`) and applies prompt content from `prompts/gemini.md` (or `prompts/system.md` as fallback).
+
+-----
+
+## Codex CLI adapter — design detail
+
+Codex CLI uses TOML configuration:
+
+```
+~/.codex/config.toml      User-scope config
+.codex/config.toml        Project-scope config
+```
+
+The adapter maps pack servers into the `mcp_servers` table and applies prompt content from `prompts/codex.md` (or `prompts/system.md` as fallback).
 
 -----
 
@@ -317,7 +374,7 @@ Panics are not used for recoverable errors. `unwrap()` and `expect()` are only a
 ## What is explicitly out of scope
 
 - GUI or TUI — weave is a CLI tool only
-- Pack execution or sandboxing — weave installs config, it does not run MCP servers
+- MCP server execution or sandboxing — weave installs config, it does not run MCP servers
 - MCP server discovery or recommendation — that's the registry's job, not the core tool's
 - IDE plugins — out of scope for v1 and v2
 - Windows support — v1 targets macOS and Linux only
