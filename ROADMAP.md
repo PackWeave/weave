@@ -26,7 +26,7 @@ The milestones below are sequential. Each one produces something usable before t
 
 - [ ] `cargo init` with correct crate name and metadata
 - [ ] All `clap` commands defined (install, remove, list, use, profile, publish, search, info, update, sync, doctor, auth)
-- [ ] `~/.packweave/` directory initialisation on first run
+- [ ] `~/.weave/` directory initialisation on first run
 - [ ] `config.toml` read/write
 - [ ] Structured error types (`error.rs`)
 - [ ] CI: build + clippy + fmt check on push
