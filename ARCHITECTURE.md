@@ -1,12 +1,12 @@
 # Architecture
 
-This document describes the internal design of PackWeave. It is intended for contributors and for AI assistants working in this codebase.
+This document describes the internal design of weave. It is intended for contributors and for AI assistants working in this codebase.
 
 -----
 
 ## Guiding principles
 
-**1. Non-destructive mutations.** PackWeave never overwrites user config wholesale. Every write is additive and tracked. Every removal is surgical. A user's manual edits must survive a `weave sync`.
+**1. Non-destructive mutations.** weave never overwrites user config wholesale. Every write is additive and tracked. Every removal is surgical. A user's manual edits must survive a `weave sync`.
 
 **2. Adapters own the CLI boundary.** All knowledge of a specific CLI's config format lives in one place — its adapter. The core never reads or writes CLI config files directly.
 
@@ -78,7 +78,7 @@ src/
     resolver.rs            Dependency graph construction and semver resolution.
     store.rs               Local pack cache: download, extract, verify, evict.
     registry.rs            Registry trait + default GitHub-backed implementation.
-    config.rs              Global PackWeave config (~/.packweave/config.toml).
+    config.rs              Global weave config (~/.packweave/config.toml).
 
   adapters/
     mod.rs                 CliAdapter trait definition.
@@ -293,7 +293,7 @@ The store always verifies the SHA256 before extracting. A failed verification ab
 |`~/.packweave/profiles/<n>.toml`    |Installed pack list for a profile                 |
 |`~/.packweave/locks/<n>.lock`       |Pinned exact versions for a profile               |
 |`~/.packweave/packs/<name>/<ver>/`  |Extracted pack contents                           |
-|`~/.claude/.packweave_manifest.json`|Tracks what PackWeave wrote in Claude Code config |
+|`~/.claude/.packweave_manifest.json`|Tracks what weave wrote in Claude Code config     |
 
 -----
 
@@ -316,8 +316,8 @@ Panics are not used for recoverable errors. `unwrap()` and `expect()` are only a
 
 ## What is explicitly out of scope
 
-- GUI or TUI — PackWeave is a CLI tool only
-- Pack execution or sandboxing — PackWeave installs config, it does not run MCP servers
+- GUI or TUI — weave is a CLI tool only
+- Pack execution or sandboxing — weave installs config, it does not run MCP servers
 - MCP server discovery or recommendation — that's the registry's job, not the core tool's
 - IDE plugins — out of scope for v1 and v2
 - Windows support — v1 targets macOS and Linux only

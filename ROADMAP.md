@@ -1,6 +1,6 @@
 # Roadmap
 
-This document describes what PackWeave will build, in what order, and what is explicitly deferred.
+This document describes what weave will build, in what order, and what is explicitly deferred.
 
 The milestones below are sequential. Each one produces something usable before the next begins.
 
@@ -62,7 +62,7 @@ The milestones below are sequential. Each one produces something usable before t
 
 ## Milestone 5 — Claude Code adapter
 
-> PackWeave can fully configure Claude Code from an installed pack.
+> weave can fully configure Claude Code from an installed pack.
 
 - [ ] Read and write `~/.claude/settings.json` (MCP servers)
 - [ ] Copy commands into `~/.claude/commands/` with namespaced filenames
@@ -103,7 +103,7 @@ The milestones below are sequential. Each one produces something usable before t
 
 ## Milestone 8 — Distribution
 
-> PackWeave can be installed by anyone in under 30 seconds.
+> weave can be installed by anyone in under 30 seconds.
 
 - [ ] GitHub Actions: cross-compile binaries for macOS arm64, macOS x86_64, Linux x86_64, Linux arm64
 - [ ] GitHub Releases with binary assets
@@ -116,7 +116,7 @@ The milestones below are sequential. Each one produces something usable before t
 
 ## Milestone 9 — Additional adapters (v2)
 
-> PackWeave supports Gemini CLI and Codex CLI.
+> weave supports Gemini CLI and Codex CLI.
 
 - [ ] Gemini CLI adapter
 - [ ] Codex CLI adapter
@@ -127,9 +127,9 @@ The milestones below are sequential. Each one produces something usable before t
 
 ## Explicitly deferred (no planned milestone)
 
-- **GUI or TUI** — PackWeave is a CLI tool only
+- **GUI or TUI** — weave is a CLI tool only
 - **Windows support** — macOS and Linux first
-- **MCP server execution or sandboxing** — PackWeave configures; it does not run
+- **MCP server execution or sandboxing** — weave configures; it does not run
 - **IDE plugins** — out of scope
 - **Paid registry tiers** — registry is free and open for now
 - **Private registries** — the registry trait supports it architecturally, but no UX for it yet

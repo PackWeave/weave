@@ -1,4 +1,4 @@
-# PackWeave — AI Assistant Instructions
+# weave — AI Assistant Instructions
 
 This file is read by Claude and other AI assistants when working in this repository. It describes the codebase, conventions, and how to work effectively in it.
 
@@ -6,7 +6,7 @@ This file is read by Claude and other AI assistants when working in this reposit
 
 ## What this project is
 
-PackWeave (`weave`) is a Rust CLI tool that manages **packs** — versioned bundles of MCP server configurations, slash commands, and system prompts — across multiple AI CLIs (Claude Code, Gemini CLI, Codex CLI).
+weave is a Rust CLI tool that manages **packs** — versioned bundles of MCP server configurations, slash commands, and system prompts — across multiple AI CLIs (Claude Code, Gemini CLI, Codex CLI).
 
 The core abstraction is the `CliAdapter` trait. All CLI-specific knowledge lives in adapters. The core never touches CLI config files directly.
 
@@ -71,7 +71,7 @@ src/cli/          Command handlers — parse args, call core, print output
 src/core/         Business logic — no I/O to CLI config files here
 src/adapters/     CLI-specific config read/write — no business logic here
 src/error.rs      All error types
-src/config.rs     Global PackWeave config
+src/config.rs     Global weave config
 ```
 
 The CLI handlers are thin. They parse arguments, call into `core/` or `adapters/`, and format output. Business logic does not live in `cli/`.

@@ -1,6 +1,6 @@
 # pack.schema.toml
 #
-# Annotated reference for the PackWeave pack manifest format.
+# Annotated reference for the weave pack manifest format.
 # This file documents every field, its type, whether it's required,
 # and what it does.
 #

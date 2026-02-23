@@ -1,6 +1,6 @@
 # Contributing
 
-PackWeave accepts two kinds of contributions: **code** and **packs**.
+weave accepts two kinds of contributions: **code** and **packs**.
 
 -----
 
