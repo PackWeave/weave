@@ -1,8 +1,8 @@
-# PackWeave
+# Weave
 
 > MCP pack manager for AI CLIs.
 
-PackWeave is a command-line tool that installs, manages, and publishes **packs** — versioned bundles of MCP server configurations, slash commands, system prompts, and tool settings — across multiple AI CLIs.
+Weave is a command-line tool that installs, manages, and publishes **packs** — versioned bundles of MCP server configurations, slash commands, system prompts, and tool settings — across multiple AI CLIs.
 
 ```bash
 weave install @webdev
@@ -16,15 +16,15 @@ weave publish my-pack
 
 Every AI CLI (Claude Code, Gemini CLI, Codex CLI) has its own configuration format. Setting up MCP servers, slash commands, and system prompts means hand-editing JSON and Markdown files in different locations, with different schemas. There's no way to share a setup with your team, version it, or switch between contexts.
 
-PackWeave fixes this.
+Weave fixes this.
 
 ---
 
 ## How it works
 
-A **pack** is a `pack.toml` manifest plus a set of files — MCP server definitions, commands, prompts, settings fragments. You install packs into a **profile** (e.g. `work`, `oss`, `personal`). When you switch profiles, PackWeave rewrites the config files of every installed AI CLI to reflect the active pack set.
+A **pack** is a `pack.toml` manifest plus a set of files — MCP server definitions, commands, prompts, settings fragments. You install packs into a **profile** (e.g. `work`, `oss`, `personal`). When you switch profiles, Weave rewrites the config files of every installed AI CLI to reflect the active pack set.
 
-PackWeave ships with **adapters** for each supported CLI. An adapter knows exactly how to read and write that CLI's config format — non-destructively. It never wipes your existing setup; it only adds, tracks, and cleanly removes what it owns.
+Weave ships with **adapters** for each supported CLI. An adapter knows exactly how to read and write that CLI's config format — non-destructively. It never wipes your existing setup; it only adds, tracks, and cleanly removes what it owns.
 
 ---
 
@@ -50,7 +50,7 @@ Not yet available. Will be distributed via Homebrew, `cargo install`, and a shel
 
 ```bash
 # Coming soon
-brew install packweave/tap/weave
+brew install weave/tap/weave
 ```
 
 ---
