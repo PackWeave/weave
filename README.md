@@ -30,7 +30,17 @@ Weave ships with **adapters** for each supported CLI. An adapter knows exactly h
 
 ## Status
 
-> **Pre-release.** Not yet functional. See [ROADMAP.md](./ROADMAP.md) for what's planned.
+> **Pre-release.** Not yet functional. See [docs/ROADMAP.md](./docs/ROADMAP.md) for what's planned.
+
+AI assistants should read the repo instructions in `CLAUDE.md` (Claude) or `CODEX.md` (Codex).
+
+## Docs
+
+See [docs/README.md](./docs/README.md) for the full index, or jump straight to:
+
+- [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
+- [docs/ROADMAP.md](./docs/ROADMAP.md)
+- [docs/CONTRIBUTING.md](./docs/CONTRIBUTING.md)
 
 ---
 
@@ -111,7 +121,7 @@ See [pack.schema.toml](./pack.schema.toml) for the full annotated schema.
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md).
+See [docs/CONTRIBUTING.md](./docs/CONTRIBUTING.md).
 
 ---
 
