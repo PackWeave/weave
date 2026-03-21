@@ -54,6 +54,22 @@ pub fn run(pack_name: &str, version: Option<&str>) -> Result<()> {
         // Load the pack manifest
         let pack = crate::core::pack::Pack::load(&pack_dir)?;
 
+        // Validate that the manifest matches what was resolved. A tampered or
+        // mis-labelled archive could contain a pack.toml with a different name or
+        // version, causing the wrong adapter manifest entries to be written.
+        anyhow::ensure!(
+            pack.name == *name,
+            "pack manifest name '{}' does not match resolved name '{name}'; \
+             the archive may be corrupt or tampered",
+            pack.name
+        );
+        anyhow::ensure!(
+            pack.version == *version,
+            "pack manifest version '{}' does not match resolved version '{version}'; \
+             the archive may be corrupt or tampered",
+            pack.version
+        );
+
         let resolved = crate::core::pack::ResolvedPack {
             pack: pack.clone(),
             source: PackSource::Registry {

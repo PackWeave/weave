@@ -87,6 +87,20 @@ impl Store {
         }
 
         // Atomically promote the staging directory to the final location.
+        //
+        // Check again whether a valid cache entry appeared while we were extracting
+        // (e.g. concurrent install by another process). If so, discard our staging
+        // copy and reuse the existing entry.
+        if dest.join("pack.toml").exists() {
+            let _ = std::fs::remove_dir_all(&tmp_dest);
+            return Ok(dest);
+        }
+        // If `dest` exists but has no `pack.toml` it is a leftover from a previous
+        // failed run or a manual directory. Remove it so the rename can succeed.
+        if dest.exists() {
+            std::fs::remove_dir_all(&dest)
+                .map_err(|e| WeaveError::io(format!("removing stale dir for '{name}'"), e))?;
+        }
         std::fs::rename(&tmp_dest, &dest)
             .map_err(|e| WeaveError::io(format!("finalizing pack '{name}'"), e))?;
 

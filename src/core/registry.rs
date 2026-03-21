@@ -126,7 +126,7 @@ impl Registry for GitHubRegistry {
             .packs
             .iter()
             .filter(|(name, meta)| {
-                name.contains(&query_lower)
+                name.to_lowercase().contains(&query_lower)
                     || meta.description.to_lowercase().contains(&query_lower)
             })
             .filter_map(|(name, meta)| {
