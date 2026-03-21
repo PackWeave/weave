@@ -69,7 +69,13 @@ src/
     list.rs
     remove.rs
     search.rs
+    update.rs
+    init.rs
+    publish.rs
+    profile.rs
+    sync.rs
     diagnose.rs
+    auth.rs
 
   core/
     pack.rs                Pack manifest: parsing, validation, the Pack struct.
@@ -84,7 +90,7 @@ src/
     mod.rs                 CliAdapter trait definition.
     claude_code.rs         Claude Code adapter (~/.claude/).
     gemini_cli.rs          Gemini CLI adapter (~/.gemini/).
-                           (codex_cli.rs — planned for M3)
+    codex_cli.rs           Codex CLI adapter (~/.codex/).
 
   error.rs                 Unified error types via thiserror.
   util.rs                  Shared helpers (file ops, path resolution, etc.)
