@@ -42,7 +42,7 @@ The milestones below are sequential. Each one produces something usable before t
 
 > Codex support, official registry search, and pack creation workflow.
 
-- [ ] Codex CLI adapter (servers, prompts, settings)
+- [x] Codex CLI adapter (servers, skills, prompts, settings)
 - [ ] `weave search` against the official MCP Registry
 - [ ] `weave update` for pack version management
 - [ ] `weave init` — scaffold a new pack
