@@ -33,8 +33,7 @@ pub enum WeaveError {
     #[error("circular dependency detected involving '{pack}' (chain: {chain})")]
     CircularDependency { pack: String, chain: String },
 
-    #[allow(dead_code)]
-    #[error("dependency conflict for '{pack}': required by {conflicts}")]
+    #[error("dependency conflict for '{pack}': {conflicts}")]
     DependencyConflict { pack: String, conflicts: String },
 
     // Store errors

@@ -4,11 +4,6 @@ use crate::core::profile::Profile;
 use crate::core::registry::Registry;
 use crate::error::{Result, WeaveError};
 
-// NOTE: resolve_pack calls registry.fetch_version() for every pack in the
-// dependency tree to obtain its declared dependencies. For GitHubRegistry
-// this is one HTTP round-trip per pack. A future optimisation could cache
-// releases or batch-fetch metadata, but for M3 pack counts this is fine.
-
 /// Mutable state threaded through recursive dependency resolution.
 /// Bundled into a struct to keep resolve_pack's argument count manageable.
 struct ResolveCtx {
@@ -105,10 +100,25 @@ impl<'a> Resolver<'a> {
         // at every exit point that also calls ctx.visited.remove().
         ctx.path.push(pack_name.to_string());
 
-        // Skip if already queued for installation — this pack was fully resolved
-        // in a sibling branch (diamond dependency). Remove from `visited` first
-        // because we inserted above and won't recurse further.
-        if ctx.to_install.iter().any(|(n, _)| n == pack_name) {
+        // Diamond dependency check: this pack was fully resolved in a sibling
+        // branch. If the already-queued version satisfies our requirement, skip
+        // silently. If it does not, the two branches require incompatible versions
+        // of the same pack — that is an unresolvable conflict.
+        if let Some((_, existing_version)) = ctx.to_install.iter().find(|(n, _)| n == pack_name) {
+            let existing_version = existing_version.clone();
+            if let Some(req) = version_req {
+                if !req.matches(&existing_version) {
+                    ctx.visited.remove(pack_name);
+                    ctx.path.pop();
+                    return Err(WeaveError::DependencyConflict {
+                        pack: pack_name.to_string(),
+                        conflicts: format!(
+                            "requires {req} but {existing_version} was already selected \
+                             by another dependency"
+                        ),
+                    });
+                }
+            }
             ctx.visited.remove(pack_name);
             ctx.path.pop();
             return Ok(());
@@ -156,18 +166,29 @@ impl<'a> Resolver<'a> {
             }
         }
 
-        ctx.to_install
-            .push((pack_name.to_string(), version.clone()));
+        // Resolve this pack's dependencies before queuing itself (post-order).
+        // This ensures the install loop in cli/install.rs always installs a
+        // dependency before the pack that declares it.
+        //
+        // Re-use the already-fetched `metadata.versions` to obtain the release
+        // record — no additional HTTP round-trip needed.
+        // SAFETY: `version` was just selected from `metadata.versions`, so the
+        // find() below cannot fail.
+        let release = metadata
+            .versions
+            .iter()
+            .find(|r| r.version == version)
+            .expect("version was selected from metadata.versions; it must still be present");
 
-        // Fetch the release record to get its declared dependencies, then
-        // recursively resolve each one. Sort deps alphabetically for a
-        // deterministic to_install order regardless of HashMap iteration order.
-        let release = self.registry.fetch_version(pack_name, &version)?;
         let mut deps: Vec<(&String, &semver::VersionReq)> = release.dependencies.iter().collect();
         deps.sort_by_key(|(name, _)| name.as_str());
         for (dep_name, dep_req) in deps {
             self.resolve_pack(dep_name, Some(dep_req), profile, ctx)?;
         }
+
+        // Post-order push: queue this pack after its dependencies so the install
+        // loop processes dependencies first.
+        ctx.to_install.push((pack_name.to_string(), version));
 
         // Backtrack: remove from the active path so sibling packs that share
         // this dependency don't incorrectly detect a cycle.
@@ -386,12 +407,14 @@ mod tests {
         let plan = resolver.plan_install("pack-a", None, &profile).unwrap();
 
         let names: Vec<&str> = plan.to_install.iter().map(|(n, _)| n.as_str()).collect();
-        assert!(names.contains(&"pack-a"), "pack-a should be in to_install");
-        assert!(
-            names.contains(&"pack-b"),
-            "transitive dep pack-b should be in to_install"
-        );
         assert_eq!(plan.to_install.len(), 2);
+        // Post-order: dependency must appear before the pack that requires it
+        let pos_a = names.iter().position(|n| *n == "pack-a").unwrap();
+        let pos_b = names.iter().position(|n| *n == "pack-b").unwrap();
+        assert!(
+            pos_b < pos_a,
+            "pack-b (dep) must be installed before pack-a; order was {names:?}"
+        );
     }
 
     /// If pack B is already installed at the correct version when pack A is
@@ -489,9 +512,54 @@ mod tests {
         let plan = resolver.plan_install("pack-a", None, &profile).unwrap();
 
         let names: Vec<&str> = plan.to_install.iter().map(|(n, _)| n.as_str()).collect();
-        assert!(names.contains(&"pack-a"), "pack-a should be installed");
-        assert!(names.contains(&"pack-b"), "pack-b should be installed");
-        assert!(names.contains(&"pack-c"), "pack-c should be installed");
         assert_eq!(plan.to_install.len(), 3);
+        // Post-order: deepest dependency first (C → B → A)
+        let pos_a = names.iter().position(|n| *n == "pack-a").unwrap();
+        let pos_b = names.iter().position(|n| *n == "pack-b").unwrap();
+        let pos_c = names.iter().position(|n| *n == "pack-c").unwrap();
+        assert!(
+            pos_c < pos_b && pos_b < pos_a,
+            "expected post-order C→B→A but got {names:?}"
+        );
+    }
+
+    /// Diamond dependency with incompatible version requirements must return
+    /// DependencyConflict. Pack A depends on B ^1.0 and C ^1.0; C depends on
+    /// B ^2.0. The resolver picks B 1.x for pack-a's branch, then C's branch
+    /// demands B ^2.0 — an unresolvable conflict.
+    #[test]
+    fn diamond_dependency_version_conflict() {
+        let mut registry = MockRegistry::new();
+        registry.add_pack(pack_meta(
+            "pack-b",
+            vec![release(1, 0, 0), release(2, 0, 0)],
+        ));
+        registry.add_pack(pack_meta(
+            "pack-c",
+            vec![release_with_deps(1, 0, 0, &[("pack-b", "^2.0.0")])],
+        ));
+        registry.add_pack(pack_meta(
+            "pack-a",
+            vec![release_with_deps(
+                1,
+                0,
+                0,
+                &[("pack-b", "^1.0.0"), ("pack-c", "^1.0.0")],
+            )],
+        ));
+
+        let resolver = Resolver::new(&registry);
+        let profile = Profile {
+            name: "test".into(),
+            packs: vec![],
+        };
+
+        let result = resolver.plan_install("pack-a", None, &profile);
+        match result {
+            Err(WeaveError::DependencyConflict { pack, .. }) => {
+                assert_eq!(pack, "pack-b", "conflict should be on pack-b");
+            }
+            other => panic!("expected DependencyConflict, got: {other:?}"),
+        }
     }
 }
