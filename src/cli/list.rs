@@ -22,17 +22,22 @@ pub fn run() -> Result<()> {
 
     for installed in &profile.packs {
         // Try to load the full manifest from the store for rich details.
-        let detail = Store::load_pack(&installed.name, &installed.version).ok();
-
-        print!("  {} v{}", installed.name, installed.version);
-        println!();
-
-        if let Some(ref pack) = detail {
-            println!("    {}", pack.description);
-            println!("    Targets: {}", format_targets(&pack.targets));
-            if !pack.servers.is_empty() {
-                let names: Vec<&str> = pack.servers.iter().map(|s| s.name.as_str()).collect();
-                println!("    Servers: {}", names.join(", "));
+        match Store::load_pack(&installed.name, &installed.version) {
+            Ok(pack) => {
+                println!("  {} v{}", installed.name, installed.version);
+                println!("    {}", pack.description);
+                println!("    Targets: {}", format_targets(&pack.targets));
+                if !pack.servers.is_empty() {
+                    let names: Vec<&str> = pack.servers.iter().map(|s| s.name.as_str()).collect();
+                    println!("    Servers: {}", names.join(", "));
+                }
+            }
+            Err(e) => {
+                eprintln!(
+                    "  warning: could not load manifest for {} v{}: {e}",
+                    installed.name, installed.version
+                );
+                println!("  {} v{}", installed.name, installed.version);
             }
         }
 
