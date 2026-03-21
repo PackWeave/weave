@@ -45,6 +45,10 @@ enum Commands {
     Search {
         /// Search query
         query: String,
+
+        /// Filter results by target CLI (e.g., "claude_code", "gemini_cli", "codex_cli")
+        #[arg(short, long)]
+        target: Option<String>,
     },
 
     /// Check for config drift and project-scope staleness across all adapters
@@ -60,7 +64,7 @@ fn main() {
         Commands::Install { name, version } => cli::install::run(&name, version.as_deref()),
         Commands::List => cli::list::run(),
         Commands::Remove { name } => cli::remove::run(&name),
-        Commands::Search { query } => cli::search::run(&query),
+        Commands::Search { query, target } => cli::search::run(&query, target.as_deref()),
         Commands::Diagnose => cli::diagnose::run(),
     };
 
