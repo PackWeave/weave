@@ -38,6 +38,12 @@ pub struct ClaudeCodeAdapter {
     project_root: PathBuf,
 }
 
+impl Default for ClaudeCodeAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ClaudeCodeAdapter {
     pub fn new() -> Self {
         Self {
