@@ -371,14 +371,14 @@ Pack settings (`settings/gemini.json`) are deep-merged into `settings.json`. On 
 
 ## Codex CLI adapter — design detail
 
-Codex CLI uses TOML configuration:
+Codex CLI uses JSON configuration and has no project-scope equivalent:
 
 ```
-~/.codex/config.toml      User-scope config
-.codex/config.toml        Project-scope config
+~/.codex/config.json      User-scope settings (model, approvalMode, providers, …)
+~/.codex/AGENTS.md        Global instruction file (Codex merges ~/.codex/, repo root, cwd)
 ```
 
-The adapter maps pack servers into the `mcp_servers` table and applies prompt content from `prompts/codex.md` (or `prompts/system.md` as fallback).
+MCP server support is not available in Codex CLI; the adapter handles **prompts** and **settings** only. Prompt content from `prompts/codex.md` (or `prompts/system.md` as fallback) is appended to `~/.codex/AGENTS.md` using `<!-- packweave:begin/end:name -->` delimiters. Settings from `settings/codex.json` are deep-merged into `~/.codex/config.json` with per-key snapshots stored in the sidecar manifest for safe removal.
 
 -----
 
