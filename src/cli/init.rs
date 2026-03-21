@@ -1,0 +1,155 @@
+use std::path::{Path, PathBuf};
+
+use anyhow::{bail, Context, Result};
+
+/// Validate that a pack name matches `[a-z0-9-]+`.
+fn validate_pack_name(name: &str) -> Result<()> {
+    if name.is_empty() {
+        bail!("pack name cannot be empty");
+    }
+
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    {
+        bail!(
+            "pack name '{}' is invalid\n  \
+             Pack names must contain only lowercase letters, numbers, and hyphens.\n  \
+             Try: weave init {}",
+            name,
+            name.to_lowercase().replace('_', "-")
+        );
+    }
+
+    Ok(())
+}
+
+/// Generate the `pack.toml` content for a new pack.
+fn pack_toml_content(name: &str) -> String {
+    format!(
+        r#"[pack]
+name = "{name}"
+version = "0.1.0"
+description = "TODO: describe what this pack does"
+authors = ["TODO: your name <you@example.com>"]
+license = "MIT"
+
+[targets]
+claude_code = true
+gemini_cli = false
+codex_cli = false
+"#
+    )
+}
+
+/// Generate the `README.md` content for a new pack.
+fn readme_content(name: &str) -> String {
+    format!("# {name}\n\nA weave pack.\n\n## Description\n\nTODO: describe what this pack does.\n")
+}
+
+/// Scaffold all pack files into `root_dir`.
+fn scaffold(root_dir: &Path, name: &str) -> Result<()> {
+    // Create the root directory if it doesn't already exist (for the <name> case,
+    // it was just created; for the no-args case, it already exists).
+    std::fs::create_dir_all(root_dir)
+        .with_context(|| format!("creating directory '{}'", root_dir.display()))?;
+
+    // pack.toml
+    let pack_toml_path = root_dir.join("pack.toml");
+    std::fs::write(&pack_toml_path, pack_toml_content(name))
+        .with_context(|| format!("writing '{}'", pack_toml_path.display()))?;
+
+    // README.md
+    let readme_path = root_dir.join("README.md");
+    std::fs::write(&readme_path, readme_content(name))
+        .with_context(|| format!("writing '{}'", readme_path.display()))?;
+
+    // prompts/system.md (empty)
+    let prompts_dir = root_dir.join("prompts");
+    std::fs::create_dir_all(&prompts_dir)
+        .with_context(|| format!("creating '{}'", prompts_dir.display()))?;
+    std::fs::write(prompts_dir.join("system.md"), "")
+        .with_context(|| "writing 'prompts/system.md'")?;
+
+    // settings/ (empty directory)
+    let settings_dir = root_dir.join("settings");
+    std::fs::create_dir_all(&settings_dir)
+        .with_context(|| format!("creating '{}'", settings_dir.display()))?;
+
+    // commands/ (empty directory)
+    let commands_dir = root_dir.join("commands");
+    std::fs::create_dir_all(&commands_dir)
+        .with_context(|| format!("creating '{}'", commands_dir.display()))?;
+
+    // skills/ (empty directory, for Codex CLI)
+    let skills_dir = root_dir.join("skills");
+    std::fs::create_dir_all(&skills_dir)
+        .with_context(|| format!("creating '{}'", skills_dir.display()))?;
+
+    Ok(())
+}
+
+/// Run `weave init [name]`.
+///
+/// If `name` is `Some`, creates a `<name>/` subdirectory in the current working
+/// directory. If `None`, initializes the current directory using its name as the
+/// pack name.
+pub fn run(name: Option<&str>) -> Result<()> {
+    let cwd = std::env::current_dir().context("determining current directory")?;
+
+    let (root_dir, pack_name): (PathBuf, String) = match name {
+        Some(n) => {
+            // Validate before any I/O
+            validate_pack_name(n)?;
+
+            let dir = cwd.join(n);
+            if dir.exists() {
+                bail!(
+                    "directory '{}' already exists\n  \
+                     Choose a different name or remove the existing directory.",
+                    n
+                );
+            }
+            (dir, n.to_string())
+        }
+        None => {
+            // No-args: initialize current directory
+            let pack_toml = cwd.join("pack.toml");
+            if pack_toml.exists() {
+                bail!(
+                    "pack.toml already exists in the current directory\n  \
+                     This directory is already initialized as a pack."
+                );
+            }
+
+            let dir_name = cwd
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|s| s.to_string())
+                .context(
+                    "could not determine current directory name\n  \
+                     Use `weave init <name>` to specify the pack name explicitly.",
+                )?;
+
+            validate_pack_name(&dir_name)?;
+
+            (cwd.clone(), dir_name)
+        }
+    };
+
+    scaffold(&root_dir, &pack_name)?;
+
+    // Verify the generated pack.toml is valid by parsing it.
+    let pack_toml_path = root_dir.join("pack.toml");
+    let content = std::fs::read_to_string(&pack_toml_path)
+        .with_context(|| format!("reading '{}'", pack_toml_path.display()))?;
+    crate::core::pack::Pack::from_toml(&content, &pack_toml_path).with_context(|| {
+        format!(
+            "generated pack.toml at '{}' failed validation — this is a bug",
+            pack_toml_path.display()
+        )
+    })?;
+
+    println!("Initialized pack '{}' in {}", pack_name, root_dir.display());
+    Ok(())
+}
