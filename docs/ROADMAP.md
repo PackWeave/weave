@@ -81,7 +81,7 @@ The milestones below are sequential. Each one produces something usable before t
 ## Explicitly deferred (no planned milestone)
 
 - **GUI or TUI** — weave is a CLI tool only
-- **Windows support** — macOS and Linux first
+- **Windows support** — weave targets macOS and Linux; Windows is not tested in CI. The Claude Code adapter works on Windows as a best-effort target, but full Windows support is not planned
 - **MCP server execution or sandboxing** — weave configures; it does not run
 - **IDE plugins** — out of scope
 - **Paid registry tiers** — registry is free and open for now

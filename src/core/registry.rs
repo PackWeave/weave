@@ -48,6 +48,14 @@ pub trait Registry: Send + Sync {
 
     /// Fetch a specific version of a pack.
     fn fetch_version(&self, name: &str, version: &semver::Version) -> Result<PackRelease>;
+
+    /// Publish a pack archive to the registry. Deferred to Milestone 3 (v0.2).
+    fn publish(&self, _archive: &std::path::Path, _token: &str) -> Result<()> {
+        Err(crate::error::WeaveError::Registry(
+            "publish is not yet supported — see https://github.com/PackWeave/weave for updates"
+                .into(),
+        ))
+    }
 }
 
 /// The registry index format: a JSON file mapping pack names to their metadata.
@@ -73,9 +81,10 @@ impl GitHubRegistry {
     }
 
     fn load_index(&self) -> Result<RegistryIndex> {
-        // Check cache first
+        // Check cache first. Recover from a poisoned mutex rather than panicking —
+        // the inner value is still valid even if a previous holder panicked.
         {
-            let cache = self.cached_index.lock().expect("mutex not poisoned");
+            let cache = self.cached_index.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(ref index) = *cache {
                 return Ok(index.clone());
             }
@@ -95,9 +104,9 @@ impl GitHubRegistry {
             .json()
             .map_err(|e| WeaveError::Registry(format!("failed to parse registry index: {e}")))?;
 
-        // Cache the index
+        // Cache the index.
         {
-            let mut cache = self.cached_index.lock().expect("mutex not poisoned");
+            let mut cache = self.cached_index.lock().unwrap_or_else(|e| e.into_inner());
             *cache = Some(index.clone());
         }
 
@@ -121,11 +130,13 @@ impl Registry for GitHubRegistry {
                         .iter()
                         .any(|k| k.to_lowercase().contains(&query_lower))
             })
-            .map(|(name, meta)| PackSummary {
-                name: name.clone(),
-                description: meta.description.clone(),
-                latest_version: meta.latest_version(),
-                keywords: meta.keywords(),
+            .filter_map(|(name, meta)| {
+                meta.latest_version().ok().map(|ver| PackSummary {
+                    name: name.clone(),
+                    description: meta.description.clone(),
+                    latest_version: ver,
+                    keywords: meta.keywords(),
+                })
             })
             .collect();
 
@@ -165,14 +176,16 @@ impl Registry for GitHubRegistry {
 }
 
 impl PackMetadata {
-    /// Get the latest (highest) version.
-    pub fn latest_version(&self) -> semver::Version {
+    /// Get the latest (highest) version, or an error if the pack has no releases.
+    pub fn latest_version(&self) -> Result<semver::Version> {
         self.versions
             .iter()
             .map(|v| &v.version)
             .max()
             .cloned()
-            .unwrap_or_else(|| semver::Version::new(0, 0, 0))
+            .ok_or_else(|| WeaveError::NoReleases {
+                name: self.name.clone(),
+            })
     }
 
     /// Get keywords from the metadata (not stored at top level in index, extracted from description for now).
@@ -209,11 +222,13 @@ impl Registry for MockRegistry {
             .packs
             .iter()
             .filter(|(name, _)| name.contains(&query_lower))
-            .map(|(name, meta)| PackSummary {
-                name: name.clone(),
-                description: meta.description.clone(),
-                latest_version: meta.latest_version(),
-                keywords: Vec::new(),
+            .filter_map(|(name, meta)| {
+                meta.latest_version().ok().map(|ver| PackSummary {
+                    name: name.clone(),
+                    description: meta.description.clone(),
+                    latest_version: ver,
+                    keywords: Vec::new(),
+                })
             })
             .collect())
     }
@@ -301,6 +316,22 @@ mod tests {
     #[test]
     fn latest_version() {
         let meta = sample_metadata();
-        assert_eq!(meta.latest_version(), semver::Version::new(1, 1, 0));
+        assert_eq!(
+            meta.latest_version().unwrap(),
+            semver::Version::new(1, 1, 0)
+        );
+    }
+
+    #[test]
+    fn latest_version_no_releases() {
+        let meta = PackMetadata {
+            name: "empty".into(),
+            description: "no releases".into(),
+            authors: vec![],
+            license: None,
+            repository: None,
+            versions: vec![],
+        };
+        assert!(meta.latest_version().is_err());
     }
 }

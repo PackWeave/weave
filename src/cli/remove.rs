@@ -9,6 +9,9 @@ use crate::core::resolver::Resolver;
 
 /// Remove an installed pack.
 pub fn run(pack_name: &str) -> Result<()> {
+    // Normalise name: strip a leading '@' so `weave remove @webdev` works.
+    let pack_name = pack_name.strip_prefix('@').unwrap_or(pack_name);
+
     let config = Config::load().context("loading weave config")?;
     let registry = GitHubRegistry::new(&config.registry_url);
 
@@ -21,17 +24,23 @@ pub fn run(pack_name: &str) -> Result<()> {
     // Load lock file
     let mut lockfile = LockFile::load(&config.active_profile).context("loading lock file")?;
 
-    let adapters = adapters::all_adapters();
+    let adapters = adapters::installed_adapters();
 
     for name in &plan.to_remove {
         println!("  Removing {name}...");
 
-        // Remove from each adapter
+        // Remove from each installed adapter. Continue through failures so the
+        // profile/lockfile are always updated and partial state is surfaced as
+        // warnings rather than leaving the pack stuck as "installed".
+        let mut adapter_errors: Vec<String> = Vec::new();
         for adapter in &adapters {
-            if adapter.is_installed() {
-                adapter.remove(name)?;
-                println!("    Removed from {}", adapter.name());
+            match adapter.remove(name) {
+                Ok(()) => println!("    Removed from {}", adapter.name()),
+                Err(e) => adapter_errors.push(format!("{}: {e}", adapter.name())),
             }
+        }
+        for err in &adapter_errors {
+            eprintln!("  warning: {err}");
         }
 
         // Remove from profile

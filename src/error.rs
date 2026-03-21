@@ -18,13 +18,19 @@ pub enum WeaveError {
     #[error("invalid pack manifest at {path}: {reason}")]
     InvalidManifest { path: PathBuf, reason: String },
 
+    #[allow(dead_code)]
     #[error("pack '{name}' is already installed (version {version})")]
     AlreadyInstalled { name: String, version: String },
 
-    #[error("pack '{name}' is not installed")]
+    #[error("pack '{name}' is not installed — run `weave list` to see installed packs")]
     NotInstalled { name: String },
 
+    // Registry errors
+    #[error("pack '{name}' has no releases in the registry")]
+    NoReleases { name: String },
+
     // Dependency errors
+    #[allow(dead_code)]
     #[error("dependency conflict: {0}")]
     DependencyConflict(String),
 
@@ -39,11 +45,11 @@ pub enum WeaveError {
     #[error("failed to download pack '{name}': {reason}")]
     DownloadFailed { name: String, reason: String },
 
-    // Registry errors
     #[error("registry error: {0}")]
     Registry(String),
 
     // Adapter errors
+    #[allow(dead_code)]
     #[error("{cli} is not installed on this system")]
     CliNotInstalled { cli: String },
 
@@ -54,6 +60,7 @@ pub enum WeaveError {
         reason: String,
     },
 
+    #[allow(dead_code)]
     #[error("failed to remove pack '{pack}' from {cli}: {reason}")]
     RemoveFailed {
         pack: String,
@@ -83,7 +90,7 @@ pub enum WeaveError {
     #[error("failed to parse TOML at {path}: {source}")]
     Toml {
         path: PathBuf,
-        source: toml::de::Error,
+        source: Box<toml::de::Error>,
     },
 }
 

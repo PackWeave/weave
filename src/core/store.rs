@@ -56,12 +56,13 @@ impl Store {
             reason: e.to_string(),
         })?;
 
-        // Verify SHA256
+        // Verify SHA256 — normalise both sides to lowercase so registries that
+        // emit uppercase hex digests still match.
         let mut hasher = Sha256::new();
         hasher.update(&bytes);
         let actual_hash = format!("{:x}", hasher.finalize());
 
-        if actual_hash != release.sha256 {
+        if actual_hash != release.sha256.to_lowercase() {
             return Err(WeaveError::ChecksumMismatch {
                 name: name.to_string(),
                 expected: release.sha256.clone(),
@@ -69,13 +70,75 @@ impl Store {
             });
         }
 
-        // Extract tar.gz
-        util::ensure_dir(&dest)?;
-        let decoder = flate2::read::GzDecoder::new(&bytes[..]);
-        let mut archive = tar::Archive::new(decoder);
-        archive
-            .unpack(&dest)
-            .map_err(|e| WeaveError::io(format!("extracting pack '{name}'"), e))?;
+        // Extract tar.gz into a temporary staging directory first, then rename it
+        // to the final destination atomically so a failed extraction never leaves
+        // a partially-populated cache entry.
+        let tmp_dest = dest.with_extension("tmp");
+        if tmp_dest.exists() {
+            std::fs::remove_dir_all(&tmp_dest)
+                .map_err(|e| WeaveError::io(format!("cleaning up tmp dir for '{name}'"), e))?;
+        }
+        util::ensure_dir(&tmp_dest)?;
+
+        let extract_result = (|| -> Result<()> {
+            let decoder = flate2::read::GzDecoder::new(&bytes[..]);
+            let mut archive = tar::Archive::new(decoder);
+            let tmp_canonical = tmp_dest
+                .canonicalize()
+                .map_err(|e| WeaveError::io(format!("canonicalizing tmp dir for '{name}'"), e))?;
+            for entry in archive
+                .entries()
+                .map_err(|e| WeaveError::io(format!("reading archive entries for '{name}'"), e))?
+            {
+                let mut entry = entry.map_err(|e| {
+                    WeaveError::io(format!("reading archive entry for '{name}'"), e)
+                })?;
+                let entry_path = entry
+                    .path()
+                    .map_err(|e| WeaveError::io(format!("reading entry path in '{name}'"), e))?
+                    .into_owned();
+                // Reject absolute paths and any path component that would escape dest.
+                if entry_path.is_absolute() {
+                    return Err(WeaveError::io(
+                        format!("extracting pack '{name}'"),
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("archive entry has absolute path: {}", entry_path.display()),
+                        ),
+                    ));
+                }
+                let full_path = tmp_canonical.join(&entry_path);
+                if !full_path.starts_with(&tmp_canonical) {
+                    return Err(WeaveError::io(
+                        format!("extracting pack '{name}'"),
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!(
+                                "archive entry '{}' would escape the pack directory",
+                                entry_path.display()
+                            ),
+                        ),
+                    ));
+                }
+                entry.unpack(&full_path).map_err(|e| {
+                    WeaveError::io(
+                        format!("extracting '{}' from '{name}'", entry_path.display()),
+                        e,
+                    )
+                })?;
+            }
+            Ok(())
+        })();
+
+        if let Err(e) = extract_result {
+            // Best-effort cleanup of the failed staging directory.
+            let _ = std::fs::remove_dir_all(&tmp_dest);
+            return Err(e);
+        }
+
+        // Atomically promote the staging directory to the final location.
+        std::fs::rename(&tmp_dest, &dest)
+            .map_err(|e| WeaveError::io(format!("finalizing pack '{name}'"), e))?;
 
         Ok(dest)
     }
@@ -139,7 +202,12 @@ impl Store {
                 .map(|mut d| d.next().is_none())
                 .unwrap_or(false);
             if is_empty {
-                let _ = std::fs::remove_dir(&name_dir);
+                if let Err(e) = std::fs::remove_dir(&name_dir) {
+                    log::warn!(
+                        "could not remove empty pack directory {}: {e}",
+                        name_dir.display()
+                    );
+                }
             }
         }
 

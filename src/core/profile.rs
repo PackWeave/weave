@@ -44,12 +44,16 @@ impl Profile {
             });
         }
         let content = util::read_file(&path)?;
-        toml::from_str(&content).map_err(|e| WeaveError::Toml { path, source: e })
+        toml::from_str(&content).map_err(|e| WeaveError::Toml {
+            path,
+            source: Box::new(e),
+        })
     }
 
     /// Save this profile to disk.
     pub fn save(&self) -> Result<()> {
         let path = Self::path(&self.name)?;
+        // Profile only contains String/Vec fields — TOML serialization cannot fail.
         let content = toml::to_string_pretty(self).expect("Profile serialization cannot fail");
         util::write_file(&path, &content)
     }

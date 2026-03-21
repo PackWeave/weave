@@ -9,6 +9,16 @@ use crate::core::store::Store;
 use crate::error::{Result, WeaveError};
 use crate::util;
 
+/// Tracks the settings contribution of a single pack so it can be safely undone.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SettingsRecord {
+    /// The fragment we merged in (pack's settings/claude.json).
+    applied: serde_json::Value,
+    /// The pre-apply values for each top-level key in `applied`
+    /// (Value::Null means the key was absent before installation).
+    original: serde_json::Value,
+}
+
 /// Sidecar manifest tracking what weave wrote to Claude Code config.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct PackweaveManifest {
@@ -19,28 +29,44 @@ struct PackweaveManifest {
     #[serde(default)]
     prompt_blocks: Vec<String>, // pack names with prompt content
     #[serde(default)]
-    settings_keys: HashMap<String, Vec<String>>, // pack_name -> keys written
+    settings: HashMap<String, SettingsRecord>, // pack_name -> settings record
 }
 
 pub struct ClaudeCodeAdapter {
     home: Option<PathBuf>,
+    /// Current working directory, used to detect project-scope config.
+    project_root: PathBuf,
 }
 
 impl ClaudeCodeAdapter {
     pub fn new() -> Self {
         Self {
             home: dirs::home_dir(),
+            project_root: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
         }
     }
 
     #[cfg(test)]
     pub fn with_home(home: PathBuf) -> Self {
-        Self { home: Some(home) }
+        Self {
+            home: Some(home.clone()),
+            project_root: home,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn with_home_and_project(home: PathBuf, project_root: PathBuf) -> Self {
+        Self {
+            home: Some(home),
+            project_root,
+        }
     }
 
     fn home(&self) -> Result<&PathBuf> {
         self.home.as_ref().ok_or(WeaveError::NoHomeDir)
     }
+
+    // ── User-scope paths ──────────────────────────────────────────────────────
 
     /// `~/.claude/`
     fn claude_dir(&self) -> Result<PathBuf> {
@@ -52,17 +78,17 @@ impl ClaudeCodeAdapter {
         Ok(self.home()?.join(".claude.json"))
     }
 
-    /// `~/.claude/.packweave_manifest.json` — ownership tracking
+    /// `~/.claude/.packweave_manifest.json` — user-scope ownership tracking
     fn manifest_path(&self) -> Result<PathBuf> {
         Ok(self.claude_dir()?.join(".packweave_manifest.json"))
     }
 
-    /// `~/.claude/commands/` — slash commands
+    /// `~/.claude/commands/` — slash commands (user-scope only)
     fn commands_dir(&self) -> Result<PathBuf> {
         Ok(self.claude_dir()?.join("commands"))
     }
 
-    /// `~/.claude/CLAUDE.md` — global system prompt
+    /// `~/.claude/CLAUDE.md` — global system prompt (user-scope only)
     fn claude_md_path(&self) -> Result<PathBuf> {
         Ok(self.claude_dir()?.join("CLAUDE.md"))
     }
@@ -71,6 +97,36 @@ impl ClaudeCodeAdapter {
     fn settings_path(&self) -> Result<PathBuf> {
         Ok(self.claude_dir()?.join("settings.json"))
     }
+
+    // ── Project-scope paths ───────────────────────────────────────────────────
+
+    /// `.claude/` in the current project root
+    fn project_claude_dir(&self) -> PathBuf {
+        self.project_root.join(".claude")
+    }
+
+    /// `.mcp.json` — project-scope MCP servers
+    fn project_mcp_json_path(&self) -> PathBuf {
+        self.project_root.join(".mcp.json")
+    }
+
+    /// `.claude/.packweave_manifest.json` — project-scope ownership tracking
+    fn project_manifest_path(&self) -> PathBuf {
+        self.project_claude_dir().join(".packweave_manifest.json")
+    }
+
+    /// `.claude/settings.json` — project-scope settings
+    fn project_settings_path(&self) -> PathBuf {
+        self.project_claude_dir().join("settings.json")
+    }
+
+    /// Returns true if the project has a `.claude/` directory, indicating
+    /// that project-scope config should be maintained.
+    fn has_project_scope(&self) -> bool {
+        self.project_claude_dir().exists()
+    }
+
+    // ── Manifest helpers ──────────────────────────────────────────────────────
 
     fn load_manifest(&self) -> Result<PackweaveManifest> {
         let path = self.manifest_path()?;
@@ -84,47 +140,247 @@ impl ClaudeCodeAdapter {
     fn save_manifest(&self, manifest: &PackweaveManifest) -> Result<()> {
         let path = self.manifest_path()?;
         let content =
+            // PackweaveManifest only contains String/HashMap/Vec fields — cannot fail.
             serde_json::to_string_pretty(manifest).expect("manifest serialization cannot fail");
         util::write_file(&path, &content)
     }
 
-    /// Merge pack servers into `~/.claude.json`.
-    fn apply_servers(&self, pack: &ResolvedPack, manifest: &mut PackweaveManifest) -> Result<()> {
-        if pack.pack.servers.is_empty() {
-            return Ok(());
+    fn load_project_manifest(&self) -> Result<PackweaveManifest> {
+        let path = self.project_manifest_path();
+        if !path.exists() {
+            return Ok(PackweaveManifest::default());
         }
+        let content = util::read_file(&path)?;
+        serde_json::from_str(&content).map_err(|e| WeaveError::Json { path, source: e })
+    }
 
-        let path = self.claude_json_path()?;
+    fn save_project_manifest(&self, manifest: &PackweaveManifest) -> Result<()> {
+        let path = self.project_manifest_path();
+        let content =
+            // PackweaveManifest only contains String/HashMap/Vec fields — cannot fail.
+            serde_json::to_string_pretty(manifest).expect("manifest serialization cannot fail");
+        util::write_file(&path, &content)
+    }
+
+    // ── Shared helpers (called with either user or project paths) ─────────────
+
+    /// Merge pack servers into a JSON file at `path` (either `~/.claude.json`
+    /// or `.mcp.json`), recording ownership in `servers_map`.
+    fn apply_servers_to_file(
+        &self,
+        path: &std::path::Path,
+        pack: &ResolvedPack,
+        servers_map: &mut HashMap<String, String>,
+    ) -> Result<()> {
         let mut config: serde_json::Value = if path.exists() {
-            let content = util::read_file(&path)?;
+            let content = util::read_file(path)?;
             serde_json::from_str(&content).map_err(|e| WeaveError::Json {
-                path: path.clone(),
+                path: path.to_path_buf(),
                 source: e,
             })?
         } else {
             serde_json::json!({})
         };
 
-        let servers_map = config
+        let config_obj = config
             .as_object_mut()
-            .expect("claude.json is always an object")
+            .ok_or_else(|| WeaveError::ApplyFailed {
+                pack: pack.pack.name.clone(),
+                cli: "Claude Code".into(),
+                reason: format!(
+                    "{} is not a JSON object — cannot merge MCP servers into it",
+                    path.display()
+                ),
+            })?;
+
+        let servers_entry = config_obj
             .entry("mcpServers")
             .or_insert_with(|| serde_json::json!({}));
 
         for server in &pack.pack.servers {
-            let server_config = build_claude_server_config(server);
-            servers_map[&server.name] = server_config;
-            manifest
-                .servers
-                .insert(server.name.clone(), pack.pack.name.clone());
+            if let Some(owner) = servers_map.get(&server.name) {
+                if owner != &pack.pack.name {
+                    return Err(WeaveError::ApplyFailed {
+                        pack: pack.pack.name.clone(),
+                        cli: "Claude Code".into(),
+                        reason: format!(
+                            "server '{}' is already registered by pack '{}'; \
+                             remove it first with `weave remove {}`",
+                            server.name, owner, owner
+                        ),
+                    });
+                }
+            }
+            servers_entry[&server.name] = build_claude_server_config(server);
+            servers_map.insert(server.name.clone(), pack.pack.name.clone());
         }
 
+        // JSON serialization of a valid serde_json::Value cannot fail.
         let content =
             serde_json::to_string_pretty(&config).expect("JSON serialization cannot fail");
-        util::write_file(&path, &content)
+        util::write_file(path, &content)
     }
 
-    /// Remove pack servers from `~/.claude.json`.
+    /// Remove pack servers from a JSON file at `path`, updating `servers_map`.
+    fn remove_servers_from_file(
+        &self,
+        path: &std::path::Path,
+        servers_to_remove: &[String],
+        servers_map: &mut HashMap<String, String>,
+    ) -> Result<()> {
+        if !path.exists() {
+            for s in servers_to_remove {
+                servers_map.remove(s);
+            }
+            return Ok(());
+        }
+
+        let content = util::read_file(path)?;
+        let mut config: serde_json::Value =
+            serde_json::from_str(&content).map_err(|e| WeaveError::Json {
+                path: path.to_path_buf(),
+                source: e,
+            })?;
+
+        if let Some(mcp) = config.get_mut("mcpServers").and_then(|v| v.as_object_mut()) {
+            for server_name in servers_to_remove {
+                mcp.remove(server_name);
+                servers_map.remove(server_name);
+            }
+        }
+
+        // JSON serialization of a valid serde_json::Value cannot fail.
+        let output = serde_json::to_string_pretty(&config).expect("JSON serialization cannot fail");
+        util::write_file(path, &output)
+    }
+
+    /// Deep-merge settings fragment into the JSON file at `path`, recording
+    /// the snapshot needed for safe removal in `settings_map`.
+    fn apply_settings_to_file(
+        &self,
+        path: &std::path::Path,
+        pack: &ResolvedPack,
+        fragment: &serde_json::Value,
+        settings_map: &mut HashMap<String, SettingsRecord>,
+    ) -> Result<()> {
+        let mut config: serde_json::Value = if path.exists() {
+            let content = util::read_file(path)?;
+            serde_json::from_str(&content).map_err(|e| WeaveError::Json {
+                path: path.to_path_buf(),
+                source: e,
+            })?
+        } else {
+            serde_json::json!({})
+        };
+
+        let original = if let Some(frag_obj) = fragment.as_object() {
+            let mut snap = serde_json::Map::new();
+            for key in frag_obj.keys() {
+                let before = config.get(key).cloned().unwrap_or(serde_json::Value::Null);
+                snap.insert(key.clone(), before);
+            }
+            serde_json::Value::Object(snap)
+        } else {
+            serde_json::json!({})
+        };
+
+        deep_merge(&mut config, fragment);
+
+        // JSON serialization of a valid serde_json::Value cannot fail.
+        let output = serde_json::to_string_pretty(&config).expect("JSON serialization cannot fail");
+        util::write_file(path, &output)?;
+
+        settings_map.insert(
+            pack.pack.name.clone(),
+            SettingsRecord {
+                applied: fragment.clone(),
+                original,
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Remove settings written by a pack from the JSON file at `path`, using
+    /// the snapshot in `settings_map` to determine what to restore.
+    fn remove_settings_from_file(
+        &self,
+        path: &std::path::Path,
+        pack_name: &str,
+        settings_map: &mut HashMap<String, SettingsRecord>,
+    ) -> Result<()> {
+        let record = match settings_map.remove(pack_name) {
+            Some(r) => r,
+            None => return Ok(()),
+        };
+
+        if !path.exists() {
+            return Ok(());
+        }
+
+        let content = util::read_file(path)?;
+        let mut config: serde_json::Value =
+            serde_json::from_str(&content).map_err(|e| WeaveError::Json {
+                path: path.to_path_buf(),
+                source: e,
+            })?;
+
+        let frag_obj = match record.applied.as_object() {
+            Some(o) => o,
+            None => return Ok(()),
+        };
+
+        let config_obj = match config.as_object_mut() {
+            Some(o) => o,
+            None => return Ok(()),
+        };
+
+        let orig_obj = record.original.as_object();
+
+        for (key, applied_val) in frag_obj {
+            let pre = orig_obj
+                .and_then(|o| o.get(key))
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            let mut expected = pre.clone();
+            deep_merge(&mut expected, applied_val);
+
+            let current = config_obj
+                .get(key)
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+
+            if current == expected {
+                if pre.is_null() {
+                    config_obj.remove(key);
+                } else {
+                    config_obj.insert(key.clone(), pre);
+                }
+            } else {
+                log::warn!(
+                    "settings key '{key}' was modified after '{pack_name}' was installed; \
+                     leaving it in place — remove manually if desired"
+                );
+            }
+        }
+
+        // JSON serialization of a valid serde_json::Value cannot fail.
+        let output = serde_json::to_string_pretty(&config).expect("JSON serialization cannot fail");
+        util::write_file(path, &output)
+    }
+
+    // ── User-scope apply/remove ───────────────────────────────────────────────
+
+    /// Merge pack servers into `~/.claude.json` (user scope).
+    fn apply_servers(&self, pack: &ResolvedPack, manifest: &mut PackweaveManifest) -> Result<()> {
+        if pack.pack.servers.is_empty() {
+            return Ok(());
+        }
+        let path = self.claude_json_path()?;
+        self.apply_servers_to_file(&path, pack, &mut manifest.servers)
+    }
+
+    /// Remove pack servers from `~/.claude.json` (user scope).
     fn remove_servers(&self, pack_name: &str, manifest: &mut PackweaveManifest) -> Result<()> {
         let servers_to_remove: Vec<String> = manifest
             .servers
@@ -138,31 +394,53 @@ impl ClaudeCodeAdapter {
         }
 
         let path = self.claude_json_path()?;
-        if !path.exists() {
+        self.remove_servers_from_file(&path, &servers_to_remove, &mut manifest.servers)
+    }
+
+    // ── Project-scope apply/remove ────────────────────────────────────────────
+
+    /// Merge pack servers into `.mcp.json` (project scope).
+    fn apply_project_servers(
+        &self,
+        pack: &ResolvedPack,
+        manifest: &mut PackweaveManifest,
+    ) -> Result<()> {
+        if pack.pack.servers.is_empty() {
+            return Ok(());
+        }
+        let path = self.project_mcp_json_path();
+        self.apply_servers_to_file(&path, pack, &mut manifest.servers)
+    }
+
+    /// Remove pack servers from `.mcp.json` (project scope).
+    fn remove_project_servers(
+        &self,
+        pack_name: &str,
+        manifest: &mut PackweaveManifest,
+    ) -> Result<()> {
+        let servers_to_remove: Vec<String> = manifest
+            .servers
+            .iter()
+            .filter(|(_, pn)| *pn == pack_name)
+            .map(|(sn, _)| sn.clone())
+            .collect();
+
+        if servers_to_remove.is_empty() {
             return Ok(());
         }
 
-        let content = util::read_file(&path)?;
-        let mut config: serde_json::Value =
-            serde_json::from_str(&content).map_err(|e| WeaveError::Json {
-                path: path.clone(),
-                source: e,
-            })?;
-
-        if let Some(mcp) = config.get_mut("mcpServers").and_then(|v| v.as_object_mut()) {
-            for server_name in &servers_to_remove {
-                mcp.remove(server_name);
-                manifest.servers.remove(server_name);
-            }
-        }
-
-        let output = serde_json::to_string_pretty(&config).expect("JSON serialization cannot fail");
-        util::write_file(&path, &output)
+        let path = self.project_mcp_json_path();
+        self.remove_servers_from_file(&path, &servers_to_remove, &mut manifest.servers)
     }
 
     /// Copy slash command files with namespaced filenames.
+    /// Removes stale commands from a previous version of the same pack before adding the new set.
     fn apply_commands(&self, pack: &ResolvedPack, manifest: &mut PackweaveManifest) -> Result<()> {
         let commands_dir = Store::pack_dir(&pack.pack.name, &pack.pack.version)?.join("commands");
+
+        // Remove any commands previously installed for this pack so stale files
+        // from an older version don't linger.
+        self.remove_commands(&pack.pack.name, manifest)?;
 
         if !commands_dir.exists() {
             return Ok(());
@@ -236,16 +514,20 @@ impl ClaudeCodeAdapter {
         let begin_tag = format!("<!-- packweave:begin:{} -->", pack.pack.name);
         let end_tag = format!("<!-- packweave:end:{} -->", pack.pack.name);
 
-        // Remove existing block if present (idempotency)
-        if let (Some(start), Some(end_pos)) = (content.find(&begin_tag), content.find(&end_tag)) {
-            let end = end_pos + end_tag.len();
-            // Also remove trailing newline if present
-            let end = if content[end..].starts_with('\n') {
-                end + 1
-            } else {
-                end
-            };
-            content.replace_range(start..end, "");
+        // Remove existing block if present (idempotency).
+        // Search for end_tag starting after begin_tag to avoid matching another
+        // pack's end tag that might appear before this pack's begin tag.
+        if let Some(start) = content.find(&begin_tag) {
+            if let Some(end_offset) = content[start..].find(&end_tag) {
+                let end_pos = start + end_offset;
+                let end = end_pos + end_tag.len();
+                let end = if content[end..].starts_with('\n') {
+                    end + 1
+                } else {
+                    end
+                };
+                content.replace_range(start..end, "");
+            }
         }
 
         // Append new block
@@ -280,22 +562,25 @@ impl ClaudeCodeAdapter {
         let begin_tag = format!("<!-- packweave:begin:{pack_name} -->");
         let end_tag = format!("<!-- packweave:end:{pack_name} -->");
 
-        if let (Some(start), Some(end_pos)) = (content.find(&begin_tag), content.find(&end_tag)) {
-            let end = end_pos + end_tag.len();
-            let end = if content[end..].starts_with('\n') {
-                end + 1
-            } else {
-                end
-            };
-            content.replace_range(start..end, "");
-            util::write_file(&claude_md, &content)?;
+        if let Some(start) = content.find(&begin_tag) {
+            if let Some(end_offset) = content[start..].find(&end_tag) {
+                let end_pos = start + end_offset;
+                let end = end_pos + end_tag.len();
+                let end = if content[end..].starts_with('\n') {
+                    end + 1
+                } else {
+                    end
+                };
+                content.replace_range(start..end, "");
+                util::write_file(&claude_md, &content)?;
+            }
         }
 
         manifest.prompt_blocks.retain(|n| n != pack_name);
         Ok(())
     }
 
-    /// Deep-merge settings fragment into settings.json.
+    /// Deep-merge settings fragment into `~/.claude/settings.json` (user scope).
     fn apply_settings(&self, pack: &ResolvedPack, manifest: &mut PackweaveManifest) -> Result<()> {
         let settings_content =
             Store::read_pack_file(&pack.pack.name, &pack.pack.version, "settings/claude.json")?;
@@ -313,60 +598,48 @@ impl ClaudeCodeAdapter {
             })?;
 
         let path = self.settings_path()?;
-        let mut config: serde_json::Value = if path.exists() {
-            let content = util::read_file(&path)?;
-            serde_json::from_str(&content).map_err(|e| WeaveError::Json {
-                path: path.clone(),
-                source: e,
-            })?
-        } else {
-            serde_json::json!({})
-        };
-
-        // Track which keys we write
-        let keys: Vec<String> = if let Some(obj) = fragment.as_object() {
-            obj.keys().cloned().collect()
-        } else {
-            Vec::new()
-        };
-
-        deep_merge(&mut config, &fragment);
-
-        let output = serde_json::to_string_pretty(&config).expect("JSON serialization cannot fail");
-        util::write_file(&path, &output)?;
-
-        manifest.settings_keys.insert(pack.pack.name.clone(), keys);
-
-        Ok(())
+        self.apply_settings_to_file(&path, pack, &fragment, &mut manifest.settings)
     }
 
-    /// Remove settings keys written by a pack.
+    /// Remove settings written by a pack from `~/.claude/settings.json` (user scope).
     fn remove_settings(&self, pack_name: &str, manifest: &mut PackweaveManifest) -> Result<()> {
-        let keys = match manifest.settings_keys.remove(pack_name) {
-            Some(k) => k,
-            None => return Ok(()),
+        let path = self.settings_path()?;
+        self.remove_settings_from_file(&path, pack_name, &mut manifest.settings)
+    }
+
+    /// Deep-merge settings fragment into `.claude/settings.json` (project scope).
+    fn apply_project_settings(
+        &self,
+        pack: &ResolvedPack,
+        manifest: &mut PackweaveManifest,
+    ) -> Result<()> {
+        let settings_content =
+            Store::read_pack_file(&pack.pack.name, &pack.pack.version, "settings/claude.json")?;
+
+        let settings_content = match settings_content {
+            Some(c) if !c.trim().is_empty() => c,
+            _ => return Ok(()),
         };
 
-        let path = self.settings_path()?;
-        if !path.exists() {
-            return Ok(());
-        }
-
-        let content = util::read_file(&path)?;
-        let mut config: serde_json::Value =
-            serde_json::from_str(&content).map_err(|e| WeaveError::Json {
-                path: path.clone(),
-                source: e,
+        let fragment: serde_json::Value =
+            serde_json::from_str(&settings_content).map_err(|e| WeaveError::ApplyFailed {
+                pack: pack.pack.name.clone(),
+                cli: "Claude Code".into(),
+                reason: format!("invalid settings/claude.json: {e}"),
             })?;
 
-        if let Some(obj) = config.as_object_mut() {
-            for key in &keys {
-                obj.remove(key);
-            }
-        }
+        let path = self.project_settings_path();
+        self.apply_settings_to_file(&path, pack, &fragment, &mut manifest.settings)
+    }
 
-        let output = serde_json::to_string_pretty(&config).expect("JSON serialization cannot fail");
-        util::write_file(&path, &output)
+    /// Remove settings written by a pack from `.claude/settings.json` (project scope).
+    fn remove_project_settings(
+        &self,
+        pack_name: &str,
+        manifest: &mut PackweaveManifest,
+    ) -> Result<()> {
+        let path = self.project_settings_path();
+        self.remove_settings_from_file(&path, pack_name, &mut manifest.settings)
     }
 }
 
@@ -376,7 +649,7 @@ impl CliAdapter for ClaudeCodeAdapter {
     }
 
     fn is_installed(&self) -> bool {
-        // Check if the claude CLI exists or if ~/.claude/ exists
+        // Check if ~/.claude/ exists or the `claude` binary is on PATH
         self.claude_dir().map(|d| d.exists()).unwrap_or(false) || which_exists("claude")
     }
 
@@ -392,35 +665,52 @@ impl CliAdapter for ClaudeCodeAdapter {
 
         util::ensure_dir(&self.claude_dir()?)?;
 
+        // User-scope
         let mut manifest = self.load_manifest()?;
-
         self.apply_servers(pack, &mut manifest)?;
         self.apply_commands(pack, &mut manifest)?;
         self.apply_prompts(pack, &mut manifest)?;
         self.apply_settings(pack, &mut manifest)?;
-
         self.save_manifest(&manifest)?;
+
+        // Project-scope — only if a `.claude/` directory exists in cwd,
+        // indicating the user is working in a Claude Code project.
+        if self.has_project_scope() {
+            let mut project_manifest = self.load_project_manifest()?;
+            self.apply_project_servers(pack, &mut project_manifest)?;
+            self.apply_project_settings(pack, &mut project_manifest)?;
+            self.save_project_manifest(&project_manifest)?;
+        }
+
         Ok(())
     }
 
     fn remove(&self, pack_name: &str) -> Result<()> {
+        // User-scope
         let mut manifest = self.load_manifest()?;
-
         self.remove_servers(pack_name, &mut manifest)?;
         self.remove_commands(pack_name, &mut manifest)?;
         self.remove_prompts(pack_name, &mut manifest)?;
         self.remove_settings(pack_name, &mut manifest)?;
-
         self.save_manifest(&manifest)?;
+
+        // Project-scope — only if a project manifest exists in cwd.
+        let project_manifest_path = self.project_manifest_path();
+        if project_manifest_path.exists() {
+            let mut project_manifest = self.load_project_manifest()?;
+            self.remove_project_servers(pack_name, &mut project_manifest)?;
+            self.remove_project_settings(pack_name, &mut project_manifest)?;
+            self.save_project_manifest(&project_manifest)?;
+        }
+
         Ok(())
     }
 
     fn diagnose(&self) -> Result<Vec<DiagnosticIssue>> {
         let mut issues = Vec::new();
-
         let manifest = self.load_manifest()?;
 
-        // Check that tracked servers still exist in claude.json
+        // Check tracked servers exist in claude.json
         let claude_json = self.claude_json_path()?;
         if claude_json.exists() {
             let content = util::read_file(&claude_json)?;
@@ -433,10 +723,71 @@ impl CliAdapter for ClaudeCodeAdapter {
                             message: format!(
                                 "server '{server_name}' (from pack '{pack_name}') is tracked but missing from claude.json"
                             ),
-                            suggestion: Some(format!(
-                                "run `weave install {pack_name}` to re-apply"
-                            )),
+                            suggestion: Some(format!("run `weave install {pack_name}` to re-apply")),
                         });
+                    }
+                }
+            }
+        }
+
+        // Check tracked command files exist on disk
+        let commands_dir = self.commands_dir()?;
+        for (filename, pack_name) in &manifest.commands {
+            if !commands_dir.join(filename).exists() {
+                issues.push(DiagnosticIssue {
+                    severity: Severity::Warning,
+                    message: format!(
+                        "command file '{filename}' (from pack '{pack_name}') is tracked but missing"
+                    ),
+                    suggestion: Some(format!("run `weave install {pack_name}` to re-apply")),
+                });
+            }
+        }
+
+        // Check tracked prompt blocks exist in CLAUDE.md
+        if !manifest.prompt_blocks.is_empty() {
+            let claude_md = self.claude_md_path()?;
+            let content = if claude_md.exists() {
+                util::read_file(&claude_md)?
+            } else {
+                String::new()
+            };
+            for pack_name in &manifest.prompt_blocks {
+                let begin_tag = format!("<!-- packweave:begin:{pack_name} -->");
+                if !content.contains(&begin_tag) {
+                    issues.push(DiagnosticIssue {
+                        severity: Severity::Warning,
+                        message: format!(
+                            "prompt block for '{pack_name}' is tracked but missing from CLAUDE.md"
+                        ),
+                        suggestion: Some(format!("run `weave install {pack_name}` to re-apply")),
+                    });
+                }
+            }
+        }
+
+        // Check tracked settings keys still exist in settings.json
+        if !manifest.settings.is_empty() {
+            let settings_path = self.settings_path()?;
+            if settings_path.exists() {
+                let content = util::read_file(&settings_path)?;
+                if let Ok(config) = serde_json::from_str::<serde_json::Value>(&content) {
+                    for (pack_name, record) in &manifest.settings {
+                        if let Some(frag_obj) = record.applied.as_object() {
+                            for key in frag_obj.keys() {
+                                if config.get(key).is_none() {
+                                    issues.push(DiagnosticIssue {
+                                        severity: Severity::Warning,
+                                        message: format!(
+                                            "settings key '{key}' (from pack '{pack_name}') is tracked but missing from settings.json"
+                                        ),
+                                        suggestion: Some(format!(
+                                            "run `weave install {pack_name}` to re-apply"
+                                        )),
+                                    });
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -504,9 +855,14 @@ fn deep_merge(target: &mut serde_json::Value, source: &serde_json::Value) {
     }
 }
 
-/// Check if a command exists on PATH.
+/// Check if a command exists on PATH in a cross-platform way.
 fn which_exists(cmd: &str) -> bool {
-    std::process::Command::new("which")
+    #[cfg(windows)]
+    let check_cmd = "where";
+    #[cfg(not(windows))]
+    let check_cmd = "which";
+
+    std::process::Command::new(check_cmd)
         .arg(cmd)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -557,13 +913,15 @@ mod tests {
         }
     }
 
+    fn setup_dir(dir: &TempDir) {
+        std::fs::create_dir_all(dir.path().join(".claude")).unwrap();
+    }
+
     #[test]
     fn apply_and_remove_servers() {
         let dir = TempDir::new().unwrap();
         let adapter = test_adapter(&dir);
-
-        // Create .claude dir
-        std::fs::create_dir_all(dir.path().join(".claude")).unwrap();
+        setup_dir(&dir);
 
         let pack = test_pack("webdev");
         let mut manifest = PackweaveManifest::default();
@@ -586,21 +944,34 @@ mod tests {
     }
 
     #[test]
+    fn apply_servers_rejects_non_object_config() {
+        let dir = TempDir::new().unwrap();
+        let adapter = test_adapter(&dir);
+        setup_dir(&dir);
+
+        // Write a non-object JSON file
+        std::fs::write(dir.path().join(".claude.json"), "[1, 2, 3]").unwrap();
+
+        let pack = test_pack("webdev");
+        let mut manifest = PackweaveManifest::default();
+        let result = adapter.apply_servers(&pack, &mut manifest);
+        assert!(result.is_err(), "should fail on non-object claude.json");
+    }
+
+    #[test]
     fn apply_and_remove_prompts() {
         let dir = TempDir::new().unwrap();
         let adapter = test_adapter(&dir);
-        std::fs::create_dir_all(dir.path().join(".claude")).unwrap();
+        setup_dir(&dir);
 
-        // Write initial CLAUDE.md content
         let claude_md = dir.path().join(".claude").join("CLAUDE.md");
         std::fs::write(&claude_md, "# My instructions\n").unwrap();
 
-        // We can't test apply_prompts directly without the store,
-        // but we can test the prompt tag insertion/removal logic
         let pack_name = "webdev";
         let begin_tag = format!("<!-- packweave:begin:{pack_name} -->");
         let end_tag = format!("<!-- packweave:end:{pack_name} -->");
 
+        // Simulate what apply_prompts writes
         let mut content = std::fs::read_to_string(&claude_md).unwrap();
         content.push_str(&begin_tag);
         content.push('\n');
@@ -610,7 +981,6 @@ mod tests {
         content.push('\n');
         std::fs::write(&claude_md, &content).unwrap();
 
-        // Now remove
         let mut manifest = PackweaveManifest::default();
         manifest.prompt_blocks.push("webdev".into());
         adapter.remove_prompts("webdev", &mut manifest).unwrap();
@@ -618,6 +988,134 @@ mod tests {
         let final_content = std::fs::read_to_string(&claude_md).unwrap();
         assert_eq!(final_content.trim(), "# My instructions");
         assert!(manifest.prompt_blocks.is_empty());
+    }
+
+    #[test]
+    fn remove_prompts_is_surgical_with_multiple_blocks() {
+        let dir = TempDir::new().unwrap();
+        let adapter = test_adapter(&dir);
+        setup_dir(&dir);
+
+        let claude_md = dir.path().join(".claude").join("CLAUDE.md");
+        std::fs::write(
+            &claude_md,
+            "# Docs\n\
+             <!-- packweave:begin:pack-a -->\npack-a content\n<!-- packweave:end:pack-a -->\n\
+             <!-- packweave:begin:pack-b -->\npack-b content\n<!-- packweave:end:pack-b -->\n",
+        )
+        .unwrap();
+
+        let mut manifest = PackweaveManifest::default();
+        manifest.prompt_blocks.push("pack-a".into());
+        manifest.prompt_blocks.push("pack-b".into());
+
+        // Remove only pack-a
+        adapter.remove_prompts("pack-a", &mut manifest).unwrap();
+
+        let content = std::fs::read_to_string(&claude_md).unwrap();
+        assert!(!content.contains("pack-a"), "pack-a block should be gone");
+        assert!(
+            content.contains("pack-b content"),
+            "pack-b block should remain"
+        );
+        assert_eq!(manifest.prompt_blocks, vec!["pack-b"]);
+    }
+
+    #[test]
+    fn apply_settings_and_remove_unchanged() {
+        let dir = TempDir::new().unwrap();
+        let adapter = test_adapter(&dir);
+        setup_dir(&dir);
+
+        let settings_path = dir.path().join(".claude").join("settings.json");
+        // Pre-existing user settings
+        std::fs::write(&settings_path, r#"{"theme": "dark"}"#).unwrap();
+
+        // Manually build the SettingsRecord as apply_settings would
+        let fragment = serde_json::json!({"permissions": {"allow": ["bash"]}});
+        let config_before: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
+
+        let original = {
+            let mut snap = serde_json::Map::new();
+            for key in fragment.as_object().unwrap().keys() {
+                let before = config_before
+                    .get(key)
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                snap.insert(key.clone(), before);
+            }
+            serde_json::Value::Object(snap)
+        };
+
+        let mut config = config_before;
+        deep_merge(&mut config, &fragment);
+        std::fs::write(
+            &settings_path,
+            serde_json::to_string_pretty(&config).unwrap(),
+        )
+        .unwrap();
+
+        let mut manifest = PackweaveManifest::default();
+        manifest.settings.insert(
+            "test-pack".into(),
+            SettingsRecord {
+                applied: fragment,
+                original,
+            },
+        );
+
+        // Verify merge happened
+        let after: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
+        assert_eq!(after["theme"], "dark");
+        assert_eq!(after["permissions"]["allow"][0], "bash");
+
+        // Remove settings
+        adapter.remove_settings("test-pack", &mut manifest).unwrap();
+
+        let restored: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
+        assert_eq!(restored["theme"], "dark");
+        assert!(
+            restored.get("permissions").is_none(),
+            "permissions key should be removed since user didn't modify it"
+        );
+        assert!(manifest.settings.is_empty());
+    }
+
+    #[test]
+    fn apply_settings_preserves_user_modified_key() {
+        let dir = TempDir::new().unwrap();
+        let adapter = test_adapter(&dir);
+        setup_dir(&dir);
+
+        let settings_path = dir.path().join(".claude").join("settings.json");
+        let fragment = serde_json::json!({"permissions": {"allow": ["bash"]}});
+
+        // Simulate current state: user modified the key after weave applied it
+        let user_modified = serde_json::json!({"permissions": {"allow": ["bash", "curl"]}});
+        std::fs::write(
+            &settings_path,
+            serde_json::to_string_pretty(&user_modified).unwrap(),
+        )
+        .unwrap();
+
+        let mut manifest = PackweaveManifest::default();
+        manifest.settings.insert(
+            "test-pack".into(),
+            SettingsRecord {
+                applied: fragment,
+                original: serde_json::json!({"permissions": null}),
+            },
+        );
+
+        // remove_settings should leave the key untouched because current != expected
+        adapter.remove_settings("test-pack", &mut manifest).unwrap();
+
+        let after: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
+        assert_eq!(after["permissions"]["allow"][1], "curl");
     }
 
     #[test]
@@ -634,25 +1132,25 @@ mod tests {
 
     #[test]
     fn idempotent_prompt_apply() {
-        // Verify that re-applying doesn't duplicate blocks
         let content = "# Docs\n<!-- packweave:begin:test -->\nHello\n<!-- packweave:end:test -->\n";
         let begin_tag = "<!-- packweave:begin:test -->";
         let end_tag = "<!-- packweave:end:test -->";
 
         let mut result = content.to_string();
 
-        // Simulate re-apply: remove old block
-        if let (Some(start), Some(end_pos)) = (result.find(begin_tag), result.find(end_tag)) {
-            let end = end_pos + end_tag.len();
-            let end = if result[end..].starts_with('\n') {
-                end + 1
-            } else {
-                end
-            };
-            result.replace_range(start..end, "");
+        if let Some(start) = result.find(begin_tag) {
+            if let Some(end_offset) = result[start..].find(end_tag) {
+                let end_pos = start + end_offset;
+                let end = end_pos + end_tag.len();
+                let end = if result[end..].starts_with('\n') {
+                    end + 1
+                } else {
+                    end
+                };
+                result.replace_range(start..end, "");
+            }
         }
 
-        // Add new block
         if !result.ends_with('\n') {
             result.push('\n');
         }
@@ -663,7 +1161,6 @@ mod tests {
         result.push_str(end_tag);
         result.push('\n');
 
-        // Should have exactly one block
         assert_eq!(
             result.matches(begin_tag).count(),
             1,

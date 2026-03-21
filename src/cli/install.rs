@@ -11,6 +11,10 @@ use crate::core::store::Store;
 
 /// Install a pack by name, optionally with a version requirement.
 pub fn run(pack_name: &str, version: Option<&str>) -> Result<()> {
+    // Normalise name: strip a leading '@' so `weave install @webdev` works like
+    // `weave install webdev` (consistent with how packs are validated/stored).
+    let pack_name = pack_name.strip_prefix('@').unwrap_or(pack_name);
+
     let config = Config::load().context("loading weave config")?;
     let registry = GitHubRegistry::new(&config.registry_url);
 
@@ -38,8 +42,7 @@ pub fn run(pack_name: &str, version: Option<&str>) -> Result<()> {
     // Load lock file
     let mut lockfile = LockFile::load(&config.active_profile).context("loading lock file")?;
 
-    // Get installed adapters
-    let adapters = adapters::all_adapters();
+    let adapters = adapters::installed_adapters();
 
     for (name, version) in &plan.to_install {
         println!("  Installing {name}@{version}...");
@@ -58,12 +61,18 @@ pub fn run(pack_name: &str, version: Option<&str>) -> Result<()> {
             },
         };
 
-        // Apply to each adapter
+        // Apply to each installed adapter. Continue even if one fails so that the
+        // pack is still recorded in the profile/lockfile and partial state is
+        // surfaced as warnings rather than leaving the install untracked.
+        let mut adapter_errors: Vec<String> = Vec::new();
         for adapter in &adapters {
-            if adapter.is_installed() {
-                adapter.apply(&resolved)?;
-                println!("    Applied to {}", adapter.name());
+            match adapter.apply(&resolved) {
+                Ok(()) => println!("    Applied to {}", adapter.name()),
+                Err(e) => adapter_errors.push(format!("{}: {e}", adapter.name())),
             }
+        }
+        for err in &adapter_errors {
+            eprintln!("  warning: {err}");
         }
 
         // Record in profile

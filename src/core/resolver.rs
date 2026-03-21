@@ -96,17 +96,16 @@ impl<'a> Resolver<'a> {
                         .join(", "),
                 })?
         } else {
-            metadata.latest_version()
+            metadata.latest_version()?
         };
 
-        // Check if already installed with a compatible version
+        // Check if the exact selected version is already installed.
+        // We compare against `version` (the best matching release) rather than
+        // just checking whether the installed version satisfies the requirement,
+        // so that `weave install foo ^1.0` still upgrades from 1.0.0 → 1.1.0
+        // when 1.1.0 is the latest release matching the constraint.
         if let Some(installed) = profile.get_pack(pack_name) {
-            if let Some(req) = version_req {
-                if req.matches(&installed.version) {
-                    already_satisfied.push(pack_name.to_string());
-                    return Ok(());
-                }
-            } else if installed.version == version {
+            if installed.version == version {
                 already_satisfied.push(pack_name.to_string());
                 return Ok(());
             }
@@ -236,6 +235,34 @@ mod tests {
 
         let plan = resolver.plan_remove("webdev", &profile).unwrap();
         assert_eq!(plan.to_remove, vec!["webdev"]);
+    }
+
+    #[test]
+    fn plan_install_upgrades_within_range() {
+        // Installed 1.0.0, req ^1.0.0, latest is 1.1.0 → should plan an upgrade
+        let registry = setup_registry();
+        let resolver = Resolver::new(&registry);
+        let profile = Profile {
+            name: "test".into(),
+            packs: vec![InstalledPack {
+                name: "webdev".into(),
+                version: semver::Version::new(1, 0, 0),
+                source: PackSource::Registry {
+                    registry_url: "https://example.com".into(),
+                },
+            }],
+        };
+
+        let req = semver::VersionReq::parse("^1.0.0").unwrap();
+        let plan = resolver
+            .plan_install("webdev", Some(&req), &profile)
+            .unwrap();
+        assert_eq!(
+            plan.to_install[0].1,
+            semver::Version::new(1, 1, 0),
+            "should plan upgrade to 1.1.0"
+        );
+        assert!(plan.already_satisfied.is_empty());
     }
 
     #[test]

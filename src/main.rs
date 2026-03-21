@@ -1,11 +1,10 @@
-// Public API surface is larger than what main.rs uses directly.
-// These items are part of the library's intended interface.
-#![allow(dead_code)]
-
+#[allow(dead_code)]
 mod adapters;
 mod cli;
+#[allow(dead_code)]
 mod core;
 mod error;
+#[allow(dead_code)]
 mod util;
 
 use clap::{Parser, Subcommand};
@@ -41,6 +40,12 @@ enum Commands {
         /// Pack name to remove
         name: String,
     },
+
+    /// Search for packs in the registry
+    Search {
+        /// Search query
+        query: String,
+    },
 }
 
 fn main() {
@@ -52,6 +57,7 @@ fn main() {
         Commands::Install { name, version } => cli::install::run(&name, version.as_deref()),
         Commands::List => cli::list::run(),
         Commands::Remove { name } => cli::remove::run(&name),
+        Commands::Search { query } => cli::search::run(&query),
     };
 
     if let Err(err) = result {

@@ -44,12 +44,16 @@ impl LockFile {
             });
         }
         let content = util::read_file(&path)?;
-        toml::from_str(&content).map_err(|e| WeaveError::Toml { path, source: e })
+        toml::from_str(&content).map_err(|e| WeaveError::Toml {
+            path,
+            source: Box::new(e),
+        })
     }
 
     /// Save this lock file to disk.
     pub fn save(&self, profile_name: &str) -> Result<()> {
         let path = Self::path(profile_name)?;
+        // LockFile only contains String/semver fields — TOML serialization cannot fail.
         let content = toml::to_string_pretty(self).expect("LockFile serialization cannot fail");
         util::write_file(&path, &content)
     }

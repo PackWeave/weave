@@ -379,4 +379,4 @@ Panics are not used for recoverable errors. `unwrap()` and `expect()` are only a
 - MCP server execution or sandboxing — weave installs config, it does not run MCP servers
 - MCP server discovery or recommendation — that's the registry's job, not the core tool's
 - IDE plugins — out of scope for v1 and v2
-- Windows support — v1 targets macOS and Linux only
+- Windows support — weave targets macOS and Linux; Windows is not tested in CI. The Claude Code adapter works on Windows as a best-effort target since Claude Code itself supports Windows, but other adapters (Gemini CLI, Codex CLI) do not have Windows-compatible CLIs

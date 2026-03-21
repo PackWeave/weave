@@ -160,7 +160,7 @@ impl Pack {
     pub fn from_toml(content: &str, path: &Path) -> Result<Self> {
         let manifest: PackManifest = toml::from_str(content).map_err(|e| WeaveError::Toml {
             path: path.to_path_buf(),
-            source: e,
+            source: Box::new(e),
         })?;
 
         let pack = Pack {
@@ -279,7 +279,7 @@ description = "Root directory"
         let pack = Pack::from_toml(toml, &PathBuf::from("test.toml")).unwrap();
         assert_eq!(pack.servers.len(), 1);
         assert_eq!(pack.servers[0].name, "filesystem");
-        assert_eq!(pack.servers[0].env["FS_ROOT"].required, true);
+        assert!(pack.servers[0].env["FS_ROOT"].required);
     }
 
     #[test]

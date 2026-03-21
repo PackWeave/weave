@@ -47,12 +47,16 @@ impl Config {
             return Ok(Self::default());
         }
         let content = util::read_file(&path)?;
-        toml::from_str(&content).map_err(|e| crate::error::WeaveError::Toml { path, source: e })
+        toml::from_str(&content).map_err(|e| crate::error::WeaveError::Toml {
+            path,
+            source: Box::new(e),
+        })
     }
 
     /// Save config to disk.
     pub fn save(&self) -> Result<()> {
         let path = Self::path()?;
+        // Config only contains String/Option<String> fields — TOML serialization cannot fail.
         let content = toml::to_string_pretty(self).expect("Config serialization cannot fail");
         util::write_file(&path, &content)
     }
