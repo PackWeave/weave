@@ -307,7 +307,7 @@ impl CodexAdapter {
         Self::write_config_toml(path, &config)
     }
 
-    /// Deep-merge settings fragment (as TOML-compatible JSON) into the TOML file at `path`.
+    /// Merge settings fragment (top-level keys only) into the TOML file at `path`.
     fn apply_settings_to_file(
         &self,
         path: &std::path::Path,
@@ -561,7 +561,10 @@ impl CodexAdapter {
             std::fs::copy(entry.path(), &dest_path)
                 .map_err(|e| WeaveError::io(format!("copying skill {file_name}"), e))?;
 
+            // Record in manifest immediately so a failure on a later entry doesn't
+            // leave on-disk files that are invisible to remove()/diagnose().
             manifest.skills.insert(namespaced, pack.pack.name.clone());
+            self.save_manifest(manifest)?;
         }
 
         Ok(())
