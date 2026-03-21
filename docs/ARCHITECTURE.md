@@ -150,6 +150,35 @@ pub struct EnvVar {
 }
 ```
 
+### `ResolvedPack`
+
+A `Pack` with its exact version pinned and its source recorded. This is what adapters receive — they never need to re-resolve.
+
+```rust
+pub struct ResolvedPack {
+    pub pack: Pack,
+    pub source: PackSource,
+}
+
+pub enum PackSource {
+    Registry { registry_url: String },
+    Local { path: String },
+    Git { url: String, rev: Option<String> },
+}
+```
+
+### `PackExtensions`
+
+CLI-specific extension configuration embedded in a pack manifest. Adapters ignore keys they don't understand, preserving forward compatibility.
+
+```rust
+pub struct PackExtensions {
+    pub claude_code: Option<serde_json::Value>,
+    pub gemini_cli: Option<serde_json::Value>,
+    pub codex_cli: Option<serde_json::Value>,
+}
+```
+
 ### `Profile`
 
 A named set of installed packs. Stored as `~/.packweave/profiles/<name>.toml`. One profile is active at a time, tracked in `~/.packweave/config.toml`.
@@ -163,7 +192,7 @@ pub struct Profile {
 pub struct InstalledPack {
     pub name: String,
     pub version: semver::Version,  // resolved, exact
-    pub source: PackSource,        // registry, local path, git
+    pub source: PackSource,        // Registry, Local, or Git
 }
 ```
 
@@ -317,9 +346,26 @@ Gemini CLI stores MCP configuration in JSON:
 ```
 ~/.gemini/settings.json   User-scope settings + MCP servers
 .gemini/settings.json     Project-scope settings + MCP servers
+~/.gemini/GEMINI.md       Global system prompt / instructions
 ```
 
-The adapter translates pack servers into Gemini's schema (for example, `httpUrl`, `includeTools`, `excludeTools`) and applies prompt content from `prompts/gemini.md` (or `prompts/system.md` as fallback).
+### MCP servers
+
+The adapter merges pack-defined servers into the `mcpServers` key of `settings.json`. Ownership is tracked in a sidecar file at `~/.gemini/.packweave_manifest.json` (same structure as the Claude Code manifest). On removal, the adapter consults this manifest to undo only what it wrote.
+
+### System prompt
+
+Prompt content from `prompts/gemini.md` (or `prompts/system.md` as fallback) is appended to `GEMINI.md` between the same tagged delimiters used by the Claude Code adapter:
+
+```markdown
+<!-- packweave:begin:webdev -->
+...
+<!-- packweave:end:webdev -->
+```
+
+### Settings fragments
+
+Pack settings (`settings/gemini.json`) are deep-merged into `settings.json`. On removal, only keys originally written by this pack are deleted, as recorded in the manifest.
 
 -----
 
@@ -358,13 +404,15 @@ The store always verifies the SHA256 before extracting. A failed verification ab
 
 ## State files
 
-|File                                |Purpose                                           |
-|------------------------------------|--------------------------------------------------|
-|`~/.packweave/config.toml`          |Active profile name, registry URL, auth token path|
-|`~/.packweave/profiles/<n>.toml`    |Installed pack list for a profile                 |
-|`~/.packweave/locks/<n>.lock`       |Pinned exact versions for a profile               |
-|`~/.packweave/packs/<name>/<ver>/`  |Extracted pack contents                           |
-|`~/.claude/.packweave_manifest.json`|Tracks what weave wrote in Claude Code config     |
+|File                                 |Purpose                                           |
+|-------------------------------------|--------------------------------------------------|
+|`~/.packweave/config.toml`           |Active profile name, registry URL, auth token path|
+|`~/.packweave/profiles/<n>.toml`     |Installed pack list for a profile                 |
+|`~/.packweave/locks/<n>.lock`        |Pinned exact versions for a profile               |
+|`~/.packweave/packs/<name>/<ver>/`   |Extracted pack contents                           |
+|`~/.claude/.packweave_manifest.json` |Tracks what weave wrote in Claude Code config     |
+|`~/.gemini/.packweave_manifest.json` |Tracks what weave wrote in Gemini CLI config      |
+|`~/.codex/.packweave_manifest.json`  |Tracks what weave wrote in Codex CLI config       |
 
 -----
 
