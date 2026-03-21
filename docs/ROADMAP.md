@@ -30,7 +30,7 @@ The milestones below are sequential. Each one produces something usable before t
 - [x] Local store: extract and cache packs
 - [x] Lock file for pinned versions
 - [x] GitHub-backed registry index (read-only)
-- [ ] Seed registry with 10–15 starter packs (in progress — see issue #21)
+- [x] Seed registry with 10–15 starter packs (13 packs shipped — see issue #21)
 - [x] Claude Code adapter (servers, prompts, commands, settings)
 - [x] Gemini CLI adapter (servers, prompts, settings)
 - [x] One-line install script
