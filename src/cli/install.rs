@@ -98,7 +98,7 @@ pub fn run(pack_name: &str, version: Option<&str>) -> Result<()> {
         for server in &pack.servers {
             for (key, env_var) in &server.env {
                 if env_var.required && std::env::var_os(key).is_none() {
-                    eprintln!("warning: pack '{}' requires {key} to be set", pack.name);
+                    eprintln!("  warning: pack '{}' requires {key} to be set", pack.name);
                     if let Some(desc) = &env_var.description {
                         eprintln!("  {key}: {desc}");
                     }
