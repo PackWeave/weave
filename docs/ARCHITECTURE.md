@@ -61,17 +61,15 @@ weave use work
 ```
 src/
   main.rs                  Entry point. Builds CLI, dispatches to handlers.
+  lib.rs                   Crate root; re-exports public modules.
 
   cli/                     Clap command definitions and handler functions.
     mod.rs
     install.rs
+    list.rs
     remove.rs
-    profile.rs
-    publish.rs
     search.rs
-    sync.rs
-    doctor.rs
-    auth.rs
+    diagnose.rs
 
   core/
     pack.rs                Pack manifest: parsing, validation, the Pack struct.
@@ -86,7 +84,7 @@ src/
     mod.rs                 CliAdapter trait definition.
     claude_code.rs         Claude Code adapter (~/.claude/).
     gemini_cli.rs          Gemini CLI adapter (~/.gemini/).
-    codex_cli.rs           Codex CLI adapter (~/.codex/).
+                           (codex_cli.rs — planned for M3)
 
   error.rs                 Unified error types via thiserror.
   util.rs                  Shared helpers (file ops, path resolution, etc.)
@@ -336,7 +334,10 @@ Packs are distributed as `.tar.gz` archives. The registry index entry for each v
   "version": "1.2.0",
   "url": "https://github.com/PackWeave/registry/releases/download/...",
   "sha256": "abc123...",
-  "size_bytes": 4096
+  "size_bytes": 4096,
+  "dependencies": {
+    "other-pack": "^1.0.0"
+  }
 }
 ```
 

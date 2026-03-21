@@ -14,30 +14,27 @@ The milestones below are sequential. Each one produces something usable before t
 - [x] docs/ARCHITECTURE.md
 - [x] docs/ROADMAP.md
 - [x] docs/CONTRIBUTING.md
-- [x] CLAUDE.md
-- [x] GEMINI.md
-- [x] CODEX.md
+- [x] AGENTS.md (canonical AI instructions; CLAUDE.md, GEMINI.md, CODEX.md are thin pointers)
 - [x] pack.schema.toml
 - [x] GitHub issue templates (bug, feature, pack)
 
 -----
 
-## Milestone 2 — MVP core (v0.1)
+## Milestone 2 — MVP core (v0.1) ✅
 
 > First usable release: install/list/remove packs for Claude Code + Gemini CLI, backed by a GitHub registry.
 
-- [ ] `cargo init` with correct crate name and metadata
-- [ ] Core commands: `install`, `list`, `remove`
-- [ ] Pack manifest parsing + validation (TOML)
-- [ ] Local store: extract and cache packs
-- [ ] Lock file for pinned versions
-- [ ] GitHub-backed registry index (read-only)
-- [ ] Seed registry with 10–15 starter packs
-- [ ] Claude Code adapter (servers, prompts, commands, settings)
-- [ ] Gemini CLI adapter (servers, prompts, settings)
-- [ ] One-line install script
-- [ ] Homebrew formula
-- [ ] CI: build + clippy + fmt check on push
+- [x] `cargo init` with correct crate name and metadata
+- [x] Core commands: `install`, `list`, `remove`
+- [x] Pack manifest parsing + validation (TOML)
+- [x] Local store: extract and cache packs
+- [x] Lock file for pinned versions
+- [x] GitHub-backed registry index (read-only)
+- [ ] Seed registry with 10–15 starter packs (in progress — see issue #21)
+- [x] Claude Code adapter (servers, prompts, commands, settings)
+- [x] Gemini CLI adapter (servers, prompts, settings)
+- [x] One-line install script
+- [x] CI: build + clippy + fmt check on push
 
 -----
 
@@ -49,7 +46,8 @@ The milestones below are sequential. Each one produces something usable before t
 - [ ] `weave search` against the official MCP Registry
 - [ ] `weave update` for pack version management
 - [ ] `weave init` — scaffold a new pack
-- [ ] Environment variable handling for secrets (write references only)
+- [x] Environment variable handling for secrets (write `${VAR}` references only)
+- [x] Recursive transitive dependency resolution with cycle detection
 - [ ] Improved conflict detection using declared tool lists
 
 -----
