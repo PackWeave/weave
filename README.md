@@ -25,7 +25,7 @@ There's no way to share your setup with a teammate, version it, or switch betwee
 
 ---
 
-## How it works
+## ⚙️ How it works
 
 Think of packs like Homebrew formulas for your AI CLI setup — community-maintained, versioned, one-line install.
 
@@ -46,7 +46,7 @@ Each CLI has its own **adapter** — a thin layer that knows exactly how to read
 
 ---
 
-## Installation
+## 📥 Installation
 
 **Homebrew (macOS and Linux):**
 
@@ -74,9 +74,12 @@ cd weave
 cargo build --release
 ```
 
+> [!NOTE]
+> Weave targets macOS and Linux. Windows is not officially supported or tested in CI.
+
 ---
 
-## Quick start
+## ⚡ Quick start
 
 ```bash
 # 1. Install a pack from the registry
@@ -93,7 +96,7 @@ That's it. Weave has written MCP server definitions, slash commands, and setting
 
 ---
 
-## Commands
+## 🔧 Commands
 
 | Command | Description |
 |---------|-------------|
@@ -124,7 +127,7 @@ weave diagnose
 
 ---
 
-## Pack format
+## 📦 Pack format
 
 A pack is a directory with a `pack.toml` manifest at its root:
 
@@ -153,23 +156,26 @@ namespace = "fs"
 
 Packs can also declare:
 
-- **Dependencies** on other packs — Weave resolves them transitively
-- **Slash commands** — copied into `~/.claude/commands/` with namespaced filenames
-- **System prompt fragments** — appended to `CLAUDE.md` / `GEMINI.md` between tagged delimiters
-- **Settings fragments** — deep-merged into each CLI's settings file
-- **Environment variable declarations** — written as references (`${MY_API_KEY}`), never values
+- 📦 **Dependencies** on other packs — Weave resolves them transitively
+- 💬 **Slash commands** — copied into `~/.claude/commands/` with namespaced filenames
+- 📝 **System prompt fragments** — appended to `CLAUDE.md` / `GEMINI.md` between tagged delimiters
+- ⚙️ **Settings fragments** — deep-merged into each CLI's settings file
+- 🔐 **Environment variable declarations** — written as references, never values
+
+> [!IMPORTANT]
+> Packs never store secret values. Env vars are written as `${MY_API_KEY}` references into CLI config files — the actual values come from your shell environment at runtime. Pack authors must not embed credentials or tokens in a pack.
 
 See [pack.schema.toml](./pack.schema.toml) for the full annotated schema and [docs/PACKS.md](./docs/PACKS.md) for quality guidelines.
 
 ---
 
-## Supported CLIs
+## 🖥️ Supported CLIs
 
 | CLI | Status | What Weave manages |
 |-----|--------|--------------------|
 | **Claude Code** | ✅ v0.1 | MCP servers · slash commands · system prompt · settings |
 | **Gemini CLI** | ✅ v0.1 | MCP servers · system prompt · settings |
-| **OpenAI Codex CLI** | Planned (v0.2) | MCP servers · system prompt · settings |
+| **OpenAI Codex CLI** | 🔜 Planned (v0.2) | MCP servers · system prompt · settings |
 
 ---
 
@@ -196,7 +202,7 @@ Running diagnostics (profile 'default')...
 
 ---
 
-## Coming in v0.2+
+## 🚀 Coming in v0.2+
 
 These features are in active development. See [docs/ROADMAP.md](./docs/ROADMAP.md) for full milestones.
 
@@ -218,7 +224,7 @@ weave sync               # reapply the active profile after manual config change
 
 ---
 
-## Docs
+## 📚 Docs
 
 | Document | Description |
 |----------|-------------|
@@ -231,7 +237,7 @@ AI assistants working in this repo should read [`AGENTS.md`](./AGENTS.md).
 
 ---
 
-## Contributing
+## 🤝 Contributing
 
 See [docs/CONTRIBUTING.md](./docs/CONTRIBUTING.md).
 
