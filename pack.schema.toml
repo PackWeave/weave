@@ -72,16 +72,26 @@ type = "npm"
 # Optional. Package identifier if using a package manager.
 package = "@modelcontextprotocol/server-github"
 
-# Required. The executable to run.
+# Required for stdio transport. The executable to run.
 # Use "npx" for npm-distributed servers, "uvx" for Python, full paths for local binaries.
+# Not used for http transport — use `url` instead.
 command = "npx"
 
-# Optional. Arguments passed to the command.
+# Optional. Arguments passed to the command. Only used for stdio transport.
 args = ["-y", "@modelcontextprotocol/server-github"]
 
 # Optional. Transport type. Values: "stdio" or "http".
-# If omitted, adapters infer transport from command/url fields where possible.
+# Stdio is the default. Use "http" for remote MCP servers accessed via URL.
 transport = "stdio"
+
+# Required for http transport. The endpoint URL of the remote MCP server.
+# Not used for stdio transport — use `command` instead.
+# url = "https://example.com/mcp"
+
+# Optional. HTTP headers sent with every request. Only used for http transport.
+# Useful for authentication (e.g. Bearer tokens via env var references).
+# [servers.headers]
+# Authorization = "Bearer ${MY_API_KEY}"
 
 # Optional. Namespace used to prefix tools and avoid conflicts.
 namespace = "github"
@@ -133,8 +143,12 @@ codex_cli = true
 #                      If present, merged with any servers defined inline.
 #
 # commands/
-#   <name>.md          Slash command files. Installed into the CLI's command directory.
-#                      Each file becomes one slash command: /name
+#   <name>.md          Slash command files for Claude Code. Installed into ~/.claude/commands/
+#                      with namespaced filenames: <pack>__<name>.md
+#
+# skills/
+#   <name>.md          Skill files for Codex CLI. Installed into ~/.codex/skills/
+#                      with namespaced filenames: <pack>__<name>.md
 #
 # prompts/
 #   claude.md          Appended to Claude Code's system prompt file.
@@ -145,7 +159,8 @@ codex_cli = true
 # settings/
 #   claude.json        Deep-merged into Claude Code's settings.
 #   gemini.json        Deep-merged into Gemini CLI's settings.
-#   codex.json         Deep-merged into Codex CLI's settings.
+#   codex.toml         Merged (top-level keys) into Codex CLI's config.toml.
+#                      Also accepts codex.json as fallback.
 #
 # hooks/
 #   Hooks are deferred to v0.3. If enabled later, they will require explicit opt-in.

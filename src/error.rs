@@ -62,7 +62,6 @@ pub enum WeaveError {
         reason: String,
     },
 
-    #[allow(dead_code)]
     #[error("failed to remove pack '{pack}' from {cli}: {reason}")]
     RemoveFailed {
         pack: String,

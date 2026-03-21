@@ -40,10 +40,10 @@ The milestones below are sequential. Each one produces something usable before t
 
 ## Milestone 3 — v0.2
 
-> Codex support, official registry search, and pack creation workflow.
+> Pack authoring, MCP Registry search, and distribution improvements. Codex CLI adapter shipped.
 
 - [x] Codex CLI adapter (servers, skills, prompts, settings)
-- [ ] `weave search` against the official MCP Registry
+- [ ] `weave search --mcp` against the official MCP Registry (pack registry search shipped in M2)
 - [ ] `weave update` for pack version management
 - [ ] `weave init` — scaffold a new pack
 - [x] Environment variable handling for secrets (write `${VAR}` references only)

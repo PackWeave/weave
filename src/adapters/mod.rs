@@ -42,7 +42,7 @@ pub trait CliAdapter: Send + Sync {
     fn remove(&self, pack_name: &str) -> Result<()>;
 
     /// Verify the CLI's current config is consistent with installed packs.
-    /// Returns a list of issues for `weave doctor`.
+    /// Returns a list of issues for `weave diagnose`.
     fn diagnose(&self) -> Result<Vec<DiagnosticIssue>>;
 }
 
