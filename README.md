@@ -5,7 +5,7 @@
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 ![Status](https://img.shields.io/badge/status-v0.1%20MVP-green)
 
-> **oh-my-zsh for AI CLIs** — portable, shareable packs that configure Claude Code, Gemini CLI, and Codex CLI with a single command.
+> **A pack manager for AI CLIs** — install, share, and version MCP servers, slash commands, and prompts across Claude Code, Gemini CLI, and Codex CLI with a single command.
 
 ```bash
 weave install @webdev    # install a web dev MCP stack
@@ -26,6 +26,8 @@ There's no way to share your setup with a teammate, version it, or switch betwee
 ---
 
 ## How it works
+
+Think of packs like Homebrew formulas for your AI CLI setup — community-maintained, versioned, one-line install.
 
 A **pack** is a `pack.toml` manifest bundled with MCP server definitions, slash commands, system prompt fragments, and settings. Install packs into a named **profile** (`work`, `oss`, `personal`). Weave takes care of writing the right config for every AI CLI you have installed.
 
