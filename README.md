@@ -42,7 +42,8 @@ weave install @webdev
                       ~/.claude/CLAUDE.md, ~/.claude/.packweave_manifest.json
         Gemini CLI:   ~/.gemini/settings.json, ~/.gemini/GEMINI.md,
                       ~/.gemini/.packweave_manifest.json
-        (+ project-scope equivalents when ./.claude/ or ./.gemini/ exist)
+        (+ project-scope equivalents when ./.claude/ or ./.gemini/ exist,
+           plus Claude Code's ./.mcp.json for project-scope MCP servers)
 ```
 
 Each CLI has its own **adapter** — a thin layer that knows exactly how to read and write that CLI's config format. Adapters never wipe your existing config. They only add, track, and cleanly remove what they own. A `weave remove` is surgical.
@@ -95,7 +96,7 @@ weave list
 weave diagnose
 ```
 
-That's it. Weave has written MCP server definitions, slash commands, and settings into your Claude Code and Gemini CLI config — without touching anything else.
+That's it. Weave has written the pack's MCP servers, system prompt, settings, and (for Claude Code) slash commands into your CLI config — tracking everything it wrote so `weave remove` can undo it cleanly.
 
 ---
 
