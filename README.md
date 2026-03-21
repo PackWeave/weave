@@ -5,7 +5,7 @@
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 ![Status](https://img.shields.io/badge/status-v0.1%20MVP-green)
 
-> **A pack manager for AI CLIs** — install, share, and version MCP servers, slash commands, and prompts across Claude Code, Gemini CLI, and Codex CLI with a single command.
+> **A pack manager for AI CLIs** — install, share, and version MCP servers, slash commands, and prompts across Claude Code and Gemini CLI, with Codex CLI support coming in v0.2.
 
 ```bash
 weave install @webdev    # install a web dev MCP stack
@@ -29,7 +29,7 @@ There's no way to share your setup with a teammate, version it, or switch betwee
 
 Think of packs like Homebrew formulas for your AI CLI setup — community-maintained, versioned, one-line install.
 
-A **pack** is a `pack.toml` manifest bundled with MCP server definitions, slash commands, system prompt fragments, and settings. Install packs into a named **profile** (`work`, `oss`, `personal`). Weave takes care of writing the right config for every AI CLI you have installed.
+A **pack** is a `pack.toml` manifest bundled with MCP server definitions, slash commands, system prompt fragments, and settings. Packs install into the active **profile** — a named set of packs for a specific context (`work`, `oss`, `personal`). Named profiles and quick switching via `weave use` are coming in v0.3; today all packs install into a single `default` profile.
 
 ```
 weave install @webdev
@@ -38,8 +38,11 @@ weave install @webdev
         ├─▶ resolves transitive dependencies
         └─▶ applies to each installed CLI — non-destructively
 
-        Claude Code:  ~/.claude.json, ~/.claude/settings.json, ~/.claude/commands/
-        Gemini CLI:   ~/.gemini/settings.json, ~/.gemini/GEMINI.md
+        Claude Code:  ~/.claude.json, ~/.claude/settings.json, ~/.claude/commands/,
+                      ~/.claude/CLAUDE.md, ~/.claude/.packweave_manifest.json
+        Gemini CLI:   ~/.gemini/settings.json, ~/.gemini/GEMINI.md,
+                      ~/.gemini/.packweave_manifest.json
+        (+ project-scope equivalents when ./.claude/ or ./.gemini/ exist)
 ```
 
 Each CLI has its own **adapter** — a thin layer that knows exactly how to read and write that CLI's config format. Adapters never wipe your existing config. They only add, track, and cleanly remove what they own. A `weave remove` is surgical.
@@ -60,7 +63,7 @@ brew install PackWeave/tap/weave
 curl -fsSL https://raw.githubusercontent.com/PackWeave/weave/main/install.sh | sh
 ```
 
-Override the install directory (default: `/usr/local/bin`, fallback: `~/.local/bin`):
+Override the install directory by setting `WEAVE_INSTALL_DIR` (default: `/usr/local/bin`, fallback: `~/.local/bin`):
 
 ```bash
 WEAVE_INSTALL_DIR=~/.local/bin curl -fsSL https://raw.githubusercontent.com/PackWeave/weave/main/install.sh | sh
@@ -100,7 +103,7 @@ That's it. Weave has written MCP server definitions, slash commands, and setting
 
 | Command | Description |
 |---------|-------------|
-| `weave install <pack>` | Download a pack, resolve its dependencies, and apply it to all supported CLIs |
+| `weave install <pack>` | Download a pack, resolve its dependencies, and apply it to all supported CLIs. Use `-v`/`--version` to pin a version requirement (e.g. `^1.0`, `=1.2.0`). |
 | `weave remove <pack>` | Remove a pack and clean up all config entries it wrote |
 | `weave list` | Show installed packs, their versions, and which CLIs they were applied to |
 | `weave search <query>` | Search the registry for packs matching a keyword or phrase |
@@ -112,8 +115,8 @@ That's it. Weave has written MCP server definitions, slash commands, and setting
 # Install a pack (@ prefix resolves from the registry)
 weave install @webdev
 
-# Install a specific version
-weave install @webdev@1.2.0
+# Pin a specific version requirement
+weave install @webdev --version "=1.2.0"
 
 # Remove a pack
 weave remove webdev
@@ -206,18 +209,19 @@ Running diagnostics (profile 'default')...
 
 These features are in active development. See [docs/ROADMAP.md](./docs/ROADMAP.md) for full milestones.
 
-**v0.2 — Profiles, Codex support, and pack authoring:**
+**v0.2 — Codex support and pack authoring:**
+
+```bash
+weave update             # update installed packs to latest compatible versions
+weave init my-pack       # scaffold a new pack
+```
+
+Codex CLI adapter support also ships in v0.2 — no new command needed, packs automatically apply to Codex once installed.
+
+**v0.3 — Profiles, hooks, and community taps:**
 
 ```bash
 weave use work           # switch to a named profile (work, oss, personal)
-weave update             # update installed packs to latest compatible versions
-weave init my-pack       # scaffold a new pack
-weave publish my-pack    # publish a pack to the registry
-```
-
-**v0.3 — Hooks, community taps, and sync:**
-
-```bash
 weave tap add user/repo  # add a community pack source
 weave sync               # reapply the active profile after manual config changes
 ```
