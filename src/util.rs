@@ -8,7 +8,13 @@ pub fn home_dir() -> Result<PathBuf> {
 }
 
 /// Returns the root directory for all weave state: `~/.packweave/`.
+///
+/// Tests may override this by setting `WEAVE_TEST_STORE_DIR` to an absolute path,
+/// which prevents fixture data from landing in the real user store.
 pub fn packweave_dir() -> Result<PathBuf> {
+    if let Ok(dir) = std::env::var("WEAVE_TEST_STORE_DIR") {
+        return Ok(PathBuf::from(dir));
+    }
     Ok(home_dir()?.join(".packweave"))
 }
 

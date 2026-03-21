@@ -33,6 +33,12 @@ pub struct GeminiCliAdapter {
     project_root: PathBuf,
 }
 
+impl Default for GeminiCliAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GeminiCliAdapter {
     pub fn new() -> Self {
         Self {
@@ -41,7 +47,7 @@ impl GeminiCliAdapter {
         }
     }
 
-    #[cfg(test)]
+    /// Override the home directory for testing without writing to real `~/.gemini/`.
     pub fn with_home(home: PathBuf) -> Self {
         Self {
             home: Some(home.clone()),
@@ -49,7 +55,7 @@ impl GeminiCliAdapter {
         }
     }
 
-    #[cfg(test)]
+    /// Override both home and project root for testing.
     pub fn with_home_and_project(home: PathBuf, project_root: PathBuf) -> Self {
         Self {
             home: Some(home),
