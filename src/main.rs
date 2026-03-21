@@ -46,6 +46,9 @@ enum Commands {
         /// Search query
         query: String,
     },
+
+    /// Check for config drift and project-scope staleness across all adapters
+    Diagnose,
 }
 
 fn main() {
@@ -58,6 +61,7 @@ fn main() {
         Commands::List => cli::list::run(),
         Commands::Remove { name } => cli::remove::run(&name),
         Commands::Search { query } => cli::search::run(&query),
+        Commands::Diagnose => cli::diagnose::run(),
     };
 
     if let Err(err) = result {

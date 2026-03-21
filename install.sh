@@ -85,6 +85,12 @@ choose_install_dir() {
     if [ -n "${WEAVE_INSTALL_DIR:-}" ]; then
         INSTALL_DIR="$WEAVE_INSTALL_DIR"
         info "Using WEAVE_INSTALL_DIR: ${INSTALL_DIR}"
+        if ! mkdir -p "${INSTALL_DIR}" 2>/dev/null; then
+            die "Failed to create WEAVE_INSTALL_DIR (${INSTALL_DIR}). Create it manually or choose a different directory."
+        fi
+        if [ ! -w "${INSTALL_DIR}" ]; then
+            die "WEAVE_INSTALL_DIR (${INSTALL_DIR}) is not writable. Adjust its permissions or choose a different directory."
+        fi
         return
     fi
 
@@ -125,7 +131,8 @@ download_and_install() {
 
     info "Downloading ${ASSET_NAME}..."
     if ! curl -fsSL --fail "${DOWNLOAD_URL}" -o "${ARCHIVE}"; then
-        die "Download failed. Could not fetch: ${DOWNLOAD_URL}\nCheck that version ${VERSION} has a release asset for your platform (${TARGET})."
+        err "Download failed. Could not fetch: ${DOWNLOAD_URL}"
+        die "Check that version ${VERSION} has a release asset for your platform (${TARGET})."
     fi
 
     # Verify SHA256 checksum if a checksum file is available
@@ -145,15 +152,23 @@ download_and_install() {
         fi
 
         if [ "$_actual" != "$_expected" ]; then
-            die "Checksum mismatch!\n  Expected: ${_expected}\n  Got:      ${_actual}\nThe downloaded file may be corrupt. Please try again."
+            err "Checksum mismatch!"
+            err "  Expected: ${_expected}"
+            err "  Got:      ${_actual}"
+            die "The downloaded file may be corrupt. Please try again."
         fi
         ok "Checksum verified."
     else
         info "No checksum file found at release; skipping verification."
     fi
 
+    info "Validating archive contents..."
+    if tar -tzf "${ARCHIVE}" | grep -qE '(^\/)|(^\.\.[/\\])|(\/\.\.[/\\])|(\/\.\.$)'; then
+        die "Archive contains unsafe paths (absolute or parent-directory components). Please report this at https://github.com/${REPO}/issues."
+    fi
+
     info "Extracting archive..."
-    tar -xzf "${ARCHIVE}" -C "${TMPDIR}"
+    tar -xzf "${ARCHIVE}" -C "${TMPDIR}" --no-same-owner 2>/dev/null || tar -xzf "${ARCHIVE}" -C "${TMPDIR}"
 
     # The binary may be at the root or inside a subdirectory matching the asset name without .tar.gz
     EXTRACTED_BINARY="${TMPDIR}/${BINARY}"
