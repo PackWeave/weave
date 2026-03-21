@@ -1,3 +1,6 @@
+# Copyright 2026 Brenno Rangel Ferrari
+# SPDX-License-Identifier: Apache-2.0
+
 [package]
 name = "weave"
 version = "0.1.0"
