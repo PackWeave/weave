@@ -91,6 +91,19 @@ pub fn run(pack_name: &str, version: Option<&str>) -> Result<()> {
             eprintln!("  warning: {err}");
         }
 
+        // Warn about required env vars that are not set in the current environment.
+        for server in &pack.servers {
+            for (key, env_var) in &server.env {
+                if env_var.required && std::env::var(key).is_err() {
+                    println!("warning: pack '{}' requires {key} to be set", pack.name);
+                    if let Some(desc) = &env_var.description {
+                        println!("  {key}: {desc}");
+                    }
+                    println!("  set it with: export {key}=<value>");
+                }
+            }
+        }
+
         // Record in profile
         profile.add_pack(InstalledPack {
             name: name.clone(),

@@ -879,11 +879,9 @@ fn build_claude_server_config(server: &McpServer) -> serde_json::Value {
     if !server.env.is_empty() {
         let mut env_map = serde_json::Map::new();
         for key in server.env.keys() {
-            // Write env var references, never actual values
-            env_map.insert(
-                key.clone(),
-                serde_json::Value::String(format!("${{{key}}}")),
-            );
+            // Write placeholder empty strings — actual secret values are never stored by weave.
+            // The user is expected to set the real values in their environment.
+            env_map.insert(key.clone(), serde_json::Value::String(String::new()));
         }
         config.insert("env".into(), serde_json::Value::Object(env_map));
     }
@@ -1181,6 +1179,94 @@ mod tests {
         assert_eq!(target["b"]["c"], 2);
         assert_eq!(target["b"]["d"], 3);
         assert_eq!(target["e"], 4);
+    }
+
+    #[test]
+    fn apply_servers_writes_env_vars_as_empty_placeholders() {
+        let dir = TempDir::new().unwrap();
+        let adapter = test_adapter(&dir);
+        setup_dir(&dir);
+
+        let mut env = HashMap::new();
+        env.insert(
+            "MY_API_KEY".to_string(),
+            crate::core::pack::EnvVar {
+                required: true,
+                secret: true,
+                description: Some("API key for the service".into()),
+            },
+        );
+        env.insert(
+            "ANOTHER_VAR".to_string(),
+            crate::core::pack::EnvVar {
+                required: false,
+                secret: false,
+                description: None,
+            },
+        );
+
+        let pack = ResolvedPack {
+            pack: crate::core::pack::Pack {
+                name: "env-pack".into(),
+                version: semver::Version::new(1, 0, 0),
+                description: "Pack with env vars".into(),
+                authors: vec![],
+                license: None,
+                repository: None,
+                keywords: vec![],
+                min_tool_version: None,
+                servers: vec![McpServer {
+                    name: "env-server".into(),
+                    package_type: None,
+                    package: None,
+                    command: "npx".into(),
+                    args: vec!["-y".into(), "env-server".into()],
+                    transport: None,
+                    namespace: None,
+                    tools: vec![],
+                    env,
+                }],
+                dependencies: HashMap::new(),
+                extensions: Default::default(),
+                targets: crate::core::pack::PackTargets::default(),
+            },
+            source: crate::core::pack::PackSource::Registry {
+                registry_url: "https://example.com".into(),
+            },
+        };
+
+        let mut manifest = PackweaveManifest::default();
+        adapter.apply_servers(&pack, &mut manifest).unwrap();
+
+        let claude_json = dir.path().join(".claude.json");
+        let content: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&claude_json).unwrap()).unwrap();
+
+        let env_obj = &content["mcpServers"]["env-server"]["env"];
+        assert!(env_obj.is_object(), "env key should be present");
+        assert_eq!(env_obj["MY_API_KEY"], "", "env var should be empty string");
+        assert_eq!(env_obj["ANOTHER_VAR"], "", "env var should be empty string");
+    }
+
+    #[test]
+    fn apply_servers_omits_env_key_when_server_has_no_env_vars() {
+        let dir = TempDir::new().unwrap();
+        let adapter = test_adapter(&dir);
+        setup_dir(&dir);
+
+        let pack = test_pack("no-env-pack");
+        let mut manifest = PackweaveManifest::default();
+        adapter.apply_servers(&pack, &mut manifest).unwrap();
+
+        let claude_json = dir.path().join(".claude.json");
+        let content: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&claude_json).unwrap()).unwrap();
+
+        // test_pack builds a server with env: HashMap::new() — no env key should appear
+        assert!(
+            content["mcpServers"]["test-server"].get("env").is_none(),
+            "env key should not be present when server has no env vars"
+        );
     }
 
     #[test]

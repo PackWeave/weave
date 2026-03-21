@@ -262,7 +262,7 @@ fn apply_writes_server_args() {
 }
 
 #[test]
-fn apply_writes_env_vars_as_references() {
+fn apply_writes_env_vars_as_empty_placeholders() {
     let home = TempDir::new().unwrap();
     setup_gemini_home(&home);
     let adapter = make_adapter(&home);
@@ -276,8 +276,33 @@ fn apply_writes_env_vars_as_references() {
     let settings_path = home.path().join(".gemini/settings.json");
     let config = read_json(&settings_path);
     let env = &config["mcpServers"]["env-server"]["env"];
-    assert_eq!(env["API_KEY"], "${API_KEY}");
-    assert_eq!(env["TOKEN"], "${TOKEN}");
+    assert!(env.is_object(), "env key should be present");
+    assert_eq!(
+        env["API_KEY"], "",
+        "env var should be written as empty placeholder"
+    );
+    assert_eq!(
+        env["TOKEN"], "",
+        "env var should be written as empty placeholder"
+    );
+}
+
+#[test]
+fn apply_omits_env_key_when_server_has_no_env_vars() {
+    let home = TempDir::new().unwrap();
+    setup_gemini_home(&home);
+    let adapter = make_adapter(&home);
+
+    let pack = pack_with_servers("no-env-pack", vec![simple_server("no-env-server")]);
+    adapter.apply(&pack).unwrap();
+
+    let settings_path = home.path().join(".gemini/settings.json");
+    let config = read_json(&settings_path);
+    // simple_server has an empty env map — no "env" key should appear in output
+    assert!(
+        config["mcpServers"]["no-env-server"].get("env").is_none(),
+        "env key must not be written when server has no env vars"
+    );
 }
 
 #[test]
