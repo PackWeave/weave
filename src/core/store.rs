@@ -32,12 +32,12 @@ impl Store {
     pub fn fetch(name: &str, release: &PackRelease) -> Result<PathBuf> {
         let dest = Self::pack_dir(name, &release.version)?;
 
-        // If already cached, return early
+        // If already cached, return early.
         if dest.join("pack.toml").exists() {
             return Ok(dest);
         }
 
-        // Download the archive
+        // Download the archive.
         let response =
             reqwest::blocking::get(&release.url).map_err(|e| WeaveError::DownloadFailed {
                 name: name.to_string(),
@@ -56,23 +56,10 @@ impl Store {
             reason: e.to_string(),
         })?;
 
-        // Verify SHA256 — normalise both sides to lowercase so registries that
-        // emit uppercase hex digests still match.
-        let mut hasher = Sha256::new();
-        hasher.update(&bytes);
-        let actual_hash = format!("{:x}", hasher.finalize());
+        Self::verify_checksum(name, &bytes, &release.sha256)?;
 
-        if actual_hash != release.sha256.to_lowercase() {
-            return Err(WeaveError::ChecksumMismatch {
-                name: name.to_string(),
-                expected: release.sha256.clone(),
-                actual: actual_hash,
-            });
-        }
-
-        // Extract tar.gz into a temporary staging directory first, then rename it
-        // to the final destination atomically so a failed extraction never leaves
-        // a partially-populated cache entry.
+        // Extract into a temporary staging directory first, then rename it to the
+        // final destination so a failed extraction never leaves a partial cache entry.
         let tmp_dest = dest.with_extension("tmp");
         if tmp_dest.exists() {
             std::fs::remove_dir_all(&tmp_dest)
@@ -80,58 +67,7 @@ impl Store {
         }
         util::ensure_dir(&tmp_dest)?;
 
-        let extract_result = (|| -> Result<()> {
-            let decoder = flate2::read::GzDecoder::new(&bytes[..]);
-            let mut archive = tar::Archive::new(decoder);
-            let tmp_canonical = tmp_dest
-                .canonicalize()
-                .map_err(|e| WeaveError::io(format!("canonicalizing tmp dir for '{name}'"), e))?;
-            for entry in archive
-                .entries()
-                .map_err(|e| WeaveError::io(format!("reading archive entries for '{name}'"), e))?
-            {
-                let mut entry = entry.map_err(|e| {
-                    WeaveError::io(format!("reading archive entry for '{name}'"), e)
-                })?;
-                let entry_path = entry
-                    .path()
-                    .map_err(|e| WeaveError::io(format!("reading entry path in '{name}'"), e))?
-                    .into_owned();
-                // Reject absolute paths and any path component that would escape dest.
-                if entry_path.is_absolute() {
-                    return Err(WeaveError::io(
-                        format!("extracting pack '{name}'"),
-                        std::io::Error::new(
-                            std::io::ErrorKind::InvalidData,
-                            format!("archive entry has absolute path: {}", entry_path.display()),
-                        ),
-                    ));
-                }
-                let full_path = tmp_canonical.join(&entry_path);
-                if !full_path.starts_with(&tmp_canonical) {
-                    return Err(WeaveError::io(
-                        format!("extracting pack '{name}'"),
-                        std::io::Error::new(
-                            std::io::ErrorKind::InvalidData,
-                            format!(
-                                "archive entry '{}' would escape the pack directory",
-                                entry_path.display()
-                            ),
-                        ),
-                    ));
-                }
-                entry.unpack(&full_path).map_err(|e| {
-                    WeaveError::io(
-                        format!("extracting '{}' from '{name}'", entry_path.display()),
-                        e,
-                    )
-                })?;
-            }
-            Ok(())
-        })();
-
-        if let Err(e) = extract_result {
-            // Best-effort cleanup of the failed staging directory.
+        if let Err(e) = Self::extract_archive(name, &bytes, &tmp_dest) {
             let _ = std::fs::remove_dir_all(&tmp_dest);
             return Err(e);
         }
@@ -141,6 +77,97 @@ impl Store {
             .map_err(|e| WeaveError::io(format!("finalizing pack '{name}'"), e))?;
 
         Ok(dest)
+    }
+
+    /// Verify the SHA256 checksum of raw archive bytes.
+    /// Both sides are normalised to lowercase so mixed-case registry hashes match.
+    fn verify_checksum(name: &str, bytes: &[u8], expected_sha256: &str) -> Result<()> {
+        let mut hasher = Sha256::new();
+        hasher.update(bytes);
+        let actual = format!("{:x}", hasher.finalize());
+        if actual != expected_sha256.to_lowercase() {
+            return Err(WeaveError::ChecksumMismatch {
+                name: name.to_string(),
+                expected: expected_sha256.to_string(),
+                actual,
+            });
+        }
+        Ok(())
+    }
+
+    /// Extract a tar.gz archive into `dest`, rejecting any entry whose resolved
+    /// path would escape the destination directory (tar-slip protection).
+    fn extract_archive(name: &str, bytes: &[u8], dest: &std::path::Path) -> Result<()> {
+        let decoder = flate2::read::GzDecoder::new(bytes);
+        let mut archive = tar::Archive::new(decoder);
+        let dest_canonical = dest
+            .canonicalize()
+            .map_err(|e| WeaveError::io(format!("canonicalizing dest dir for '{name}'"), e))?;
+
+        for entry in archive
+            .entries()
+            .map_err(|e| WeaveError::io(format!("reading archive entries for '{name}'"), e))?
+        {
+            let mut entry = entry
+                .map_err(|e| WeaveError::io(format!("reading archive entry for '{name}'"), e))?;
+            let entry_path = entry
+                .path()
+                .map_err(|e| WeaveError::io(format!("reading entry path in '{name}'"), e))?
+                .into_owned();
+
+            // Reject absolute paths and any `..` component (tar-slip protection).
+            // Note: starts_with() alone is insufficient for traversal detection because
+            // dest.join("../evil").starts_with(dest) returns true; we check components directly.
+            //
+            // is_absolute() is not enough on Windows — Path::is_absolute() requires a drive
+            // letter (C:\) and won't catch POSIX-style "/etc/evil" paths that appear in tar
+            // archives produced on Linux/macOS. Check the raw string as well.
+            let path_str = entry_path.to_string_lossy();
+            if entry_path.is_absolute() || path_str.starts_with('/') || path_str.starts_with('\\') {
+                return Err(WeaveError::io(
+                    format!("extracting pack '{name}'"),
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("archive entry has absolute path: {}", entry_path.display()),
+                    ),
+                ));
+            }
+            if entry_path
+                .components()
+                .any(|c| c == std::path::Component::ParentDir)
+            {
+                return Err(WeaveError::io(
+                    format!("extracting pack '{name}'"),
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!(
+                            "archive entry '{}' would escape the pack directory",
+                            entry_path.display()
+                        ),
+                    ),
+                ));
+            }
+
+            let full_path = dest_canonical.join(&entry_path);
+
+            // Create parent directories so nested paths (e.g. prompts/claude.md) unpack correctly.
+            if let Some(parent) = full_path.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    WeaveError::io(
+                        format!("creating dirs for '{}' in '{name}'", entry_path.display()),
+                        e,
+                    )
+                })?;
+            }
+
+            entry.unpack(&full_path).map_err(|e| {
+                WeaveError::io(
+                    format!("extracting '{}' from '{name}'", entry_path.display()),
+                    e,
+                )
+            })?;
+        }
+        Ok(())
     }
 
     /// Load a pack manifest from the store.
@@ -229,5 +256,174 @@ impl Store {
             .and_then(|mut f| f.read_to_string(&mut content))
             .map_err(|e| WeaveError::io(format!("reading {}", path.display()), e))?;
         Ok(Some(content))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::TempDir;
+
+    /// Build a minimal tar.gz in memory containing the given files.
+    fn make_tar_gz(files: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut tar_bytes = Vec::new();
+        {
+            let mut builder = tar::Builder::new(&mut tar_bytes);
+            for (path, content) in files {
+                let mut header = tar::Header::new_gnu();
+                header.set_size(content.len() as u64);
+                header.set_mode(0o644);
+                header.set_cksum();
+                builder.append_data(&mut header, path, *content).unwrap();
+            }
+            builder.finish().unwrap();
+        }
+        let mut gz_bytes = Vec::new();
+        let mut encoder =
+            flate2::write::GzEncoder::new(&mut gz_bytes, flate2::Compression::default());
+        encoder.write_all(&tar_bytes).unwrap();
+        encoder.finish().unwrap();
+        gz_bytes
+    }
+
+    /// Compute the lowercase hex SHA256 of `bytes`.
+    fn sha256_hex(bytes: &[u8]) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(bytes);
+        format!("{:x}", hasher.finalize())
+    }
+
+    // ── verify_checksum ───────────────────────────────────────────────────────
+
+    #[test]
+    fn checksum_correct_passes() {
+        let bytes = b"hello world";
+        let hash = sha256_hex(bytes);
+        assert!(Store::verify_checksum("pack", bytes, &hash).is_ok());
+    }
+
+    #[test]
+    fn checksum_uppercase_hash_passes() {
+        let bytes = b"hello world";
+        let hash = sha256_hex(bytes).to_uppercase();
+        assert!(
+            Store::verify_checksum("pack", bytes, &hash).is_ok(),
+            "uppercase SHA256 from registry should match"
+        );
+    }
+
+    #[test]
+    fn checksum_mismatch_returns_error() {
+        let bytes = b"hello world";
+        let result = Store::verify_checksum("pack", bytes, "deadbeef");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("checksum"),
+            "error should mention checksum: {err}"
+        );
+    }
+
+    // ── extract_archive ───────────────────────────────────────────────────────
+
+    #[test]
+    fn extract_valid_archive_succeeds() {
+        let dir = TempDir::new().unwrap();
+        let bytes = make_tar_gz(&[("pack.toml", b"name = \"test\"")]);
+        Store::extract_archive("test", &bytes, dir.path()).unwrap();
+        assert!(
+            dir.path().join("pack.toml").exists(),
+            "pack.toml should be extracted"
+        );
+        let content = std::fs::read_to_string(dir.path().join("pack.toml")).unwrap();
+        assert_eq!(content, "name = \"test\"");
+    }
+
+    /// Build a tar.gz with a single entry using a raw header, bypassing the
+    /// tar crate's path validation. This lets us craft malicious archives that
+    /// real attackers could produce to test our extraction defences.
+    fn make_raw_tar_gz(path: &str, content: &[u8]) -> Vec<u8> {
+        let mut header = [0u8; 512];
+
+        // Name field (bytes 0–99)
+        let name = path.as_bytes();
+        header[..name.len().min(100)].copy_from_slice(&name[..name.len().min(100)]);
+
+        // Mode, uid, gid (octal strings)
+        header[100..107].copy_from_slice(b"0000644");
+        header[108..115].copy_from_slice(b"0000000");
+        header[116..123].copy_from_slice(b"0000000");
+
+        // Size (octal, 11 digits + null)
+        let size_str = format!("{:011o}", content.len());
+        header[124..135].copy_from_slice(size_str.as_bytes());
+
+        // Mtime
+        header[136..147].copy_from_slice(b"00000000000");
+
+        // Typeflag: regular file
+        header[156] = b'0';
+
+        // Checksum: sum of all bytes with checksum field treated as spaces
+        header[148..156].fill(b' ');
+        let checksum: u32 = header.iter().map(|&b| b as u32).sum();
+        let chk = format!("{:06o}\0 ", checksum);
+        header[148..156].copy_from_slice(chk.as_bytes());
+
+        // Assemble: header + data (padded to 512) + two zero end-of-archive blocks
+        let mut tar_bytes = header.to_vec();
+        let mut data = content.to_vec();
+        let padded = (content.len() + 511) & !511;
+        data.resize(padded, 0);
+        tar_bytes.extend_from_slice(&data);
+        tar_bytes.extend_from_slice(&[0u8; 1024]);
+
+        let mut gz = Vec::new();
+        let mut enc = flate2::write::GzEncoder::new(&mut gz, flate2::Compression::default());
+        enc.write_all(&tar_bytes).unwrap();
+        enc.finish().unwrap();
+        gz
+    }
+
+    #[test]
+    fn extract_rejects_path_traversal() {
+        let dir = TempDir::new().unwrap();
+        let bytes = make_raw_tar_gz("../escape", b"evil");
+        let result = Store::extract_archive("evil-pack", &bytes, dir.path());
+        assert!(result.is_err(), "path traversal entry should be rejected");
+        assert!(
+            !dir.path().parent().unwrap().join("escape").exists(),
+            "traversal file must not be created outside the dest dir"
+        );
+    }
+
+    #[test]
+    fn extract_rejects_absolute_path() {
+        let dir = TempDir::new().unwrap();
+        let bytes = make_raw_tar_gz("/etc/evil", b"evil");
+        let result = Store::extract_archive("evil-pack", &bytes, dir.path());
+        assert!(result.is_err(), "absolute path entry should be rejected");
+    }
+
+    #[test]
+    fn extract_nested_files_succeed() {
+        let dir = TempDir::new().unwrap();
+        let bytes = make_tar_gz(&[
+            ("pack.toml", b"name = \"test\""),
+            ("prompts/system.md", b"You are helpful."),
+            ("commands/review.md", b"# Review"),
+        ]);
+        Store::extract_archive("test", &bytes, dir.path()).unwrap();
+        assert!(dir.path().join("pack.toml").exists());
+        assert!(dir.path().join("prompts/system.md").exists());
+        assert!(dir.path().join("commands/review.md").exists());
+    }
+
+    #[test]
+    fn extract_empty_archive_succeeds() {
+        let dir = TempDir::new().unwrap();
+        let bytes = make_tar_gz(&[]);
+        assert!(Store::extract_archive("empty", &bytes, dir.path()).is_ok());
     }
 }
