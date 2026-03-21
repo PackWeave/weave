@@ -92,6 +92,24 @@ The adapters are opaque. They expose only the `CliAdapter` trait. The core does 
 
 -----
 
+## Adding or modifying a CLI adapter
+
+**Before writing any adapter code, verify the target CLI's actual config format from primary sources.** Do not rely on prior knowledge, architecture docs, or assumptions — CLI tools change their config schemas. A wrong assumption (e.g. JSON vs TOML, missing MCP support) means a fundamentally broken adapter that must be fully rewritten.
+
+Mandatory research checklist before touching `src/adapters/`:
+
+1. **Find the official repo** — read the README and any `config.*` or `schema.*` files in the source tree
+2. **Confirm the config file path and format** — exact filename, location (`~/.foo/` vs `~/.config/foo/`), serialization format (TOML / JSON / YAML)
+3. **Confirm MCP server support** — how are servers declared? What fields does each entry require?
+4. **Confirm project-scope config** — is there a `.foo/` project directory? What does it contain?
+5. **Confirm the prompt/instruction file** — exact filename and how it is discovered (single file vs hierarchical walk)
+6. **Confirm slash commands / skills equivalent** — does the CLI have a user-scriptable command directory?
+7. **Cross-check docs/ARCHITECTURE.md** — if what you find contradicts the architecture doc, update the architecture doc to match reality before writing code
+
+Record your findings in a comment at the top of the adapter file. If the CLI does not support a feature (e.g. MCP servers), say so explicitly in a comment so the next person does not re-research it.
+
+-----
+
 ## Local pre-commit hook
 
 The repo ships a pre-commit hook that mirrors CI. Activate it once after cloning:
