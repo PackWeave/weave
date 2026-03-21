@@ -231,7 +231,7 @@ pub trait CliAdapter: Send + Sync {
     fn remove(&self, pack_name: &str) -> Result<()>;
 
     /// Verify the CLI's current config is consistent with installed packs.
-    /// Returns a list of issues for `weave doctor`.
+    /// Returns a list of issues for `weave diagnose`.
     fn diagnose(&self) -> Result<Vec<DiagnosticIssue>>;
 }
 ```
@@ -379,11 +379,47 @@ Pack settings (`settings/gemini.json`) are deep-merged into `settings.json`. On 
 Codex CLI uses TOML configuration:
 
 ```
-~/.codex/config.toml      User-scope config
-.codex/config.toml        Project-scope config
+~/.codex/config.toml               User-scope MCP servers + settings
+.codex/config.toml                 Project-scope MCP servers + settings
+~/.codex/AGENTS.md                 User-scope system prompt / instructions
+~/.codex/skills/                   Skill files (.md), Codex's slash-command equivalent
+~/.codex/.packweave_manifest.json  Ownership tracking sidecar
 ```
 
-The adapter maps pack servers into the `mcp_servers` table and applies prompt content from `prompts/codex.md` (or `prompts/system.md` as fallback).
+### MCP servers
+
+The adapter merges pack-defined servers into the `[mcp_servers.<name>]` table in `config.toml`. Each server becomes a TOML table entry:
+
+```toml
+[mcp_servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem"]
+enabled = true
+```
+
+Ownership is tracked in `~/.codex/.packweave_manifest.json` (same JSON schema as the Claude Code manifest). On removal, the adapter consults this manifest to undo only what it wrote.
+
+### Skills
+
+Pack skill files are copied into `~/.codex/skills/` with namespaced filenames: `<pack-name>__<skill>.md`. This mirrors how Claude Code commands use `~/.claude/commands/`.
+
+### System prompt
+
+Prompt content from `prompts/codex.md` (or `prompts/system.md` as fallback) is appended to `~/.codex/AGENTS.md` between tagged delimiters:
+
+```markdown
+<!-- packweave:begin:webdev -->
+...
+<!-- packweave:end:webdev -->
+```
+
+### Settings fragments
+
+Pack settings (`settings/codex.toml`, or `settings/codex.json` as fallback) are merged (top-level keys only) into `config.toml`. On removal, only keys originally written by the pack are removed or restored to their pre-install values — provided the user has not modified them since install. If a key was modified, the adapter warns and leaves it in place.
+
+### Manifest atomicity
+
+The adapter saves the manifest after each individual mutation step (servers, skills, prompts, settings). If `apply()` fails partway through, the manifest accurately reflects what was written to disk, so `remove()` and `diagnose()` can still clean up correctly.
 
 -----
 
@@ -432,8 +468,8 @@ Panics are not used for recoverable errors. `unwrap()` and `expect()` are only a
 ## Testing strategy
 
 - **Unit tests** live alongside the module they test (`#[cfg(test)]` blocks).
-- **Integration tests** live in `tests/` and operate against a temporary `~/.packweave/` directory created per-test.
-- **Adapter tests** use fixture CLI config directories (checked in under `tests/fixtures/`) to verify that apply/remove produce exactly the expected output.
+- **Integration tests** live in `tests/` and operate against temporary directories created per-test via `TempDir`.
+- **Adapter tests** create isolated home and project directories. Store isolation is achieved via the `WEAVE_TEST_STORE_DIR` environment variable.
 - The registry is mocked in tests — no network calls in CI.
 
 -----

@@ -3,7 +3,7 @@
 [![Build](https://github.com/PackWeave/weave/actions/workflows/ci.yml/badge.svg)](https://github.com/PackWeave/weave/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
-![Status](https://img.shields.io/badge/status-v0.1%20MVP-green)
+![Status](https://img.shields.io/badge/status-v0.2-green)
 
 > **A pack manager for AI CLIs** — install, share, and version MCP servers, slash commands, and prompts across Claude Code, Gemini CLI, and Codex CLI.
 
@@ -173,8 +173,8 @@ namespace = "fs"
 Packs can also declare:
 
 - 📦 **Dependencies** on other packs — Weave resolves them transitively
-- 💬 **Slash commands** — copied into `~/.claude/commands/` with namespaced filenames
-- 📝 **System prompt fragments** — appended to `CLAUDE.md` / `GEMINI.md` between tagged delimiters
+- 💬 **Slash commands / skills** — copied into `~/.claude/commands/` or `~/.codex/skills/` with namespaced filenames
+- 📝 **System prompt fragments** — appended to `CLAUDE.md` / `GEMINI.md` / `AGENTS.md` between tagged delimiters
 - ⚙️ **Settings fragments** — deep-merged into each CLI's settings file
 - 🔐 **Environment variable declarations** — written as references, never values
 
@@ -200,7 +200,7 @@ See [pack.schema.toml](./pack.schema.toml) for the full annotated schema and [do
 Some CLIs read both a user-level config (`~/.claude/`) and a project-level config (`.claude/` in your repo). Weave applies packs to every scope that **exists at install time**.
 
 > [!TIP]
-> If you create a `.claude/` or `.gemini/` directory _after_ installing a pack, run `weave install <pack>` again from the project directory. `apply` is idempotent — it's safe to re-run and will add any missing project-scope config without duplicating anything.
+> If you create a `.claude/`, `.gemini/`, or `.codex/` directory _after_ installing a pack, run `weave install <pack>` again from the project directory. `apply` is idempotent — it's safe to re-run and will add any missing project-scope config without duplicating anything.
 
 Run `weave diagnose` to detect this condition automatically:
 
@@ -212,6 +212,7 @@ Running diagnostics (profile 'default')...
              run `weave install webdev` to apply project-scope config
 
   Gemini CLI — OK
+  Codex CLI — OK
 
 1 issue(s) found. See suggestions above to fix them.
 ```
