@@ -22,6 +22,7 @@ pub fn run(query: &str, target: Option<&str>) -> Result<()> {
                 VALID_TARGETS.join(", ")
             );
         }
+        eprintln!("note: --target filtering is not yet implemented; showing all results");
     }
 
     let config = Config::load().context("loading weave config")?;

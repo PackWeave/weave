@@ -46,7 +46,7 @@ enum Commands {
         /// Search query
         query: String,
 
-        /// Filter results by target CLI (e.g., "claude_code", "gemini_cli", "codex_cli")
+        /// Filter results by target CLI (reserved, not yet active; e.g., "claude_code", "gemini_cli", "codex_cli")
         #[arg(short, long)]
         target: Option<String>,
     },
