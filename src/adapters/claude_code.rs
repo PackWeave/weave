@@ -716,11 +716,15 @@ impl CliAdapter for ClaudeCodeAdapter {
 
         util::ensure_dir(&self.claude_dir()?)?;
 
-        // User-scope
+        // User-scope — save manifest after each step so a failure mid-way leaves
+        // the manifest consistent with whatever was actually written to disk.
         let mut manifest = self.load_manifest()?;
         self.apply_servers(pack, &mut manifest)?;
+        self.save_manifest(&manifest)?;
         self.apply_commands(pack, &mut manifest)?;
+        self.save_manifest(&manifest)?;
         self.apply_prompts(pack, &mut manifest)?;
+        self.save_manifest(&manifest)?;
         self.apply_settings(pack, &mut manifest)?;
         self.save_manifest(&manifest)?;
 
@@ -729,6 +733,7 @@ impl CliAdapter for ClaudeCodeAdapter {
         if self.has_project_scope() {
             let mut project_manifest = self.load_project_manifest()?;
             self.apply_project_servers(pack, &mut project_manifest)?;
+            self.save_project_manifest(&project_manifest)?;
             self.apply_project_settings(pack, &mut project_manifest)?;
             self.save_project_manifest(&project_manifest)?;
         }
@@ -737,13 +742,16 @@ impl CliAdapter for ClaudeCodeAdapter {
     }
 
     fn remove(&self, pack_name: &str) -> Result<()> {
-        // User-scope
-        let mut manifest = self.load_manifest()?;
-        self.remove_servers(pack_name, &mut manifest)?;
-        self.remove_commands(pack_name, &mut manifest)?;
-        self.remove_prompts(pack_name, &mut manifest)?;
-        self.remove_settings(pack_name, &mut manifest)?;
-        self.save_manifest(&manifest)?;
+        // User-scope — only touch the manifest if it already exists.
+        let manifest_path = self.manifest_path()?;
+        if manifest_path.exists() {
+            let mut manifest = self.load_manifest()?;
+            self.remove_servers(pack_name, &mut manifest)?;
+            self.remove_commands(pack_name, &mut manifest)?;
+            self.remove_prompts(pack_name, &mut manifest)?;
+            self.remove_settings(pack_name, &mut manifest)?;
+            self.save_manifest(&manifest)?;
+        }
 
         // Project-scope — only if a project manifest exists in cwd.
         let project_manifest_path = self.project_manifest_path();
