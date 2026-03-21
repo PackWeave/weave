@@ -15,6 +15,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: read   # default for all jobs; release job overrides to write
+
 env:
   CARGO_TERM_COLOR: always
 
