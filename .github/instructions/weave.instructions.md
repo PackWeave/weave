@@ -53,9 +53,11 @@ Do not give `[low-priority]` findings the same visual weight as `[correctness]` 
 ### `src/adapters/` are opaque
 
 - All knowledge of a specific CLI's config format lives here and only here
-- Adapters receive data (`ResolvedPack`) — they never query the registry or store themselves
+- Adapters do not contain business logic
+- Adapters do not call into `src/core/` — they receive data (`ResolvedPack`), they don't fetch it
 - The data flow is fixed: **Registry → Resolver → Store → Profile + LockFile → Adapters**
 - Do not suggest shortcutting this flow (e.g. a CLI handler calling an adapter directly)
+- Do not suggest moving config format knowledge outside of adapters
 
 ---
 
@@ -181,6 +183,8 @@ These are tracked in `docs/MILESTONE_2_FOLLOWUP.md`. Raising them as PR findings
 
 ## Testing requirements
 
+Unit tests live in `#[cfg(test)]` blocks in the same file. Integration tests live in `tests/`. Adapter tests use `TempDir` for isolation; complex multi-file fixture scenarios may use checked-in fixtures under `tests/fixtures/`.
+
 **Always flag** a PR that:
 
 - Adds or modifies adapter `apply()` / `remove()` logic without a test verifying the written file content and its restoration
@@ -200,5 +204,6 @@ Adapter tests must verify at minimum:
 - Style preferences not enforced by `rustfmt`
 - Missing doc comments on private functions
 - Suggestions to add dependencies without a clear correctness or security justification
+- Unused imports or dead code in files that are explicitly stubs (marked with `// stub` or `todo!()`)
 - Anything already listed in `docs/MILESTONE_2_FOLLOWUP.md` under "Can be deferred"
 - Structural differences between the Claude Code and Gemini CLI adapter implementations where the CLIs themselves differ (e.g., Claude Code has slash commands; Gemini does not — this is correct, not an inconsistency)
