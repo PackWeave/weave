@@ -36,6 +36,11 @@ pub struct PackRelease {
     pub sha256: String,
     #[serde(default)]
     pub size_bytes: Option<u64>,
+    /// Direct dependencies of this release, keyed by pack name with a semver requirement.
+    /// Uses `#[serde(default)]` so existing index.json entries without this field
+    /// deserialise as an empty map without breaking backwards compatibility.
+    #[serde(default)]
+    pub dependencies: HashMap<String, semver::VersionReq>,
 }
 
 /// The registry trait. All registry implementations must be Send + Sync.
@@ -282,12 +287,14 @@ mod tests {
                     url: "https://example.com/webdev-1.0.0.tar.gz".into(),
                     sha256: "abc123".into(),
                     size_bytes: Some(1024),
+                    dependencies: HashMap::new(),
                 },
                 PackRelease {
                     version: semver::Version::new(1, 1, 0),
                     url: "https://example.com/webdev-1.1.0.tar.gz".into(),
                     sha256: "def456".into(),
                     size_bytes: Some(2048),
+                    dependencies: HashMap::new(),
                 },
             ],
         }

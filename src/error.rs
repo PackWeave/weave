@@ -30,9 +30,12 @@ pub enum WeaveError {
     NoReleases { name: String },
 
     // Dependency errors
+    #[error("circular dependency detected involving '{pack}' (chain: {chain})")]
+    CircularDependency { pack: String, chain: String },
+
     #[allow(dead_code)]
-    #[error("dependency conflict: {0}")]
-    DependencyConflict(String),
+    #[error("dependency conflict for '{pack}': required by {conflicts}")]
+    DependencyConflict { pack: String, conflicts: String },
 
     // Store errors
     #[error("SHA256 checksum mismatch for '{name}' — expected {expected}, got {actual}. The archive may be corrupted; try installing again.")]
