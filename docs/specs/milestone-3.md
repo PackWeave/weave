@@ -20,6 +20,18 @@ A `[DECISION]` is not a suggestion. Implementation must not begin until the owne
 
 ---
 
+## Pre-implementation gate
+
+**No PR may be opened for any M3 feature until all three items below are checked off.** These are factual unknowns — the spec contains best-guess assumptions that will produce broken code if wrong. Verify against live documentation or the running CLI before writing a line of implementation.
+
+- [ ] **Codex CLI config schema confirmed** — verify the server table key (`mcp_servers`?), whether a `system_prompt` key exists and how it behaves, and what top-level keys a `settings/codex.toml` fragment should be merged into. If `system_prompt` does not exist, prompts are a no-op for the Codex adapter in v0.2.
+- [ ] **MCP Registry API shape confirmed** — verify the search endpoint URL, the response JSON structure (field names for server name, description, package identifier), pagination behaviour, and any rate limits. The shape in section 2 is illustrative only.
+- [ ] **Env var reference formats confirmed per CLI** — verify the exact string that each CLI expects in its config for an env var reference. A wrong format (e.g. `$VAR` vs `${VAR}`) silently fails at AI CLI invocation time, which is hard to debug after the fact. Formats to confirm: Claude Code (`~/.claude.json` env field), Gemini CLI (`settings.json` env field), Codex CLI (`config.toml` env field).
+
+Once all three are checked, update this document with the verified values before opening any PR.
+
+---
+
 ## 1. Codex CLI Adapter
 
 ### Goal
@@ -653,16 +665,10 @@ Tool overlap is not always a problem. Install proceeds, but prints a list of con
 - No new network calls in tests — extend `MockRegistry` as needed; mock HTTP for `--mcp` search.
 - `cargo clippy -D warnings` and `cargo fmt --check` must pass.
 
-### Actions required before implementation begins
-
-1. Confirm Codex CLI config schema: server table key, system prompt key (if any), settings structure.
-2. Confirm MCP Registry API response shape and pagination.
-3. Confirm env var reference formats accepted by each CLI.
-
 ### Spec maintenance
 
 When a design decision is resolved, update this file: replace the `[DECISION]` block with the chosen option and a one-line rationale. Do not delete the rejected options — leave them struck-through so reviewers can see what was considered.
 
 ---
 
-*Spec written at Milestone 2 merge. Implementation begins after all pre-implementation actions above are resolved.*
+*Spec written at Milestone 2 merge. Implementation begins after the pre-implementation gate above is fully checked off.*
