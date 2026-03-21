@@ -47,14 +47,6 @@ impl GeminiCliAdapter {
         }
     }
 
-    /// Override the home directory for testing without writing to real `~/.gemini/`.
-    pub fn with_home(home: PathBuf) -> Self {
-        Self {
-            home: Some(home.clone()),
-            project_root: home,
-        }
-    }
-
     /// Override both home and project root for testing.
     pub fn with_home_and_project(home: PathBuf, project_root: PathBuf) -> Self {
         Self {
@@ -836,7 +828,9 @@ mod tests {
     use tempfile::TempDir;
 
     fn test_adapter(dir: &TempDir) -> GeminiCliAdapter {
-        GeminiCliAdapter::with_home(dir.path().to_path_buf())
+        let no_project = dir.path().join("no-project");
+        std::fs::create_dir_all(&no_project).unwrap();
+        GeminiCliAdapter::with_home_and_project(dir.path().to_path_buf(), no_project)
     }
 
     fn test_pack(name: &str) -> ResolvedPack {

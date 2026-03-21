@@ -53,14 +53,6 @@ impl ClaudeCodeAdapter {
     }
 
     #[cfg(test)]
-    pub fn with_home(home: PathBuf) -> Self {
-        Self {
-            home: Some(home.clone()),
-            project_root: home,
-        }
-    }
-
-    #[cfg(test)]
     pub fn with_home_and_project(home: PathBuf, project_root: PathBuf) -> Self {
         Self {
             home: Some(home),
@@ -933,7 +925,9 @@ mod tests {
     use tempfile::TempDir;
 
     fn test_adapter(dir: &TempDir) -> ClaudeCodeAdapter {
-        ClaudeCodeAdapter::with_home(dir.path().to_path_buf())
+        let no_project = dir.path().join("no-project");
+        std::fs::create_dir_all(&no_project).unwrap();
+        ClaudeCodeAdapter::with_home_and_project(dir.path().to_path_buf(), no_project)
     }
 
     fn test_pack(name: &str) -> ResolvedPack {
