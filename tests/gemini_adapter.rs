@@ -136,17 +136,47 @@ fn pack_not_targeting_gemini(name: &str) -> ResolvedPack {
     }
 }
 
-// ── StoreFixture: writes pack files into the real store and cleans up on drop ─
+// ── StoreFixture: writes pack files into an isolated TempDir store ────────────
+//
+// Setting WEAVE_TEST_STORE_DIR redirects Store::root() (via util::packweave_dir())
+// to a TempDir so fixture data never lands in the real ~/.packweave/.
+//
+// A single shared TempDir is initialised once for the whole test process via
+// OnceLock, which means:
+//   - WEAVE_TEST_STORE_DIR is set exactly once and never races with other tests
+//   - Multiple StoreFixtures in the same test work without mutex re-entrancy
+//   - Each fixture is responsible only for its own pack subdirectory
+
+use std::sync::OnceLock;
+
+fn shared_store_root() -> &'static TempDir {
+    static STORE: OnceLock<TempDir> = OnceLock::new();
+    STORE.get_or_init(|| {
+        let dir = TempDir::new().expect("shared store TempDir");
+        std::env::set_var("WEAVE_TEST_STORE_DIR", dir.path());
+        dir
+    })
+}
 
 struct StoreFixture {
     pack_dir: PathBuf,
 }
 
 impl StoreFixture {
-    /// Create a pack directory in the real store with optional prompt and/or settings files.
+    /// Create a pack directory in the shared isolated store.
     fn create(name: &str, prompt: Option<&str>, settings: Option<&str>) -> Self {
+        let store = shared_store_root();
+
         let version = semver::Version::new(1, 0, 0);
         let pack_dir = Store::pack_dir(name, &version).expect("store root must be determinable");
+
+        // Safety: verify pack_dir is inside the shared test store — guards
+        // against accidental writes to the real ~/.packweave/ store.
+        assert!(
+            pack_dir.starts_with(store.path()),
+            "pack_dir {pack_dir:?} is not inside the isolated store root {:?}",
+            store.path()
+        );
 
         std::fs::create_dir_all(&pack_dir).unwrap();
 
@@ -173,6 +203,8 @@ impl StoreFixture {
 
 impl Drop for StoreFixture {
     fn drop(&mut self) {
+        // Remove only this pack's subdirectory — other tests sharing the same
+        // store root may still be running.
         let _ = std::fs::remove_dir_all(&self.pack_dir);
     }
 }
