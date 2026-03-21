@@ -109,20 +109,10 @@ pub fn run(pack_spec: Option<&str>) -> Result<()> {
                 },
             };
 
-            // Remove old version from adapters before applying new version.
-            // Only needed if the pack was previously installed (upgrade path).
-            if is_upgrade {
-                for adapter in &adapters {
-                    if let Err(e) = adapter.remove(resolved_name) {
-                        eprintln!(
-                            "  warning: failed to remove old config from {}: {e}",
-                            adapter.name()
-                        );
-                    }
-                }
-            }
-
             // Apply new version to each installed adapter (collect-and-continue).
+            // apply() is idempotent — it overwrites existing entries for the same
+            // server/prompt/command names, so an explicit remove() is unnecessary.
+            // Applying first means the old config stays intact if apply() fails.
             let mut adapter_errors: Vec<String> = Vec::new();
             for adapter in &adapters {
                 match adapter.apply(&resolved) {
@@ -159,7 +149,9 @@ pub fn run(pack_spec: Option<&str>) -> Result<()> {
             // Record in lock file
             lockfile.lock_pack(resolved_name, version.clone(), Some(release.sha256.clone()));
 
-            any_updated = true;
+            if adapter_errors.is_empty() {
+                any_updated = true;
+            }
         }
     }
 
@@ -274,5 +266,27 @@ mod tests {
         let req = req.unwrap();
         assert!(req.matches(&semver::Version::new(2, 1, 0)));
         assert!(!req.matches(&semver::Version::new(3, 0, 0)));
+    }
+
+    #[test]
+    fn parse_pack_spec_scoped_name_at_latest() {
+        // "@my-org/my-pack@latest" — scoped name with @latest suffix.
+        // The leading @ is stripped by the caller, not parse_pack_spec.
+        let (name, req) = parse_pack_spec("@my-org/my-pack@latest").unwrap();
+        assert_eq!(name, "@my-org/my-pack");
+        assert!(req.is_none());
+    }
+
+    #[test]
+    fn parse_pack_spec_hyphenated_name() {
+        let (name, req) = parse_pack_spec("my-cool-pack").unwrap();
+        assert_eq!(name, "my-cool-pack");
+        assert!(req.is_none());
+    }
+
+    #[test]
+    fn parse_pack_spec_invalid_version_req() {
+        // "foo@not-a-version" should fail because "not-a-version" is not valid semver
+        assert!(parse_pack_spec("foo@not-a-version").is_err());
     }
 }
