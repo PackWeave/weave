@@ -1,6 +1,19 @@
+use std::collections::HashSet;
+
 use crate::core::profile::Profile;
 use crate::core::registry::Registry;
 use crate::error::{Result, WeaveError};
+
+/// Mutable state threaded through recursive dependency resolution.
+/// Bundled into a struct to keep resolve_pack's argument count manageable.
+struct ResolveCtx {
+    to_install: Vec<(String, semver::Version)>,
+    already_satisfied: Vec<String>,
+    /// Active resolution stack for O(1) cycle detection.
+    visited: HashSet<String>,
+    /// Traversal order for human-readable cycle error messages.
+    path: Vec<String>,
+}
 
 /// The result of dependency resolution: what to install, what to remove,
 /// and what is already satisfied.
@@ -28,21 +41,19 @@ impl<'a> Resolver<'a> {
         version_req: Option<&semver::VersionReq>,
         profile: &Profile,
     ) -> Result<InstallPlan> {
-        let mut to_install = Vec::new();
-        let mut already_satisfied = Vec::new();
+        let mut ctx = ResolveCtx {
+            to_install: Vec::new(),
+            already_satisfied: Vec::new(),
+            visited: HashSet::new(),
+            path: Vec::new(),
+        };
 
-        self.resolve_pack(
-            pack_name,
-            version_req,
-            profile,
-            &mut to_install,
-            &mut already_satisfied,
-        )?;
+        self.resolve_pack(pack_name, version_req, profile, &mut ctx)?;
 
         Ok(InstallPlan {
-            to_install,
+            to_install: ctx.to_install,
             to_remove: Vec::new(),
-            already_satisfied,
+            already_satisfied: ctx.already_satisfied,
         })
     }
 
@@ -66,11 +77,50 @@ impl<'a> Resolver<'a> {
         pack_name: &str,
         version_req: Option<&semver::VersionReq>,
         profile: &Profile,
-        to_install: &mut Vec<(String, semver::Version)>,
-        already_satisfied: &mut Vec<String>,
+        ctx: &mut ResolveCtx,
     ) -> Result<()> {
-        // Skip if already queued for installation
-        if to_install.iter().any(|(n, _)| n == pack_name) {
+        // Cycle detection must come first: `ctx.visited` tracks the active
+        // resolution stack. If this pack is currently being resolved upstream
+        // it means we have a circular dependency (A → B → A). A pack that has
+        // already been fully resolved (in `to_install` but not in `visited`) is
+        // a diamond dependency — the duplicate-queue guard below handles it.
+        if !ctx.visited.insert(pack_name.to_string()) {
+            // `ctx.path` records traversal order; append the cycle-closing pack
+            // to show the full loop (e.g. "pack-a → pack-b → pack-a").
+            let mut chain_parts = ctx.path.clone();
+            chain_parts.push(pack_name.to_string());
+            let chain = chain_parts.join(" → ");
+            return Err(WeaveError::CircularDependency {
+                pack: pack_name.to_string(),
+                chain,
+            });
+        }
+
+        // Record traversal position for error messages. Mirrored by ctx.path.pop()
+        // at every exit point that also calls ctx.visited.remove().
+        ctx.path.push(pack_name.to_string());
+
+        // Diamond dependency check: this pack was fully resolved in a sibling
+        // branch. If the already-queued version satisfies our requirement, skip
+        // silently. If it does not, the two branches require incompatible versions
+        // of the same pack — that is an unresolvable conflict.
+        if let Some((_, existing_version)) = ctx.to_install.iter().find(|(n, _)| n == pack_name) {
+            let existing_version = existing_version.clone();
+            if let Some(req) = version_req {
+                if !req.matches(&existing_version) {
+                    ctx.visited.remove(pack_name);
+                    ctx.path.pop();
+                    return Err(WeaveError::DependencyConflict {
+                        pack: pack_name.to_string(),
+                        conflicts: format!(
+                            "requires {req} but {existing_version} was already selected \
+                             by another dependency"
+                        ),
+                    });
+                }
+            }
+            ctx.visited.remove(pack_name);
+            ctx.path.pop();
             return Ok(());
         }
 
@@ -106,16 +156,44 @@ impl<'a> Resolver<'a> {
         // when 1.1.0 is the latest release matching the constraint.
         if let Some(installed) = profile.get_pack(pack_name) {
             if installed.version == version {
-                already_satisfied.push(pack_name.to_string());
+                ctx.already_satisfied.push(pack_name.to_string());
+                // Backtrack before returning: this pack is satisfied so we don't
+                // traverse its deps again, but it must not stay in `visited` as
+                // a false cycle anchor for sibling packs that depend on it.
+                ctx.visited.remove(pack_name);
+                ctx.path.pop();
                 return Ok(());
             }
         }
 
-        to_install.push((pack_name.to_string(), version));
+        // Resolve this pack's dependencies before queuing itself (post-order).
+        // This ensures the install loop in cli/install.rs always installs a
+        // dependency before the pack that declares it.
+        //
+        // Re-use the already-fetched `metadata.versions` to obtain the release
+        // record — no additional HTTP round-trip needed.
+        // SAFETY: `version` was just selected from `metadata.versions`, so the
+        // find() below cannot fail.
+        let release = metadata
+            .versions
+            .iter()
+            .find(|r| r.version == version)
+            .expect("version was selected from metadata.versions; it must still be present");
 
-        // For v1, we don't recursively resolve dependencies from the registry.
-        // Pack dependencies would require fetching and parsing each pack's manifest.
-        // This will be enhanced in later milestones.
+        let mut deps: Vec<(&String, &semver::VersionReq)> = release.dependencies.iter().collect();
+        deps.sort_by_key(|(name, _)| name.as_str());
+        for (dep_name, dep_req) in deps {
+            self.resolve_pack(dep_name, Some(dep_req), profile, ctx)?;
+        }
+
+        // Post-order push: queue this pack after its dependencies so the install
+        // loop processes dependencies first.
+        ctx.to_install.push((pack_name.to_string(), version));
+
+        // Backtrack: remove from the active path so sibling packs that share
+        // this dependency don't incorrectly detect a cycle.
+        ctx.visited.remove(pack_name);
+        ctx.path.pop();
 
         Ok(())
     }
@@ -123,36 +201,66 @@ impl<'a> Resolver<'a> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
     use crate::core::pack::PackSource;
     use crate::core::profile::InstalledPack;
     use crate::core::registry::{MockRegistry, PackMetadata, PackRelease};
 
-    fn setup_registry() -> MockRegistry {
-        let mut registry = MockRegistry::new();
-        registry.add_pack(PackMetadata {
-            name: "webdev".into(),
-            description: "Web tools".into(),
+    /// Build a `PackRelease` with no dependencies.
+    fn release(major: u64, minor: u64, patch: u64) -> PackRelease {
+        PackRelease {
+            version: semver::Version::new(major, minor, patch),
+            url: format!("https://example.com/pack-{major}.{minor}.{patch}.tar.gz"),
+            sha256: format!("{major}{minor}{patch}"),
+            size_bytes: None,
+            dependencies: HashMap::new(),
+        }
+    }
+
+    /// Build a `PackRelease` with the given dependencies.
+    fn release_with_deps(major: u64, minor: u64, patch: u64, deps: &[(&str, &str)]) -> PackRelease {
+        let dependencies = deps
+            .iter()
+            .map(|(name, req)| {
+                (
+                    name.to_string(),
+                    // Safe: test strings are valid semver requirements
+                    semver::VersionReq::parse(req).unwrap(),
+                )
+            })
+            .collect();
+        PackRelease {
+            version: semver::Version::new(major, minor, patch),
+            url: format!("https://example.com/pack-{major}.{minor}.{patch}.tar.gz"),
+            sha256: format!("{major}{minor}{patch}"),
+            size_bytes: None,
+            dependencies,
+        }
+    }
+
+    fn pack_meta(name: &str, releases: Vec<PackRelease>) -> PackMetadata {
+        PackMetadata {
+            name: name.into(),
+            description: format!("{name} pack"),
             authors: vec![],
             license: None,
             repository: None,
-            versions: vec![
-                PackRelease {
-                    version: semver::Version::new(1, 0, 0),
-                    url: "https://example.com/webdev-1.0.0.tar.gz".into(),
-                    sha256: "abc".into(),
-                    size_bytes: None,
-                },
-                PackRelease {
-                    version: semver::Version::new(1, 1, 0),
-                    url: "https://example.com/webdev-1.1.0.tar.gz".into(),
-                    sha256: "def".into(),
-                    size_bytes: None,
-                },
-            ],
-        });
+            versions: releases,
+        }
+    }
+
+    fn setup_registry() -> MockRegistry {
+        let mut registry = MockRegistry::new();
+        registry.add_pack(pack_meta(
+            "webdev",
+            vec![release(1, 0, 0), release(1, 1, 0)],
+        ));
         registry
     }
+
+    // ── original tests ────────────────────────────────────────────────────────
 
     #[test]
     fn plan_install_latest() {
@@ -276,5 +384,182 @@ mod tests {
 
         let result = resolver.plan_remove("webdev", &profile);
         assert!(result.is_err());
+    }
+
+    // ── new transitive dependency tests ───────────────────────────────────────
+
+    /// Installing pack A (which depends on pack B) should also queue pack B.
+    #[test]
+    fn transitive_dependency_installed() {
+        let mut registry = MockRegistry::new();
+        registry.add_pack(pack_meta("pack-b", vec![release(1, 0, 0)]));
+        registry.add_pack(pack_meta(
+            "pack-a",
+            vec![release_with_deps(1, 0, 0, &[("pack-b", "^1.0.0")])],
+        ));
+
+        let resolver = Resolver::new(&registry);
+        let profile = Profile {
+            name: "test".into(),
+            packs: vec![],
+        };
+
+        let plan = resolver.plan_install("pack-a", None, &profile).unwrap();
+
+        let names: Vec<&str> = plan.to_install.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(plan.to_install.len(), 2);
+        // Post-order: dependency must appear before the pack that requires it
+        let pos_a = names.iter().position(|n| *n == "pack-a").unwrap();
+        let pos_b = names.iter().position(|n| *n == "pack-b").unwrap();
+        assert!(
+            pos_b < pos_a,
+            "pack-b (dep) must be installed before pack-a; order was {names:?}"
+        );
+    }
+
+    /// If pack B is already installed at the correct version when pack A is
+    /// installed, B should appear in `already_satisfied`, not `to_install`.
+    #[test]
+    fn already_satisfied_transitive() {
+        let mut registry = MockRegistry::new();
+        registry.add_pack(pack_meta("pack-b", vec![release(1, 0, 0)]));
+        registry.add_pack(pack_meta(
+            "pack-a",
+            vec![release_with_deps(1, 0, 0, &[("pack-b", "^1.0.0")])],
+        ));
+
+        let resolver = Resolver::new(&registry);
+        let profile = Profile {
+            name: "test".into(),
+            packs: vec![InstalledPack {
+                name: "pack-b".into(),
+                version: semver::Version::new(1, 0, 0),
+                source: PackSource::Registry {
+                    registry_url: "https://example.com".into(),
+                },
+            }],
+        };
+
+        let plan = resolver.plan_install("pack-a", None, &profile).unwrap();
+
+        let install_names: Vec<&str> = plan.to_install.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(install_names.contains(&"pack-a"), "pack-a should be queued");
+        assert!(
+            !install_names.contains(&"pack-b"),
+            "pack-b is satisfied; should not be in to_install"
+        );
+        assert!(
+            plan.already_satisfied.contains(&"pack-b".to_string()),
+            "pack-b should be in already_satisfied"
+        );
+    }
+
+    /// A circular dependency (A → B → A) must return a CircularDependency error
+    /// rather than looping forever.
+    #[test]
+    fn circular_dependency_returns_error() {
+        let mut registry = MockRegistry::new();
+        registry.add_pack(pack_meta(
+            "pack-b",
+            vec![release_with_deps(1, 0, 0, &[("pack-a", "^1.0.0")])],
+        ));
+        registry.add_pack(pack_meta(
+            "pack-a",
+            vec![release_with_deps(1, 0, 0, &[("pack-b", "^1.0.0")])],
+        ));
+
+        let resolver = Resolver::new(&registry);
+        let profile = Profile {
+            name: "test".into(),
+            packs: vec![],
+        };
+
+        let result = resolver.plan_install("pack-a", None, &profile);
+        match result {
+            Err(WeaveError::CircularDependency { pack, chain }) => {
+                assert_eq!(pack, "pack-a", "cycle closes on pack-a");
+                // chain must show traversal order, not alphabetical:
+                // pack-a was entered first, pack-b second, then pack-a closes the cycle
+                assert_eq!(
+                    chain, "pack-a → pack-b → pack-a",
+                    "chain should show traversal order"
+                );
+            }
+            other => panic!("expected CircularDependency error, got: {other:?}"),
+        }
+    }
+
+    /// A deep chain A → B → C should install all three packs.
+    #[test]
+    fn deep_transitive_chain() {
+        let mut registry = MockRegistry::new();
+        registry.add_pack(pack_meta("pack-c", vec![release(1, 0, 0)]));
+        registry.add_pack(pack_meta(
+            "pack-b",
+            vec![release_with_deps(1, 0, 0, &[("pack-c", "^1.0.0")])],
+        ));
+        registry.add_pack(pack_meta(
+            "pack-a",
+            vec![release_with_deps(1, 0, 0, &[("pack-b", "^1.0.0")])],
+        ));
+
+        let resolver = Resolver::new(&registry);
+        let profile = Profile {
+            name: "test".into(),
+            packs: vec![],
+        };
+
+        let plan = resolver.plan_install("pack-a", None, &profile).unwrap();
+
+        let names: Vec<&str> = plan.to_install.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(plan.to_install.len(), 3);
+        // Post-order: deepest dependency first (C → B → A)
+        let pos_a = names.iter().position(|n| *n == "pack-a").unwrap();
+        let pos_b = names.iter().position(|n| *n == "pack-b").unwrap();
+        let pos_c = names.iter().position(|n| *n == "pack-c").unwrap();
+        assert!(
+            pos_c < pos_b && pos_b < pos_a,
+            "expected post-order C→B→A but got {names:?}"
+        );
+    }
+
+    /// Diamond dependency with incompatible version requirements must return
+    /// DependencyConflict. Pack A depends on B ^1.0 and C ^1.0; C depends on
+    /// B ^2.0. The resolver picks B 1.x for pack-a's branch, then C's branch
+    /// demands B ^2.0 — an unresolvable conflict.
+    #[test]
+    fn diamond_dependency_version_conflict() {
+        let mut registry = MockRegistry::new();
+        registry.add_pack(pack_meta(
+            "pack-b",
+            vec![release(1, 0, 0), release(2, 0, 0)],
+        ));
+        registry.add_pack(pack_meta(
+            "pack-c",
+            vec![release_with_deps(1, 0, 0, &[("pack-b", "^2.0.0")])],
+        ));
+        registry.add_pack(pack_meta(
+            "pack-a",
+            vec![release_with_deps(
+                1,
+                0,
+                0,
+                &[("pack-b", "^1.0.0"), ("pack-c", "^1.0.0")],
+            )],
+        ));
+
+        let resolver = Resolver::new(&registry);
+        let profile = Profile {
+            name: "test".into(),
+            packs: vec![],
+        };
+
+        let result = resolver.plan_install("pack-a", None, &profile);
+        match result {
+            Err(WeaveError::DependencyConflict { pack, .. }) => {
+                assert_eq!(pack, "pack-b", "conflict should be on pack-b");
+            }
+            other => panic!("expected DependencyConflict, got: {other:?}"),
+        }
     }
 }
