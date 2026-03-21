@@ -155,3 +155,43 @@ fn generated_pack_toml_parses_via_pack_from_toml() {
     assert_eq!(pack.version, semver::Version::new(0, 1, 0));
     assert!(pack.targets.claude_code);
 }
+
+#[test]
+fn init_no_args_fails_when_readme_already_exists() {
+    let tmp = TempDir::new().unwrap();
+    let pack_dir = tmp.path().join("my-pack");
+    std::fs::create_dir(&pack_dir).unwrap();
+
+    // Pre-create a README.md with known content
+    let readme_path = pack_dir.join("README.md");
+    std::fs::write(&readme_path, "do not overwrite me").unwrap();
+
+    let output = run_init_in(&pack_dir, &[]);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("already exist"),
+        "expected 'already exist' in: {stderr}"
+    );
+
+    // Verify the original file was not modified
+    let content = std::fs::read_to_string(&readme_path).unwrap();
+    assert_eq!(content, "do not overwrite me");
+}
+
+#[test]
+fn init_fails_when_file_exists_with_target_name() {
+    let tmp = TempDir::new().unwrap();
+    // Create a file (not a directory) named "my-pack"
+    std::fs::write(tmp.path().join("my-pack"), "I am a file").unwrap();
+
+    let output = run_init_in(tmp.path(), &["my-pack"]);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("file named"),
+        "expected 'file named' in: {stderr}"
+    );
+}

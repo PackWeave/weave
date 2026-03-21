@@ -12,13 +12,28 @@ fn validate_pack_name(name: &str) -> Result<()> {
         .chars()
         .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
     {
-        bail!(
-            "pack name '{}' is invalid\n  \
-             Pack names must contain only lowercase letters, numbers, and hyphens.\n  \
-             Try: weave init {}",
-            name,
-            name.to_lowercase().replace('_', "-")
-        );
+        let suggestion = name
+            .to_lowercase()
+            .replace('_', "-")
+            .chars()
+            .filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '-')
+            .collect::<String>();
+
+        if suggestion.is_empty() {
+            bail!(
+                "pack name '{}' is invalid\n  \
+                 Pack names must contain only lowercase letters, numbers, and hyphens.",
+                name,
+            );
+        } else {
+            bail!(
+                "pack name '{}' is invalid\n  \
+                 Pack names must contain only lowercase letters, numbers, and hyphens.\n  \
+                 Try: weave init {}",
+                name,
+                suggestion
+            );
+        }
     }
 
     Ok(())
@@ -47,8 +62,38 @@ fn readme_content(name: &str) -> String {
     format!("# {name}\n\nA weave pack.\n\n## Description\n\nTODO: describe what this pack does.\n")
 }
 
+/// Files that `scaffold` creates. Used to check for conflicts before writing.
+const SCAFFOLD_FILES: &[&str] = &["pack.toml", "README.md", "prompts/system.md"];
+
+/// Check that none of the files scaffold would create already exist in `root_dir`.
+///
+/// This is important for the in-place (`weave init` with no args) case — the
+/// subdirectory case is already guarded by checking that the directory does not
+/// exist at all.
+fn check_no_conflicts(root_dir: &Path) -> Result<()> {
+    let mut conflicts: Vec<String> = Vec::new();
+    for rel in SCAFFOLD_FILES {
+        let path = root_dir.join(rel);
+        if path.exists() {
+            conflicts.push(rel.to_string());
+        }
+    }
+    if !conflicts.is_empty() {
+        bail!(
+            "the following files already exist and would be overwritten:\n  {}\n  \
+             Remove them first or use a different directory.",
+            conflicts.join("\n  ")
+        );
+    }
+    Ok(())
+}
+
 /// Scaffold all pack files into `root_dir`.
-fn scaffold(root_dir: &Path, name: &str) -> Result<()> {
+fn scaffold(root_dir: &Path, name: &str, check_existing: bool) -> Result<()> {
+    if check_existing {
+        check_no_conflicts(root_dir)?;
+    }
+
     // Create the root directory if it doesn't already exist (for the <name> case,
     // it was just created; for the no-args case, it already exists).
     std::fs::create_dir_all(root_dir)
@@ -97,20 +142,29 @@ fn scaffold(root_dir: &Path, name: &str) -> Result<()> {
 pub fn run(name: Option<&str>) -> Result<()> {
     let cwd = std::env::current_dir().context("determining current directory")?;
 
-    let (root_dir, pack_name): (PathBuf, String) = match name {
+    let (root_dir, pack_name, check_existing): (PathBuf, String, bool) = match name {
         Some(n) => {
             // Validate before any I/O
             validate_pack_name(n)?;
 
             let dir = cwd.join(n);
-            if dir.exists() {
+            if dir.is_file() {
+                bail!(
+                    "a file named '{}' already exists\n  \
+                     Choose a different name or remove the existing file.",
+                    n
+                );
+            }
+            if dir.is_dir() {
                 bail!(
                     "directory '{}' already exists\n  \
                      Choose a different name or remove the existing directory.",
                     n
                 );
             }
-            (dir, n.to_string())
+            // For the subdirectory case, the directory is freshly created so
+            // there can be no file conflicts — skip the check.
+            (dir, n.to_string(), false)
         }
         None => {
             // No-args: initialize current directory
@@ -133,11 +187,13 @@ pub fn run(name: Option<&str>) -> Result<()> {
 
             validate_pack_name(&dir_name)?;
 
-            (cwd.clone(), dir_name)
+            // In-place init: the directory already exists and may contain
+            // files that would be overwritten — scaffold must check.
+            (cwd.clone(), dir_name, true)
         }
     };
 
-    scaffold(&root_dir, &pack_name)?;
+    scaffold(&root_dir, &pack_name, check_existing)?;
 
     // Verify the generated pack.toml is valid by parsing it.
     let pack_toml_path = root_dir.join("pack.toml");
