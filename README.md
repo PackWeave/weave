@@ -1,60 +1,46 @@
 # Weave
 
-> MCP pack manager for AI CLIs.
+[![Build](https://github.com/PackWeave/weave/actions/workflows/ci.yml/badge.svg)](https://github.com/PackWeave/weave/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
+![Status](https://img.shields.io/badge/status-v0.1%20MVP-green)
 
-Weave is a command-line tool that installs, manages, and publishes **packs** — versioned bundles of MCP server configurations, slash commands, system prompts, and tool settings — across multiple AI CLIs.
-
-Think **oh-my-zsh for AI CLIs**: portable, shareable packs that configure Claude Code, Gemini CLI, and Codex CLI with a single command.
+> **oh-my-zsh for AI CLIs** — portable, shareable packs that configure Claude Code, Gemini CLI, and Codex CLI with a single command.
 
 ```bash
-weave install @webdev
-weave list
-weave diagnose
+weave install @webdev    # install a web dev MCP stack
+weave list               # see what's installed and where
+weave diagnose           # verify config health across all your CLIs
 ```
 
 ---
 
 ## The problem
 
-Every AI CLI (Claude Code, Gemini CLI, Codex CLI) has its own configuration format. Setting up MCP servers, slash commands, and system prompts means hand-editing JSON and Markdown files in different locations, with different schemas. There's no way to share a setup with your team, version it, or switch between contexts.
+Every AI CLI has its own configuration format. Setting up MCP servers, slash commands, and system prompts means hand-editing JSON and Markdown files scattered across different directories with different schemas.
 
-Weave fixes this.
+There's no way to share your setup with a teammate, version it, or switch between contexts (work vs. personal vs. open source). Every developer starts from scratch.
+
+**Weave fixes this.**
 
 ---
 
 ## How it works
 
-A **pack** is a `pack.toml` manifest plus a set of files — MCP server definitions, commands, prompts, settings fragments. You install packs into a **profile** (e.g. `work`, `oss`, `personal`). When you switch profiles, Weave rewrites the config files of every installed AI CLI to reflect the active pack set.
+A **pack** is a `pack.toml` manifest bundled with MCP server definitions, slash commands, system prompt fragments, and settings. Install packs into a named **profile** (`work`, `oss`, `personal`). Weave takes care of writing the right config for every AI CLI you have installed.
 
-Weave ships with **adapters** for each supported CLI. An adapter knows exactly how to read and write that CLI's config format — non-destructively. It never wipes your existing setup; it only adds, tracks, and cleanly removes what it owns.
+```
+weave install @webdev
+        │
+        ├─▶ fetches + verifies the pack archive from the registry
+        ├─▶ resolves transitive dependencies
+        └─▶ applies to each installed CLI — non-destructively
 
----
+        Claude Code:  ~/.claude.json, ~/.claude/settings.json, ~/.claude/commands/
+        Gemini CLI:   ~/.gemini/settings.json, ~/.gemini/GEMINI.md
+```
 
-## Status
-
-> **v0.1 (MVP)** — `install`, `list`, `remove`, `search`, and `diagnose` are functional for Claude Code and Gemini CLI. Not yet published to a package registry; install via the shell script or build from source.
-
----
-
-## Docs
-
-See [docs/README.md](./docs/README.md) for the full index, or jump straight to:
-
-- [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
-- [docs/ROADMAP.md](./docs/ROADMAP.md)
-- [docs/CONTRIBUTING.md](./docs/CONTRIBUTING.md)
-
-AI assistants working in this repo should read [`AGENTS.md`](./AGENTS.md).
-
----
-
-## Supported CLIs
-
-| CLI | Status |
-|-----|--------|
-| Claude Code | ✅ v0.1 |
-| Gemini CLI | ✅ v0.1 |
-| OpenAI Codex CLI | Planned (v0.2) |
+Each CLI has its own **adapter** — a thin layer that knows exactly how to read and write that CLI's config format. Adapters never wipe your existing config. They only add, track, and cleanly remove what they own. A `weave remove` is surgical.
 
 ---
 
@@ -72,7 +58,7 @@ brew install PackWeave/tap/weave
 curl -fsSL https://raw.githubusercontent.com/PackWeave/weave/main/install.sh | sh
 ```
 
-Set `WEAVE_INSTALL_DIR` to override the install location (default: `/usr/local/bin`, fallback: `~/.local/bin`):
+Override the install directory (default: `/usr/local/bin`, fallback: `~/.local/bin`):
 
 ```bash
 WEAVE_INSTALL_DIR=~/.local/bin curl -fsSL https://raw.githubusercontent.com/PackWeave/weave/main/install.sh | sh
@@ -88,14 +74,41 @@ cargo build --release
 
 ---
 
-## Usage
+## Quick start
 
 ```bash
-# Install a pack from the registry
+# 1. Install a pack from the registry
 weave install @webdev
 
-# List installed packs
+# 2. See what was installed and which CLIs it applied to
 weave list
+
+# 3. Confirm everything looks healthy
+weave diagnose
+```
+
+That's it. Weave has written MCP server definitions, slash commands, and settings into your Claude Code and Gemini CLI config — without touching anything else.
+
+---
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `weave install <pack>` | Download a pack, resolve its dependencies, and apply it to all supported CLIs |
+| `weave remove <pack>` | Remove a pack and clean up all config entries it wrote |
+| `weave list` | Show installed packs, their versions, and which CLIs they were applied to |
+| `weave search <query>` | Search the registry for packs matching a keyword or phrase |
+| `weave diagnose` | Check for config drift and health issues across all installed CLIs and packs |
+
+**Examples:**
+
+```bash
+# Install a pack (@ prefix resolves from the registry)
+weave install @webdev
+
+# Install a specific version
+weave install @webdev@1.2.0
 
 # Remove a pack
 weave remove webdev
@@ -103,80 +116,15 @@ weave remove webdev
 # Search the registry
 weave search "browser automation"
 
-# Check CLI configuration health
+# Check for config issues (e.g. project-scope directories added after install)
 weave diagnose
-```
-
----
-
-## Coming soon
-
-These features are actively planned. See [docs/ROADMAP.md](./docs/ROADMAP.md) for milestones and details.
-
-**v0.2 — Codex, profiles, and pack authoring:**
-
-```bash
-# Switch between named profiles (e.g. work, oss, personal)
-weave use work
-
-# Create a new pack scaffold
-weave init my-pack
-
-# Update installed packs to latest compatible versions
-weave update
-
-# Publish a pack to the registry
-weave publish my-pack
-```
-
-**v0.3 — Hooks, taps, and sync:**
-
-```bash
-# Add a community pack source
-weave tap add user/repo
-
-# Reapply the active profile (after manual config changes)
-weave sync
-```
-
----
-
-## Project-scope config and reinstall behavior
-
-Some AI CLIs support both user-scope and project-scope configuration. For example:
-
-- **Claude Code** reads `.claude/settings.json` and `.mcp.json` when a `.claude/` directory exists in the current project.
-- **Gemini CLI** reads `.gemini/settings.json` when a `.gemini/` directory exists in the current project.
-
-When you run `weave install`, Weave applies pack config to every scope that exists **at install time**. If you create a project-scope directory (`.claude/` or `.gemini/`) **after** installing a pack, Weave will not automatically back-fill project-scope config. The pack's MCP servers, prompts, and settings will only be present in the user-scope config until you reinstall.
-
-**How to fix it:** Re-run `weave install <pack-name>` from the project directory. Weave's `apply` is idempotent — re-running it updates user-scope config and adds any missing project-scope config.
-
-**How to detect it:** Run `weave diagnose` to check for this condition across all installed packs and adapters:
-
-```bash
-weave diagnose
-```
-
-Example output when a pack needs reinstalling for project scope:
-
-```
-Running diagnostics (profile 'default')...
-
-  Claude Code — 1 issue(s) found:
-    [warning] pack 'webdev' has no project-scope entries for Claude Code but .claude/ now exists — pack was installed before this directory was created
-             run `weave install webdev` to apply project-scope config
-
-  Gemini CLI — OK
-
-1 issue(s) found. See suggestions above to fix them.
 ```
 
 ---
 
 ## Pack format
 
-A pack is a directory with a `pack.toml` manifest:
+A pack is a directory with a `pack.toml` manifest at its root:
 
 ```toml
 [pack]
@@ -201,7 +149,83 @@ transport = "stdio"
 namespace = "fs"
 ```
 
-See [pack.schema.toml](./pack.schema.toml) for the full annotated schema.
+Packs can also declare:
+
+- **Dependencies** on other packs — Weave resolves them transitively
+- **Slash commands** — copied into `~/.claude/commands/` with namespaced filenames
+- **System prompt fragments** — appended to `CLAUDE.md` / `GEMINI.md` between tagged delimiters
+- **Settings fragments** — deep-merged into each CLI's settings file
+- **Environment variable declarations** — written as references (`${MY_API_KEY}`), never values
+
+See [pack.schema.toml](./pack.schema.toml) for the full annotated schema and [docs/PACKS.md](./docs/PACKS.md) for quality guidelines.
+
+---
+
+## Supported CLIs
+
+| CLI | Status | What Weave manages |
+|-----|--------|--------------------|
+| **Claude Code** | ✅ v0.1 | MCP servers · slash commands · system prompt · settings |
+| **Gemini CLI** | ✅ v0.1 | MCP servers · system prompt · settings |
+| **OpenAI Codex CLI** | Planned (v0.2) | MCP servers · system prompt · settings |
+
+---
+
+## Project-scope config
+
+Some CLIs read both a user-level config (`~/.claude/`) and a project-level config (`.claude/` in your repo). Weave applies packs to every scope that **exists at install time**.
+
+> [!TIP]
+> If you create a `.claude/` or `.gemini/` directory _after_ installing a pack, run `weave install <pack>` again from the project directory. `apply` is idempotent — it's safe to re-run and will add any missing project-scope config without duplicating anything.
+
+Run `weave diagnose` to detect this condition automatically:
+
+```
+Running diagnostics (profile 'default')...
+
+  Claude Code — 1 issue(s) found:
+    [warning] pack 'webdev' has no project-scope entries for Claude Code but .claude/ now exists
+             run `weave install webdev` to apply project-scope config
+
+  Gemini CLI — OK
+
+1 issue(s) found. See suggestions above to fix them.
+```
+
+---
+
+## Coming in v0.2+
+
+These features are in active development. See [docs/ROADMAP.md](./docs/ROADMAP.md) for full milestones.
+
+**v0.2 — Profiles, Codex support, and pack authoring:**
+
+```bash
+weave use work           # switch to a named profile (work, oss, personal)
+weave update             # update installed packs to latest compatible versions
+weave init my-pack       # scaffold a new pack
+weave publish my-pack    # publish a pack to the registry
+```
+
+**v0.3 — Hooks, community taps, and sync:**
+
+```bash
+weave tap add user/repo  # add a community pack source
+weave sync               # reapply the active profile after manual config changes
+```
+
+---
+
+## Docs
+
+| Document | Description |
+|----------|-------------|
+| [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | Internal design: modules, data flow, adapter contracts |
+| [docs/ROADMAP.md](./docs/ROADMAP.md) | Milestones and planned scope |
+| [docs/CONTRIBUTING.md](./docs/CONTRIBUTING.md) | How to contribute |
+| [docs/PACKS.md](./docs/PACKS.md) | Pack format and quality guidelines |
+
+AI assistants working in this repo should read [`AGENTS.md`](./AGENTS.md).
 
 ---
 
