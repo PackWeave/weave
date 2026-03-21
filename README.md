@@ -175,7 +175,7 @@ Packs can also declare:
 - 📦 **Dependencies** on other packs — Weave resolves them transitively
 - 💬 **Slash commands / skills** — copied into `~/.claude/commands/` or `~/.codex/skills/` with namespaced filenames
 - 📝 **System prompt fragments** — appended to `CLAUDE.md` / `GEMINI.md` / `AGENTS.md` between tagged delimiters
-- ⚙️ **Settings fragments** — deep-merged into each CLI's settings file
+- ⚙️ **Settings fragments** — merged into each CLI's settings: Claude/Gemini JSON settings are deep-merged; Codex settings are added as top-level keys in `config.toml`
 - 🔐 **Environment variable declarations** — written as references, never values
 
 > [!IMPORTANT]
