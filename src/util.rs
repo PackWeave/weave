@@ -13,12 +13,22 @@ pub fn packweave_dir() -> Result<PathBuf> {
 }
 
 /// Ensures a directory exists, creating it and all parents if necessary.
+/// Returns an error if the path already exists as a non-directory (e.g. a file).
 pub fn ensure_dir(path: &std::path::Path) -> Result<()> {
-    if !path.exists() {
-        std::fs::create_dir_all(path)
-            .map_err(|e| WeaveError::io(format!("creating directory {}", path.display()), e))?;
+    if path.exists() {
+        if !path.is_dir() {
+            return Err(WeaveError::io(
+                format!("creating directory {}", path.display()),
+                std::io::Error::new(
+                    std::io::ErrorKind::AlreadyExists,
+                    "path already exists and is not a directory",
+                ),
+            ));
+        }
+        return Ok(());
     }
-    Ok(())
+    std::fs::create_dir_all(path)
+        .map_err(|e| WeaveError::io(format!("creating directory {}", path.display()), e))
 }
 
 /// Reads a file to string, returning a contextual error on failure.

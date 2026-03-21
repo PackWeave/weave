@@ -172,6 +172,17 @@ impl GeminiCliAdapter {
             .entry("mcpServers")
             .or_insert_with(|| serde_json::json!({}));
 
+        // Guard against a malformed file where `mcpServers` exists but is not an object
+        // (e.g. `"mcpServers": []`). Indexing a non-object Value with a string key panics.
+        let servers_obj = servers_entry.as_object_mut().ok_or_else(|| WeaveError::ApplyFailed {
+            pack: pack.pack.name.clone(),
+            cli: "Gemini CLI".into(),
+            reason: format!(
+                "'mcpServers' in {} is not a JSON object — cannot merge servers into it",
+                path.display()
+            ),
+        })?;
+
         for server in &pack.pack.servers {
             if let Some(owner) = servers_map.get(&server.name) {
                 if owner != &pack.pack.name {
@@ -186,7 +197,7 @@ impl GeminiCliAdapter {
                     });
                 }
             }
-            servers_entry[&server.name] = build_gemini_server_config(server);
+            servers_obj.insert(server.name.clone(), build_gemini_server_config(server));
             servers_map.insert(server.name.clone(), pack.pack.name.clone());
         }
 
@@ -282,12 +293,17 @@ impl GeminiCliAdapter {
         pack_name: &str,
         settings_map: &mut HashMap<String, SettingsRecord>,
     ) -> Result<()> {
-        let record = match settings_map.remove(pack_name) {
+        // Peek at the record without removing it yet. We only remove it from the map
+        // after a successful write — otherwise an early return or error would silently
+        // drop ownership tracking, breaking future remove/diagnose calls.
+        let record = match settings_map.get(pack_name).cloned() {
             Some(r) => r,
             None => return Ok(()),
         };
 
         if !path.exists() {
+            // File is already gone — nothing to restore. Drop the record.
+            settings_map.remove(pack_name);
             return Ok(());
         }
 
@@ -300,12 +316,18 @@ impl GeminiCliAdapter {
 
         let frag_obj = match record.applied.as_object() {
             Some(o) => o,
-            None => return Ok(()),
+            None => {
+                settings_map.remove(pack_name);
+                return Ok(());
+            }
         };
 
         let config_obj = match config.as_object_mut() {
             Some(o) => o,
-            None => return Ok(()),
+            None => {
+                settings_map.remove(pack_name);
+                return Ok(());
+            }
         };
 
         let orig_obj = record.original.as_object();
@@ -339,7 +361,9 @@ impl GeminiCliAdapter {
 
         // JSON serialization of a valid serde_json::Value cannot fail.
         let output = serde_json::to_string_pretty(&config).expect("JSON serialization cannot fail");
-        util::write_file(path, &output)
+        util::write_file(path, &output)?;
+        settings_map.remove(pack_name);
+        Ok(())
     }
 
     // ── User-scope apply/remove ───────────────────────────────────────────────

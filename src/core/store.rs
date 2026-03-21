@@ -60,7 +60,21 @@ impl Store {
 
         // Extract into a temporary staging directory first, then rename it to the
         // final destination so a failed extraction never leaves a partial cache entry.
-        let tmp_dest = dest.with_extension("tmp");
+        //
+        // Note: `dest.with_extension("tmp")` is WRONG for semver paths like `1.1.0` —
+        // it treats "0" as the extension and produces `1.1.tmp` instead of `1.1.0.tmp`,
+        // causing collisions between different patch versions. Append to the full name.
+        let tmp_dest = dest
+            .parent()
+            .expect("pack_dir is always <store>/<name>/<version>, so parent always exists")
+            .join({
+                let mut name = dest
+                    .file_name()
+                    .expect("pack_dir always has a version component as its final segment")
+                    .to_os_string();
+                name.push(".tmp");
+                name
+            });
         if tmp_dest.exists() {
             std::fs::remove_dir_all(&tmp_dest)
                 .map_err(|e| WeaveError::io(format!("cleaning up tmp dir for '{name}'"), e))?;
@@ -142,6 +156,24 @@ impl Store {
                         std::io::ErrorKind::InvalidData,
                         format!(
                             "archive entry '{}' would escape the pack directory",
+                            entry_path.display()
+                        ),
+                    ),
+                ));
+            }
+
+            // Reject symlinks and hardlinks.  A symlink entry pointing outside `dest`
+            // followed by a regular-file entry written *through* it would bypass all
+            // the path-component checks above (no `..`, no absolute path — yet the
+            // bytes land outside the pack directory).
+            let entry_type = entry.header().entry_type();
+            if entry_type.is_symlink() || entry_type.is_hard_link() {
+                return Err(WeaveError::io(
+                    format!("extracting pack '{name}'"),
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!(
+                            "archive entry '{}' is a symlink or hardlink — not permitted in packs",
                             entry_path.display()
                         ),
                     ),
