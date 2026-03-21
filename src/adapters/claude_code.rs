@@ -879,12 +879,13 @@ fn build_claude_server_config(server: &McpServer) -> serde_json::Value {
     if !server.env.is_empty() {
         let mut env_map = serde_json::Map::new();
         for key in server.env.keys() {
-            // Write empty string placeholders, not "${KEY}" shell-expansion
-            // references. MCP server env entries are passed literally to the
-            // subprocess by Claude Code — there is no shell variable expansion at
-            // the config level. An empty string is honest: no value is configured
-            // yet. The user fills it in directly (or via `weave install` warning).
-            env_map.insert(key.clone(), serde_json::Value::String(String::new()));
+            // Write "${KEY}" references so the config clearly signals which env
+            // vars the user must populate. An empty string would silently
+            // override any value the user already has in their environment.
+            env_map.insert(
+                key.clone(),
+                serde_json::Value::String(format!("${{{key}}}")),
+            );
         }
         config.insert("env".into(), serde_json::Value::Object(env_map));
     }
@@ -1185,7 +1186,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_servers_writes_env_vars_as_empty_placeholders() {
+    fn apply_servers_writes_env_vars_as_references() {
         let dir = TempDir::new().unwrap();
         let adapter = test_adapter(&dir);
         setup_dir(&dir);
@@ -1247,8 +1248,14 @@ mod tests {
 
         let env_obj = &content["mcpServers"]["env-server"]["env"];
         assert!(env_obj.is_object(), "env key should be present");
-        assert_eq!(env_obj["MY_API_KEY"], "", "env var should be empty string");
-        assert_eq!(env_obj["ANOTHER_VAR"], "", "env var should be empty string");
+        assert_eq!(
+            env_obj["MY_API_KEY"], "${MY_API_KEY}",
+            "env var should be written as a reference"
+        );
+        assert_eq!(
+            env_obj["ANOTHER_VAR"], "${ANOTHER_VAR}",
+            "env var should be written as a reference"
+        );
     }
 
     #[test]
@@ -1266,6 +1273,10 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(&claude_json).unwrap()).unwrap();
 
         // test_pack builds a server with env: HashMap::new() — no env key should appear
+        assert!(
+            content["mcpServers"]["test-server"].is_object(),
+            "test-server must have been written to mcpServers"
+        );
         assert!(
             content["mcpServers"]["test-server"].get("env").is_none(),
             "env key should not be present when server has no env vars"
