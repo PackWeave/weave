@@ -148,10 +148,9 @@ fn shared_store_root() -> &'static TempDir {
     static STORE: OnceLock<TempDir> = OnceLock::new();
     STORE.get_or_init(|| {
         let dir = TempDir::new().expect("shared store TempDir");
-        // Only set if not already set (gemini tests may have set it first)
-        if std::env::var("WEAVE_TEST_STORE_DIR").is_err() {
-            std::env::set_var("WEAVE_TEST_STORE_DIR", dir.path());
-        }
+        // Unconditionally set so Store::pack_dir() always resolves under this TempDir,
+        // regardless of any pre-existing env var from the test runner.
+        std::env::set_var("WEAVE_TEST_STORE_DIR", dir.path());
         dir
     })
 }
@@ -681,7 +680,6 @@ fn apply_does_not_create_project_config_when_no_project_scope() {
     adapter.apply(&pack).unwrap();
 
     // project root has no .codex/ dir so project config.toml should not be created
-    let proj_config = adapter.config_dir(); // user dir
     let project_no_codex = home.path().join("no-project/.codex/config.toml");
     assert!(
         !project_no_codex.exists(),

@@ -167,11 +167,8 @@ impl CodexAdapter {
 
     /// Write a TOML value to a file.
     fn write_config_toml(path: &std::path::Path, config: &toml::Value) -> Result<()> {
-        let content = toml::to_string(config).map_err(|e| WeaveError::ApplyFailed {
-            pack: String::new(),
-            cli: "Codex CLI".into(),
-            reason: format!("failed to serialize config.toml: {e}"),
-        })?;
+        // toml::Value only holds valid TOML data constructed by weave — serialization cannot fail.
+        let content = toml::to_string(config).expect("toml::Value serialization cannot fail");
         util::write_file(path, &content)
     }
 
@@ -259,10 +256,12 @@ impl CodexAdapter {
     fn remove_servers_from_file(
         &self,
         path: &std::path::Path,
+        pack_name: &str,
         servers_to_remove: &[String],
         servers_map: &mut HashMap<String, String>,
     ) -> Result<()> {
         if !path.exists() {
+            // File already gone — clean up manifest so we don't leave orphan entries.
             for s in servers_to_remove {
                 servers_map.remove(s);
             }
@@ -270,20 +269,38 @@ impl CodexAdapter {
         }
 
         let mut config = Self::read_config_toml(path)?;
-
-        if let Some(mcp) = config
+        let config_table = config
             .as_table_mut()
-            .and_then(|t| t.get_mut("mcp_servers"))
-            .and_then(|v| v.as_table_mut())
-        {
-            for server_name in servers_to_remove {
-                mcp.remove(server_name);
-                servers_map.remove(server_name);
+            .ok_or_else(|| WeaveError::RemoveFailed {
+                pack: pack_name.to_owned(),
+                cli: "Codex CLI".into(),
+                reason: format!(
+                    "{} is not a TOML table — cannot remove MCP servers from it",
+                    path.display()
+                ),
+            })?;
+
+        match config_table.get_mut("mcp_servers") {
+            Some(v) => {
+                let mcp = v.as_table_mut().ok_or_else(|| WeaveError::RemoveFailed {
+                    pack: pack_name.to_owned(),
+                    cli: "Codex CLI".into(),
+                    reason: format!(
+                        "{}: `mcp_servers` exists but is not a TOML table",
+                        path.display()
+                    ),
+                })?;
+                for server_name in servers_to_remove {
+                    mcp.remove(server_name);
+                    servers_map.remove(server_name);
+                }
             }
-        } else {
-            // mcp_servers table not present — just clean up the manifest
-            for s in servers_to_remove {
-                servers_map.remove(s);
+            None => {
+                // mcp_servers key absent — nothing to remove from the file; clean up manifest.
+                for s in servers_to_remove {
+                    servers_map.remove(s);
+                }
+                return Ok(());
             }
         }
 
@@ -393,44 +410,57 @@ impl CodexAdapter {
 
         let mut config = Self::read_config_toml(path)?;
 
-        let frag_obj = match record.applied.as_object() {
-            Some(o) => o.clone(),
-            None => {
-                settings_map.remove(pack_name);
-                return Ok(());
-            }
-        };
+        let frag_obj = record
+            .applied
+            .as_object()
+            .ok_or_else(|| WeaveError::RemoveFailed {
+                pack: pack_name.to_owned(),
+                cli: "Codex CLI".into(),
+                reason: "manifest settings record 'applied' is not a JSON object — \
+                     the manifest may be corrupt; edit ~/.codex/.packweave_manifest.json to fix it"
+                    .into(),
+            })?;
+        let frag_obj = frag_obj.clone();
 
-        let config_table = match config.as_table_mut() {
-            Some(t) => t,
-            None => {
-                settings_map.remove(pack_name);
-                return Ok(());
-            }
-        };
+        let config_table = config
+            .as_table_mut()
+            .ok_or_else(|| WeaveError::RemoveFailed {
+                pack: pack_name.to_owned(),
+                cli: "Codex CLI".into(),
+                reason: format!(
+                    "{} is not a TOML table — cannot remove settings from it",
+                    path.display()
+                ),
+            })?;
 
         let orig_obj = record.original.as_object().cloned().unwrap_or_default();
 
-        for (key, _applied_val) in &frag_obj {
+        for (key, applied_val) in &frag_obj {
+            // Check whether the current value still matches what we wrote. If the user
+            // modified it after install, leave it alone and warn — non-destructive mutations.
+            let current = config_table.get(key);
+            let current_json = current.map(toml_value_to_json);
+            if current_json.as_ref() != Some(applied_val) {
+                log::warn!(
+                    "settings key '{key}' (from pack '{pack_name}') was modified after install; \
+                     leaving it in place — remove manually if desired"
+                );
+                continue;
+            }
+
             let pre_json = orig_obj
                 .get(key)
                 .cloned()
                 .unwrap_or(serde_json::Value::Null);
-            // If the original snapshot has our sentinel value (false) or Null,
-            // it means the key didn't exist before. Remove it.
-            // We match on the JSON null to detect absent keys.
             if pre_json.is_null() {
                 config_table.remove(key);
+            } else if let Some(toml_val) = json_value_to_toml(&pre_json) {
+                config_table.insert(key.clone(), toml_val);
             } else {
-                // Try to restore the original value. If we can't convert, leave it.
-                if let Some(toml_val) = json_value_to_toml(&pre_json) {
-                    config_table.insert(key.clone(), toml_val);
-                } else {
-                    log::warn!(
-                        "settings key '{key}' (from pack '{pack_name}') original value could not be \
-                         restored; leaving it in place — remove manually if desired"
-                    );
-                }
+                log::warn!(
+                    "settings key '{key}' (from pack '{pack_name}') original value could not be \
+                     restored; leaving it in place — remove manually if desired"
+                );
             }
         }
 
@@ -463,7 +493,7 @@ impl CodexAdapter {
         }
 
         let path = self.config_toml_path()?;
-        self.remove_servers_from_file(&path, &servers_to_remove, &mut manifest.servers)
+        self.remove_servers_from_file(&path, pack_name, &servers_to_remove, &mut manifest.servers)
     }
 
     // ── Project-scope apply/remove ────────────────────────────────────────────
@@ -494,7 +524,7 @@ impl CodexAdapter {
         }
 
         let path = self.project_config_toml_path();
-        self.remove_servers_from_file(&path, &servers_to_remove, &mut manifest.servers)
+        self.remove_servers_from_file(&path, pack_name, &servers_to_remove, &mut manifest.servers)
     }
 
     // ── Skills (like Claude Code commands) ────────────────────────────────────
@@ -712,11 +742,15 @@ impl CliAdapter for CodexAdapter {
 
         util::ensure_dir(&self.codex_dir()?)?;
 
-        // User-scope
+        // User-scope — save manifest after each step so a failure mid-way leaves the
+        // manifest consistent with whatever was actually written to disk.
         let mut manifest = self.load_manifest()?;
         self.apply_servers(pack, &mut manifest)?;
+        self.save_manifest(&manifest)?;
         self.apply_skills(pack, &mut manifest)?;
+        self.save_manifest(&manifest)?;
         self.apply_prompts(pack, &mut manifest)?;
+        self.save_manifest(&manifest)?;
         self.apply_settings(pack, &mut manifest)?;
         self.save_manifest(&manifest)?;
 
@@ -724,6 +758,7 @@ impl CliAdapter for CodexAdapter {
         if self.has_project_scope() {
             let mut project_manifest = self.load_project_manifest()?;
             self.apply_project_servers(pack, &mut project_manifest)?;
+            self.save_project_manifest(&project_manifest)?;
             self.apply_project_settings(pack, &mut project_manifest)?;
             self.save_project_manifest(&project_manifest)?;
         }
@@ -732,13 +767,16 @@ impl CliAdapter for CodexAdapter {
     }
 
     fn remove(&self, pack_name: &str) -> Result<()> {
-        // User-scope
-        let mut manifest = self.load_manifest()?;
-        self.remove_servers(pack_name, &mut manifest)?;
-        self.remove_skills(pack_name, &mut manifest)?;
-        self.remove_prompts(pack_name, &mut manifest)?;
-        self.remove_settings(pack_name, &mut manifest)?;
-        self.save_manifest(&manifest)?;
+        // User-scope — only touch the manifest if it already exists.
+        let manifest_path = self.manifest_path()?;
+        if manifest_path.exists() {
+            let mut manifest = self.load_manifest()?;
+            self.remove_servers(pack_name, &mut manifest)?;
+            self.remove_skills(pack_name, &mut manifest)?;
+            self.remove_prompts(pack_name, &mut manifest)?;
+            self.remove_settings(pack_name, &mut manifest)?;
+            self.save_manifest(&manifest)?;
+        }
 
         // Project-scope — only if a project manifest exists in cwd.
         let project_manifest_path = self.project_manifest_path();
