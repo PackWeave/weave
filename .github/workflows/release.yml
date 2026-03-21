@@ -31,16 +31,16 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            use-cross: false
+            use_cross: false
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
-            use-cross: true
+            use_cross: true
           - target: x86_64-apple-darwin
             os: macos-13       # Intel runner — native x86_64 build
-            use-cross: false
+            use_cross: false
           - target: aarch64-apple-darwin
             os: macos-latest   # Apple Silicon runner — native arm64 build
-            use-cross: false
+            use_cross: false
 
     steps:
       - uses: actions/checkout@v4
@@ -62,12 +62,12 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install cross
-        if: matrix.use-cross
+        if: matrix.use_cross
         run: cargo install cross --locked
 
       - name: Build release binary
         run: |
-          if [ "${{ matrix.use-cross }}" = "true" ]; then
+          if [ "${{ matrix.use_cross }}" = "true" ]; then
             cross build --release --target ${{ matrix.target }}
           else
             cargo build --release --target ${{ matrix.target }}
@@ -78,7 +78,11 @@ jobs:
         run: |
           ARCHIVE="packweave-${{ github.ref_name }}-${{ matrix.target }}.tar.gz"
           tar -czf "$ARCHIVE" -C "target/${{ matrix.target }}/release" weave
-          sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
+          else
+            shasum -a 256 "$ARCHIVE" > "$ARCHIVE.sha256"
+          fi
           echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
 
       - name: Upload artifact
