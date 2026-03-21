@@ -82,6 +82,18 @@ The adapters are opaque. They expose only the `CliAdapter` trait. The core does 
 
 -----
 
+## Git branch hygiene
+
+**Before committing to any branch, verify its PR has not already been merged into `main`.**
+
+```sh
+gh pr list --head <branch-name> --state merged
+```
+
+If the PR is merged, do not commit to that branch. Create a fresh branch from `main` instead. Committing to a merged branch creates orphaned history that must be untangled with cherry-picks.
+
+-----
+
 ## What to do when asked to implement a feature
 
 1. Check docs/ROADMAP.md to confirm the feature is in scope and which milestone it belongs to
