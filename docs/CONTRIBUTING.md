@@ -4,7 +4,9 @@ weave accepts two kinds of contributions: **code** and **packs**.
 
 ## AI assistant instructions
 
-If you use AI assistants for contributions, please follow the repo guidance in `CLAUDE.md` (Claude), `GEMINI.md` (Gemini), or `CODEX.md` (Codex).
+If you use AI assistants for contributions, read `AGENTS.md` at the repo root — it is the single source of truth for codebase conventions. `CLAUDE.md`, `GEMINI.md`, and `CODEX.md` are thin pointers to it.
+
+If a PR was built with AI assistance, note the tool used in the PR description.
 
 -----
 
