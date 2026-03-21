@@ -7,11 +7,11 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use packweave::adapters::gemini_cli::GeminiCliAdapter;
+use packweave::adapters::CliAdapter;
+use packweave::core::pack::{McpServer, Pack, PackSource, PackTargets, ResolvedPack, Transport};
+use packweave::core::store::Store;
 use tempfile::TempDir;
-use weave::adapters::gemini_cli::GeminiCliAdapter;
-use weave::adapters::CliAdapter;
-use weave::core::pack::{McpServer, Pack, PackSource, PackTargets, ResolvedPack, Transport};
-use weave::core::store::Store;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -89,7 +89,7 @@ fn server_with_env(name: &str, env_keys: &[&str]) -> McpServer {
     for key in env_keys {
         env.insert(
             key.to_string(),
-            weave::core::pack::EnvVar {
+            packweave::core::pack::EnvVar {
                 required: true,
                 secret: true,
                 description: None,

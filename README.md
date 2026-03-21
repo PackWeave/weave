@@ -61,7 +61,7 @@ brew install PackWeave/tap/weave
 **cargo-binstall (installs a pre-built binary, no compiler needed):**
 
 ```bash
-cargo binstall weave
+cargo binstall packweave
 ```
 
 **Shell script (macOS and Linux):**

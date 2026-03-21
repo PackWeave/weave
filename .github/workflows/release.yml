@@ -61,14 +61,14 @@ jobs:
       - name: Package binary
         shell: bash
         run: |
-          ARCHIVE="weave-${{ github.ref_name }}-${{ matrix.target }}.tar.gz"
+          ARCHIVE="packweave-${{ github.ref_name }}-${{ matrix.target }}.tar.gz"
           tar -czf "$ARCHIVE" -C "target/${{ matrix.target }}/release" weave
           echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: weave-${{ matrix.target }}
+          name: packweave-${{ matrix.target }}
           path: ${{ env.ARCHIVE }}
 
   release:
