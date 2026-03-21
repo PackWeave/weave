@@ -199,14 +199,16 @@ impl ClaudeCodeAdapter {
 
         // Guard against a malformed file where `mcpServers` exists but is not an object
         // (e.g. `"mcpServers": []`). Indexing a non-object Value with a string key panics.
-        let servers_obj = servers_entry.as_object_mut().ok_or_else(|| WeaveError::ApplyFailed {
-            pack: pack.pack.name.clone(),
-            cli: "Claude Code".into(),
-            reason: format!(
-                "'mcpServers' in {} is not a JSON object — cannot merge servers into it",
-                path.display()
-            ),
-        })?;
+        let servers_obj = servers_entry
+            .as_object_mut()
+            .ok_or_else(|| WeaveError::ApplyFailed {
+                pack: pack.pack.name.clone(),
+                cli: "Claude Code".into(),
+                reason: format!(
+                    "'mcpServers' in {} is not a JSON object — cannot merge servers into it",
+                    path.display()
+                ),
+            })?;
 
         for server in &pack.pack.servers {
             if let Some(owner) = servers_map.get(&server.name) {
