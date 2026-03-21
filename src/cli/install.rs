@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 
 use crate::adapters;
 use crate::core::config::Config;
+use crate::core::conflict;
 use crate::core::lockfile::LockFile;
 use crate::core::pack::PackSource;
 use crate::core::profile::{InstalledPack, Profile};
@@ -10,7 +11,8 @@ use crate::core::resolver::Resolver;
 use crate::core::store::Store;
 
 /// Install a pack by name, optionally with a version requirement.
-pub fn run(pack_name: &str, version: Option<&str>) -> Result<()> {
+/// When `force` is true, tool-conflict warnings are suppressed.
+pub fn run(pack_name: &str, version: Option<&str>, force: bool) -> Result<()> {
     // Normalise name: strip a leading '@' so `weave install @webdev` works like
     // `weave install webdev` (consistent with how packs are validated/stored).
     let pack_name = pack_name.strip_prefix('@').unwrap_or(pack_name);
@@ -70,6 +72,23 @@ pub fn run(pack_name: &str, version: Option<&str>) -> Result<()> {
             pack.version
         );
 
+        // Check for tool-name conflicts with already-installed packs.
+        // This is informational only — it never blocks the install.
+        if !force {
+            let installed_packs = load_installed_packs(&profile);
+            let conflicts = conflict::check_tool_conflicts(&pack, &installed_packs);
+            for c in &conflicts {
+                eprintln!(
+                    "  warning: tool conflict: '{}' is exported by both {}/{} and {}/{}",
+                    c.tool_name,
+                    c.installed_pack,
+                    c.installed_server,
+                    c.incoming_pack,
+                    c.incoming_server,
+                );
+            }
+        }
+
         let resolved = crate::core::pack::ResolvedPack {
             pack: pack.clone(),
             source: PackSource::Registry {
@@ -128,4 +147,15 @@ pub fn run(pack_name: &str, version: Option<&str>) -> Result<()> {
 
     println!("Done.");
     Ok(())
+}
+
+/// Load pack manifests for all currently-installed packs from the local store.
+/// Packs that cannot be loaded (e.g. missing from the store) are silently skipped
+/// — a missing manifest should not block an install.
+fn load_installed_packs(profile: &Profile) -> Vec<crate::core::pack::Pack> {
+    profile
+        .packs
+        .iter()
+        .filter_map(|installed| Store::load_pack(&installed.name, &installed.version).ok())
+        .collect()
 }

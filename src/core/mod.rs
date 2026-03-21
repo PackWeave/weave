@@ -1,4 +1,5 @@
 pub mod config;
+pub mod conflict;
 pub mod lockfile;
 pub mod pack;
 pub mod profile;
