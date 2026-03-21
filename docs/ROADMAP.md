@@ -73,6 +73,7 @@ The milestones below are sequential. Each one produces something usable before t
 - [ ] Auto-update mechanism
 - [ ] Plugin system for extending weave
 - [ ] Org/team configuration sharing
+- [ ] Release Please integration — automated CHANGELOG.md and release PRs via `develop` → `main` merge flow
 
 -----
 
