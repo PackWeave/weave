@@ -782,8 +782,11 @@ fn build_gemini_server_config(server: &McpServer) -> serde_json::Value {
     if !server.env.is_empty() {
         let mut env_map = serde_json::Map::new();
         for key in server.env.keys() {
-            // Write placeholder empty strings — actual secret values are never stored by weave.
-            // The user is expected to set the real values in their environment.
+            // Write empty string placeholders, not "${KEY}" shell-expansion
+            // references. Gemini CLI passes MCP server env entries literally to
+            // the subprocess — there is no shell variable expansion at the config
+            // level. An empty string is honest: no value is configured yet.
+            // The user fills it in directly (or via `weave install` warning).
             env_map.insert(key.clone(), serde_json::Value::String(String::new()));
         }
         config.insert("env".into(), serde_json::Value::Object(env_map));
