@@ -219,15 +219,20 @@ impl Registry for MockRegistry {
         let query_lower = query.to_lowercase();
         Ok(self
             .packs
-            .iter()
-            .filter(|(name, _)| name.contains(&query_lower))
-            .filter_map(|(name, meta)| {
-                meta.latest_version().ok().map(|ver| PackSummary {
-                    name: name.clone(),
-                    description: meta.description.clone(),
-                    latest_version: ver,
-                    keywords: Vec::new(),
-                })
+            .values()
+            .filter_map(|meta| {
+                let name_lower = meta.name.to_lowercase();
+                let desc_lower = meta.description.to_lowercase();
+                if name_lower.contains(&query_lower) || desc_lower.contains(&query_lower) {
+                    meta.latest_version().ok().map(|ver| PackSummary {
+                        name: meta.name.clone(),
+                        description: meta.description.clone(),
+                        latest_version: ver,
+                        keywords: Vec::new(),
+                    })
+                } else {
+                    None
+                }
             })
             .collect())
     }

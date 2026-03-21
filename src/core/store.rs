@@ -146,10 +146,16 @@ impl Store {
                     ),
                 ));
             }
-            if entry_path
-                .components()
-                .any(|c| c == std::path::Component::ParentDir)
-            {
+            // Reject `..` components (tar-slip) and Windows drive/prefix components.
+            // On Windows, PathBuf::join discards the base path when the joined component
+            // contains a Prefix (e.g. "C:evil"), causing silent path replacement — a
+            // tar-slip vector that bypasses absolute-path and `..` checks.
+            if entry_path.components().any(|c| {
+                matches!(
+                    c,
+                    std::path::Component::ParentDir | std::path::Component::Prefix(_)
+                )
+            }) {
                 return Err(WeaveError::io(
                     format!("extracting pack '{name}'"),
                     std::io::Error::new(
