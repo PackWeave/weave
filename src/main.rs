@@ -61,6 +61,12 @@ enum Commands {
         name: Option<String>,
     },
 
+    /// Update one or all installed packs to the latest compatible version
+    Update {
+        /// Pack name to update (e.g., "webdev", "webdev@latest"). Omit to update all.
+        name: Option<String>,
+    },
+
     /// Check for config drift and project-scope staleness across all adapters
     Diagnose,
 }
@@ -80,6 +86,7 @@ fn main() {
         Commands::List => cli::list::run(),
         Commands::Remove { name } => cli::remove::run(&name),
         Commands::Search { query, target } => cli::search::run(&query, target.as_deref()),
+        Commands::Update { name } => cli::update::run(name.as_deref()),
         Commands::Diagnose => cli::diagnose::run(),
     };
 
