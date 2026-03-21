@@ -1,4 +1,5 @@
 pub mod claude_code;
+pub mod codex_cli;
 pub mod gemini_cli;
 
 use std::path::PathBuf;
@@ -50,6 +51,7 @@ pub fn all_adapters() -> Vec<Box<dyn CliAdapter>> {
     vec![
         Box::new(claude_code::ClaudeCodeAdapter::new()),
         Box::new(gemini_cli::GeminiCliAdapter::new()),
+        Box::new(codex_cli::CodexAdapter::new()),
     ]
 }
 
