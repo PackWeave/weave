@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 [package]
-name = "weave"
+name = "packweave"
 version = "0.1.0"
 edition = "2021"
 description = "A pack manager for AI CLI tools — weave together MCP servers, prompts, commands, and settings"
@@ -10,6 +10,11 @@ license = "Apache-2.0"
 repository = "https://github.com/PackWeave/weave"
 keywords = ["mcp", "cli", "ai", "pack-manager"]
 categories = ["command-line-utilities", "development-tools"]
+
+# The CLI binary is named 'weave' regardless of the crate name on crates.io
+[[bin]]
+name = "weave"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
@@ -29,3 +34,10 @@ toml = "0.8"
 
 [dev-dependencies]
 tempfile = "3"
+
+# cargo-binstall support — tells binstall where to find pre-built binaries
+# in GitHub Releases. Asset naming must match the release.yml workflow.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-v{ version }-{ target }.tar.gz"
+pkg-fmt = "tgz"
+bin-dir = "."

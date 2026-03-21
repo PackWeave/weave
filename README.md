@@ -58,6 +58,12 @@ Each CLI has its own **adapter** — a thin layer that knows exactly how to read
 brew install PackWeave/tap/weave
 ```
 
+**cargo-binstall (installs a pre-built binary, no compiler needed):**
+
+```bash
+cargo binstall packweave
+```
+
 **Shell script (macOS and Linux):**
 
 ```bash
@@ -73,6 +79,10 @@ WEAVE_INSTALL_DIR=~/.local/bin curl -fsSL https://raw.githubusercontent.com/Pack
 **Build from source:**
 
 ```bash
+# Compile and install directly from the git repo (requires Rust)
+cargo install --git https://github.com/PackWeave/weave
+
+# Or clone and build manually
 git clone https://github.com/PackWeave/weave
 cd weave
 cargo build --release

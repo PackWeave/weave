@@ -49,6 +49,9 @@ The milestones below are sequential. Each one produces something usable before t
 - [x] Environment variable handling for secrets (write `${VAR}` references only)
 - [x] Recursive transitive dependency resolution with cycle detection
 - [ ] Improved conflict detection using declared tool lists
+- [ ] Publish `packweave` crate to crates.io (required for `cargo binstall` and `cargo install` to resolve by name)
+- [ ] SHA256 checksums alongside release binaries (see issue #40)
+- [ ] ARM Linux release target — `aarch64-unknown-linux-gnu` via `cross` (see issue #41)
 
 -----
 
@@ -73,6 +76,7 @@ The milestones below are sequential. Each one produces something usable before t
 - [ ] Auto-update mechanism
 - [ ] Plugin system for extending weave
 - [ ] Org/team configuration sharing
+- [ ] Release Please integration — automated CHANGELOG.md and release PRs via `develop` → `main` merge flow
 
 -----
 

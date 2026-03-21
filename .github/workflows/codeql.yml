@@ -1,0 +1,47 @@
+# Copyright 2026 Brenno Rangel Ferrari
+# SPDX-License-Identifier: Apache-2.0
+#
+# CodeQL deep security analysis. Runs weekly rather than on every push —
+# the analysis is thorough but slow for Rust (15-30 min). Day-to-day
+# dependency vulnerability scanning is handled by cargo-audit in ci.yml.
+#
+# Scans both 'rust' (code patterns: path traversal, archive extraction, etc.)
+# and 'actions' (workflow security: missing permissions, script injection, etc.)
+
+name: CodeQL
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'   # every Monday at 03:00 UTC
+
+permissions:
+  contents: read
+  security-events: write  # required to upload SARIF results
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [rust, actions]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+
+      - name: Install Rust stable
+        if: matrix.language == 'rust'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        if: matrix.language == 'rust'
+        run: cargo build
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
