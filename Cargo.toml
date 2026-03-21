@@ -39,4 +39,5 @@ tempfile = "3"
 # in GitHub Releases. Asset naming must match the release.yml workflow.
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/{ name }-v{ version }-{ target }.tar.gz"
+pkg-fmt = "tgz"
 bin-dir = "."

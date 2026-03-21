@@ -9,7 +9,9 @@ use std::path::PathBuf;
 
 use packweave::adapters::gemini_cli::GeminiCliAdapter;
 use packweave::adapters::CliAdapter;
-use packweave::core::pack::{McpServer, Pack, PackSource, PackTargets, ResolvedPack, Transport};
+use packweave::core::pack::{
+    EnvVar, McpServer, Pack, PackSource, PackTargets, ResolvedPack, Transport,
+};
 use packweave::core::store::Store;
 use tempfile::TempDir;
 
@@ -89,7 +91,7 @@ fn server_with_env(name: &str, env_keys: &[&str]) -> McpServer {
     for key in env_keys {
         env.insert(
             key.to_string(),
-            packweave::core::pack::EnvVar {
+            EnvVar {
                 required: true,
                 secret: true,
                 description: None,
