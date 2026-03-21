@@ -30,6 +30,16 @@ pub fn check_tool_conflicts(incoming: &Pack, installed: &[Pack]) -> Vec<ToolConf
         }
 
         for installed_pack in installed {
+            // Skip the same pack — when upgrading, the old version is still in
+            // the installed list and would produce false "self-conflict" warnings.
+            if installed_pack.name == incoming.name {
+                continue;
+            }
+
+            // TODO: filter by PackTargets overlap — packs targeting disjoint CLIs
+            // cannot actually conflict at runtime. This requires adding an
+            // `overlaps()` method to PackTargets.
+
             for installed_server in &installed_pack.servers {
                 // Empty tools list on the installed side — skip.
                 if installed_server.tools.is_empty() {
@@ -211,5 +221,22 @@ mod tests {
 
         let conflicts = check_tool_conflicts(&incoming, &installed);
         assert!(conflicts.is_empty());
+    }
+
+    #[test]
+    fn same_pack_name_skips_self_conflict() {
+        // When upgrading a pack, the old version is still in the installed list.
+        // The checker must skip it to avoid false "self-conflict" warnings.
+        let incoming = make_pack("my-pack", vec![make_server("s1", vec!["tool-a", "tool-b"])]);
+        let installed = vec![make_pack(
+            "my-pack",
+            vec![make_server("s2", vec!["tool-a", "tool-b"])],
+        )];
+
+        let conflicts = check_tool_conflicts(&incoming, &installed);
+        assert!(
+            conflicts.is_empty(),
+            "expected no self-conflicts, got {conflicts:?}"
+        );
     }
 }

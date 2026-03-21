@@ -46,6 +46,14 @@ pub fn run(pack_name: &str, version: Option<&str>, force: bool) -> Result<()> {
 
     let adapters = adapters::installed_adapters();
 
+    // Load installed pack manifests once before the loop rather than on each
+    // iteration — avoids redundant I/O when installing multiple packs.
+    let installed_packs = if !force {
+        load_installed_packs(&profile)
+    } else {
+        vec![]
+    };
+
     for (name, version) in &plan.to_install {
         println!("  Installing {name}@{version}...");
 
@@ -75,7 +83,6 @@ pub fn run(pack_name: &str, version: Option<&str>, force: bool) -> Result<()> {
         // Check for tool-name conflicts with already-installed packs.
         // This is informational only — it never blocks the install.
         if !force {
-            let installed_packs = load_installed_packs(&profile);
             let conflicts = conflict::check_tool_conflicts(&pack, &installed_packs);
             for c in &conflicts {
                 eprintln!(
@@ -150,12 +157,22 @@ pub fn run(pack_name: &str, version: Option<&str>, force: bool) -> Result<()> {
 }
 
 /// Load pack manifests for all currently-installed packs from the local store.
-/// Packs that cannot be loaded (e.g. missing from the store) are silently skipped
-/// — a missing manifest should not block an install.
+/// Packs that cannot be loaded (e.g. missing from the store) are skipped with a
+/// warning — a missing manifest should not block an install, but the user should
+/// know about store/profile inconsistencies.
 fn load_installed_packs(profile: &Profile) -> Vec<crate::core::pack::Pack> {
-    profile
-        .packs
-        .iter()
-        .filter_map(|installed| Store::load_pack(&installed.name, &installed.version).ok())
-        .collect()
+    let mut packs = Vec::new();
+    for installed in &profile.packs {
+        match Store::load_pack(&installed.name, &installed.version) {
+            Ok(pack) => packs.push(pack),
+            Err(e) => {
+                log::warn!(
+                    "could not load manifest for {} v{}: {e}",
+                    installed.name,
+                    installed.version
+                );
+            }
+        }
+    }
+    packs
 }
