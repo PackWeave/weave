@@ -144,7 +144,7 @@ These were reviewed and intentionally accepted. Re-raising them is noise.
 |---------|------------------|
 | `mutex.lock().unwrap_or_else(\|e\| e.into_inner())` | Intentional mutex poison recovery — the inner value is still valid even if a previous holder panicked |
 | `#[allow(dead_code)]` on `adapters`, `core`, `util` modules in `main.rs` | Intentional for Milestone 2 — stub code paths will be wired up in later milestones |
-| `#[allow(dead_code)]` on `AlreadyInstalled`, `DependencyConflict`, `CliNotInstalled`, `RemoveFailed` in `error.rs` | Reserved variants, not yet reachable; defined for completeness |
+| `#[allow(dead_code)]` on `AlreadyInstalled`, `CliNotInstalled`, `RemoveFailed` in `error.rs` | Reserved variants, not yet reachable; defined for completeness |
 | `expect("JSON serialization cannot fail")` on `serde_json::to_string_pretty` | Serialising a valid `serde_json::Value` cannot fail — invariant is correct, `expect` with comment is the right pattern |
 | `expect("manifest serialization cannot fail")` on struct serialisation | Same — structs with `#[derive(Serialize)]` and only serialisable fields cannot fail |
 | `content[start..].find(&end_tag)` in prompt remove/apply | **This is the correct anchored search.** It finds `end_tag` starting from `start`, ensuring `start..end` is always a valid range. Do not suggest reverting to an independent `content.find(&end_tag)`, which can produce invalid ranges when multiple blocks exist |
@@ -161,12 +161,11 @@ These are tracked in `docs/MILESTONE_2_FOLLOWUP.md`. Raising them as PR findings
 | Item | Reference |
 |------|-----------|
 | Cross-adapter transactional rollback on install/remove failure | FOLLOWUP.md, Deferred item 6 |
-| Recursive (transitive) dependency resolution | `resolver.rs` comment; FOLLOWUP.md, Deferred item 3 |
 | `reqwest::blocking::Client` with explicit timeouts | FOLLOWUP.md, Deferred item 2 |
 | `lib.rs` split to scope `#[allow(dead_code)]` at item level | FOLLOWUP.md, Deferred item 5 |
 | `weave search` using the weave registry rather than the upstream MCP Registry | FOLLOWUP.md, Deviation 4 |
 | Windows support for Gemini CLI / Codex CLI adapters | ROADMAP.md, Explicitly deferred |
-| Codex CLI adapter, `weave update`, `weave init`, env var handling | Milestone 3 — out of scope |
+| Codex CLI adapter, `weave update`, `weave init` | Milestone 3 — out of scope |
 | Registry seeding, install script, Homebrew formula | Distribution artifacts outside this repo |
 
 ---
