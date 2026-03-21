@@ -198,6 +198,20 @@ impl GeminiCliAdapter {
                         ),
                     });
                 }
+            } else if servers_obj.contains_key(&server.name) {
+                // Key exists in the file but is not tracked by weave — it was added
+                // manually by the user. Overwriting it would violate the non-destructive
+                // mutation principle.
+                return Err(WeaveError::ApplyFailed {
+                    pack: pack.pack.name.clone(),
+                    cli: "Gemini CLI".into(),
+                    reason: format!(
+                        "server '{}' already exists in {} and was not installed by weave; \
+                         rename or remove it manually before installing this pack",
+                        server.name,
+                        path.display()
+                    ),
+                });
             }
             servers_obj.insert(server.name.clone(), build_gemini_server_config(server));
             servers_map.insert(server.name.clone(), pack.pack.name.clone());
@@ -260,16 +274,42 @@ impl GeminiCliAdapter {
             serde_json::json!({})
         };
 
-        let original = if let Some(frag_obj) = fragment.as_object() {
-            let mut snap = serde_json::Map::new();
-            for key in frag_obj.keys() {
-                let before = config.get(key).cloned().unwrap_or(serde_json::Value::Null);
-                snap.insert(key.clone(), before);
+        // A non-object fragment would cause deep_merge's fallthrough arm to replace
+        // the entire settings file. Reject it here with a clear error.
+        if !fragment.is_object() {
+            return Err(WeaveError::ApplyFailed {
+                pack: pack.pack.name.clone(),
+                cli: "Gemini CLI".into(),
+                reason: "settings/gemini.json must be a JSON object, not a primitive or array"
+                    .into(),
+            });
+        }
+
+        // Strip mcpServers from the fragment — Gemini stores servers and settings in the
+        // same file, so a pack could bypass ownership tracking by including mcpServers
+        // in its settings fragment. Server writes must go through apply_servers_to_file.
+        let mut sanitised = fragment.clone();
+        if let Some(obj) = sanitised.as_object_mut() {
+            if obj.remove("mcpServers").is_some() {
+                log::warn!(
+                    "pack '{}' settings/gemini.json contains 'mcpServers' — \
+                     this key is managed by weave and has been ignored; \
+                     declare servers in pack.toml instead",
+                    pack.pack.name
+                );
             }
-            serde_json::Value::Object(snap)
-        } else {
-            serde_json::json!({})
-        };
+        }
+        let fragment = &sanitised;
+        let frag_obj = fragment.as_object().expect(
+            "sanitised is always an object — we just checked is_object() above",
+        );
+
+        let mut snap = serde_json::Map::new();
+        for key in frag_obj.keys() {
+            let before = config.get(key).cloned().unwrap_or(serde_json::Value::Null);
+            snap.insert(key.clone(), before);
+        }
+        let original = serde_json::Value::Object(snap);
 
         deep_merge(&mut config, fragment);
 

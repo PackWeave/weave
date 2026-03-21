@@ -223,6 +223,20 @@ impl ClaudeCodeAdapter {
                         ),
                     });
                 }
+            } else if servers_obj.contains_key(&server.name) {
+                // Key exists in the file but is not tracked by weave — it was added
+                // manually by the user. Overwriting it would violate the non-destructive
+                // mutation principle.
+                return Err(WeaveError::ApplyFailed {
+                    pack: pack.pack.name.clone(),
+                    cli: "Claude Code".into(),
+                    reason: format!(
+                        "server '{}' already exists in {} and was not installed by weave; \
+                         rename or remove it manually before installing this pack",
+                        server.name,
+                        path.display()
+                    ),
+                });
             }
             servers_obj.insert(server.name.clone(), build_claude_server_config(server));
             servers_map.insert(server.name.clone(), pack.pack.name.clone());
@@ -286,16 +300,20 @@ impl ClaudeCodeAdapter {
             serde_json::json!({})
         };
 
-        let original = if let Some(frag_obj) = fragment.as_object() {
-            let mut snap = serde_json::Map::new();
-            for key in frag_obj.keys() {
-                let before = config.get(key).cloned().unwrap_or(serde_json::Value::Null);
-                snap.insert(key.clone(), before);
-            }
-            serde_json::Value::Object(snap)
-        } else {
-            serde_json::json!({})
-        };
+        // A non-object fragment would cause deep_merge's fallthrough arm to replace
+        // the entire settings file. Reject it here with a clear error.
+        let frag_obj = fragment.as_object().ok_or_else(|| WeaveError::ApplyFailed {
+            pack: pack.pack.name.clone(),
+            cli: "Claude Code".into(),
+            reason: "settings/claude.json must be a JSON object, not a primitive or array".into(),
+        })?;
+
+        let mut snap = serde_json::Map::new();
+        for key in frag_obj.keys() {
+            let before = config.get(key).cloned().unwrap_or(serde_json::Value::Null);
+            snap.insert(key.clone(), before);
+        }
+        let original = serde_json::Value::Object(snap);
 
         deep_merge(&mut config, fragment);
 

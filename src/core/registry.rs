@@ -119,23 +119,22 @@ impl Registry for GitHubRegistry {
         let index = self.load_index()?;
         let query_lower = query.to_lowercase();
 
+        // Keywords are not yet populated in the registry index (the index format
+        // will include them once the registry is seeded — see MILESTONE_2_FOLLOWUP.md).
+        // Search on name and description only until keywords are available.
         let mut results: Vec<PackSummary> = index
             .packs
             .iter()
             .filter(|(name, meta)| {
                 name.contains(&query_lower)
                     || meta.description.to_lowercase().contains(&query_lower)
-                    || meta
-                        .keywords()
-                        .iter()
-                        .any(|k| k.to_lowercase().contains(&query_lower))
             })
             .filter_map(|(name, meta)| {
                 meta.latest_version().ok().map(|ver| PackSummary {
                     name: name.clone(),
                     description: meta.description.clone(),
                     latest_version: ver,
-                    keywords: meta.keywords(),
+                    keywords: Vec::new(),
                 })
             })
             .collect();
