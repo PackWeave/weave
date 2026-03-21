@@ -237,10 +237,10 @@ impl ClaudeCodeAdapter {
             }
             servers_obj.insert(
                 server.name.clone(),
-                build_claude_server_config(server).map_err(|e| WeaveError::ApplyFailed {
+                build_claude_server_config(server).map_err(|reason| WeaveError::ApplyFailed {
                     pack: pack.pack.name.clone(),
                     cli: "Claude Code".into(),
-                    reason: e.to_string(),
+                    reason,
                 })?,
             );
             servers_map.insert(server.name.clone(), pack.pack.name.clone());
@@ -851,23 +851,22 @@ impl CliAdapter for ClaudeCodeAdapter {
 /// Build a Claude Code MCP server config JSON value.
 ///
 /// Returns an error if the server uses HTTP transport but has no `url` set.
-fn build_claude_server_config(server: &McpServer) -> Result<serde_json::Value> {
+/// Build a Claude Code MCP server config JSON object.
+/// Returns `Err(reason)` on invalid config so the caller can attach the pack name.
+fn build_claude_server_config(
+    server: &McpServer,
+) -> std::result::Result<serde_json::Value, String> {
     let mut config = serde_json::Map::new();
 
     if let Some(Transport::Http) = server.transport {
         // HTTP transport: requires `url`, writes optional `headers`; no command/args.
-        let url = server
-            .url
-            .as_deref()
-            .ok_or_else(|| WeaveError::ApplyFailed {
-                pack: server.name.clone(),
-                cli: "Claude Code".into(),
-                reason: format!(
-                    "server '{}' uses HTTP transport but has no `url` field — \
+        let url = server.url.as_deref().ok_or_else(|| {
+            format!(
+                "server '{}' uses HTTP transport but has no `url` field — \
                  add `url = \"https://...\"` to the server definition in pack.toml",
-                    server.name
-                ),
-            })?;
+                server.name
+            )
+        })?;
         config.insert("type".into(), serde_json::Value::String("http".into()));
         config.insert("url".into(), serde_json::Value::String(url.to_owned()));
         if let Some(headers) = &server.headers {
@@ -879,18 +878,13 @@ fn build_claude_server_config(server: &McpServer) -> Result<serde_json::Value> {
         }
     } else {
         // Stdio transport (default): requires `command`.
-        let command = server
-            .command
-            .as_deref()
-            .ok_or_else(|| WeaveError::ApplyFailed {
-                pack: server.name.clone(),
-                cli: "Claude Code".into(),
-                reason: format!(
-                    "server '{}' uses stdio transport but has no `command` field — \
+        let command = server.command.as_deref().ok_or_else(|| {
+            format!(
+                "server '{}' uses stdio transport but has no `command` field — \
                  add `command = \"...\"` to the server definition in pack.toml",
-                    server.name
-                ),
-            })?;
+                server.name
+            )
+        })?;
         config.insert(
             "command".into(),
             serde_json::Value::String(command.to_owned()),

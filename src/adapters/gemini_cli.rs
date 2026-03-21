@@ -213,10 +213,10 @@ impl GeminiCliAdapter {
             }
             servers_obj.insert(
                 server.name.clone(),
-                build_gemini_server_config(server).map_err(|e| WeaveError::ApplyFailed {
+                build_gemini_server_config(server).map_err(|reason| WeaveError::ApplyFailed {
                     pack: pack.pack.name.clone(),
                     cli: "Gemini CLI".into(),
-                    reason: e.to_string(),
+                    reason,
                 })?,
             );
             servers_map.insert(server.name.clone(), pack.pack.name.clone());
@@ -759,23 +759,20 @@ impl CliAdapter for GeminiCliAdapter {
 /// Build a Gemini CLI MCP server config JSON value.
 ///
 /// Returns an error if the server uses HTTP transport but has no `url` set.
-fn build_gemini_server_config(server: &McpServer) -> Result<serde_json::Value> {
+fn build_gemini_server_config(
+    server: &McpServer,
+) -> std::result::Result<serde_json::Value, String> {
     let mut config = serde_json::Map::new();
 
     if let Some(Transport::Http) = server.transport {
         // HTTP transport: requires `url`, writes optional `headers`; no command/args/env.
-        let url = server
-            .url
-            .as_deref()
-            .ok_or_else(|| WeaveError::ApplyFailed {
-                pack: server.name.clone(),
-                cli: "Gemini CLI".into(),
-                reason: format!(
-                    "server '{}' uses HTTP transport but has no `url` field — \
+        let url = server.url.as_deref().ok_or_else(|| {
+            format!(
+                "server '{}' uses HTTP transport but has no `url` field — \
                  add `url = \"https://...\"` to the server definition in pack.toml",
-                    server.name
-                ),
-            })?;
+                server.name
+            )
+        })?;
         config.insert("url".into(), serde_json::Value::String(url.to_owned()));
         if let Some(headers) = &server.headers {
             let headers_map: serde_json::Map<String, serde_json::Value> = headers
@@ -786,18 +783,13 @@ fn build_gemini_server_config(server: &McpServer) -> Result<serde_json::Value> {
         }
     } else {
         // Stdio transport (default): requires `command`.
-        let command = server
-            .command
-            .as_deref()
-            .ok_or_else(|| WeaveError::ApplyFailed {
-                pack: server.name.clone(),
-                cli: "Gemini CLI".into(),
-                reason: format!(
-                    "server '{}' uses stdio transport but has no `command` field — \
+        let command = server.command.as_deref().ok_or_else(|| {
+            format!(
+                "server '{}' uses stdio transport but has no `command` field — \
                  add `command = \"...\"` to the server definition in pack.toml",
-                    server.name
-                ),
-            })?;
+                server.name
+            )
+        })?;
         config.insert(
             "command".into(),
             serde_json::Value::String(command.to_owned()),
