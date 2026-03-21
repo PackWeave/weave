@@ -32,7 +32,7 @@ Weave ships with **adapters** for each supported CLI. An adapter knows exactly h
 
 ## Status
 
-> **Pre-release.** Not yet functional. See [docs/ROADMAP.md](./docs/ROADMAP.md) for what's planned.
+> **v0.1 (MVP)** — `install`, `list`, `remove`, `search`, and `diagnose` are functional for Claude Code and Gemini CLI. Not yet published to a package registry; install via the shell script or `cargo install`.
 
 AI assistants should read the repo instructions in `CLAUDE.md` (Claude), `GEMINI.md` (Gemini), or `CODEX.md` (Codex).
 
@@ -50,19 +50,37 @@ See [docs/README.md](./docs/README.md) for the full index, or jump straight to:
 
 | CLI | Status |
 |-----|--------|
-| Claude Code | Planned (v0.1) |
-| Gemini CLI | Planned (v0.1) |
+| Claude Code | ✅ v0.1 |
+| Gemini CLI | ✅ v0.1 |
 | OpenAI Codex CLI | Planned (v0.2) |
 
 ---
 
 ## Installation
 
-Not yet available. Will be distributed via Homebrew, `cargo install`, and a shell script.
+**Shell script (macOS and Linux):**
 
 ```bash
-# Coming soon
-brew install packweave/tap/weave
+curl -fsSL https://raw.githubusercontent.com/PackWeave/weave/main/install.sh | sh
+```
+
+Set `WEAVE_INSTALL_DIR` to override the install location (default: `/usr/local/bin`, fallback: `~/.local/bin`):
+
+```bash
+WEAVE_INSTALL_DIR=~/.local/bin curl -fsSL https://raw.githubusercontent.com/PackWeave/weave/main/install.sh | sh
+```
+
+**Homebrew (macOS):**
+
+```bash
+brew tap PackWeave/tap
+brew install weave
+```
+
+**cargo:**
+
+```bash
+cargo install weave
 ```
 
 ---
@@ -90,6 +108,42 @@ weave publish
 
 # Check CLI configuration health
 weave doctor
+
+# Detect project-scope config staleness
+weave diagnose
+```
+
+---
+
+## Project-scope config and reinstall behavior
+
+Some AI CLIs support both user-scope and project-scope configuration. For example:
+
+- **Claude Code** reads `.claude/settings.json` and `.mcp.json` when a `.claude/` directory exists in the current project.
+- **Gemini CLI** reads `.gemini/settings.json` when a `.gemini/` directory exists in the current project.
+
+When you run `weave install`, Weave applies pack config to every scope that exists **at install time**. If you create a project-scope directory (`.claude/` or `.gemini/`) **after** installing a pack, Weave will not automatically back-fill project-scope config. The pack's MCP servers, prompts, and settings will only be present in the user-scope config until you reinstall.
+
+**How to fix it:** Re-run `weave install <pack-name>` from the project directory. Weave's `apply` is idempotent — re-running it updates user-scope config and adds any missing project-scope config.
+
+**How to detect it:** Run `weave diagnose` to check for this condition across all installed packs and adapters:
+
+```bash
+weave diagnose
+```
+
+Example output when a pack needs reinstalling for project scope:
+
+```
+Running diagnostics (profile 'default')...
+
+  Claude Code — 1 issue(s) found:
+    [warning] pack 'webdev' has no project-scope entries for Claude Code but .claude/ now exists — pack was installed before this directory was created
+             run `weave install webdev` to apply project-scope config
+
+  Gemini CLI — OK
+
+1 issue(s) found. See suggestions above to fix them.
 ```
 
 ---
