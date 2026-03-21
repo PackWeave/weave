@@ -60,7 +60,7 @@ The milestones below are sequential. Each one produces something usable before t
 - [ ] Profiles: group packs into named sets
 - [ ] `weave use <profile>`
 - [ ] Community taps (`weave tap add user/repo`)
-- [ ] `weave doctor` — detect config drift across CLIs
+- [ ] `weave diagnose` — full config drift and health check across all adapters (basic version shipped in M2; M4 expands it)
 - [ ] `weave sync` — reapply active profile
 
 -----
