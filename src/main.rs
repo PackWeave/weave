@@ -30,6 +30,10 @@ enum Commands {
         /// Version requirement (e.g., "^1.0", "=2.3.1"). Defaults to latest.
         #[arg(short, long)]
         version: Option<String>,
+
+        /// Suppress tool-conflict warnings
+        #[arg(long)]
+        force: bool,
     },
 
     /// List installed packs
@@ -68,7 +72,11 @@ fn main() {
 
     let result = match cli.command {
         Commands::Init { name } => cli::init::run(name.as_deref()),
-        Commands::Install { name, version } => cli::install::run(&name, version.as_deref()),
+        Commands::Install {
+            name,
+            version,
+            force,
+        } => cli::install::run(&name, version.as_deref(), force),
         Commands::List => cli::list::run(),
         Commands::Remove { name } => cli::remove::run(&name),
         Commands::Search { query, target } => cli::search::run(&query, target.as_deref()),
