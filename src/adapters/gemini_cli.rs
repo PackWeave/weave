@@ -529,6 +529,11 @@ impl GeminiCliAdapter {
     }
 
     fn remove_prompts(&self, pack_name: &str, manifest: &mut GeminiManifest) -> Result<()> {
+        // Only remove prompts if this pack is recorded as owning prompt blocks.
+        if !manifest.prompt_blocks.contains(&pack_name.to_string()) {
+            return Ok(());
+        }
+
         let gemini_md = self.gemini_dir().map(|d| d.join("GEMINI.md"));
         let gemini_md = match gemini_md {
             Ok(p) if p.exists() => p,

@@ -1110,3 +1110,40 @@ fn apply_http_server_without_url_returns_error() {
         "error message should mention the missing url field"
     );
 }
+
+#[test]
+fn apply_persists_manifest_after_each_step_even_if_later_step_fails() {
+    let home = TempDir::new().unwrap();
+    setup_gemini_home(&home);
+    let adapter = make_adapter(&home);
+
+    // Create a pack with servers + malformed settings (will fail at apply_settings).
+    let _fixture = StoreFixture::create("mid-fail-pack", None, Some("NOT VALID JSON {{{"));
+
+    let pack = pack_with_servers("mid-fail-pack", vec![simple_server("my-server")]);
+    let result = adapter.apply(&pack);
+
+    // apply() should fail because of the invalid settings JSON.
+    assert!(result.is_err(), "apply should fail on invalid settings");
+
+    // But the manifest should still record the server that was successfully applied
+    // before the settings step failed.
+    let manifest_path = home.path().join(".gemini/.packweave_manifest.json");
+    assert!(
+        manifest_path.exists(),
+        "manifest should exist after partial apply"
+    );
+    let manifest = read_json(&manifest_path);
+    let servers = manifest["servers"]
+        .as_object()
+        .expect("servers should be an object");
+    assert!(
+        servers.contains_key("my-server"),
+        "manifest should record the server written before the failure"
+    );
+    assert_eq!(
+        servers["my-server"].as_str().unwrap(),
+        "mid-fail-pack",
+        "server should be owned by the failing pack"
+    );
+}

@@ -517,7 +517,10 @@ impl ClaudeCodeAdapter {
             std::fs::copy(entry.path(), &dest_path)
                 .map_err(|e| WeaveError::io(format!("copying command {file_name}"), e))?;
 
+            // Record in manifest immediately so a failure on a later entry doesn't
+            // leave on-disk files that are invisible to remove()/diagnose().
             manifest.commands.insert(namespaced, pack.pack.name.clone());
+            self.save_manifest(manifest)?;
         }
 
         Ok(())
@@ -603,6 +606,11 @@ impl ClaudeCodeAdapter {
 
     /// Remove tagged prompt block from CLAUDE.md.
     fn remove_prompts(&self, pack_name: &str, manifest: &mut PackweaveManifest) -> Result<()> {
+        // Only remove prompts if this pack is recorded as owning prompt blocks.
+        if !manifest.prompt_blocks.contains(&pack_name.to_string()) {
+            return Ok(());
+        }
+
         let claude_md = self.claude_md_path()?;
         if !claude_md.exists() {
             manifest.prompt_blocks.retain(|n| n != pack_name);
