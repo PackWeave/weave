@@ -5,7 +5,7 @@
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 ![Status](https://img.shields.io/badge/status-v0.1%20MVP-green)
 
-> **A pack manager for AI CLIs** — install, share, and version MCP servers, slash commands, and prompts across Claude Code and Gemini CLI, with Codex CLI support coming in v0.2.
+> **A pack manager for AI CLIs** — install, share, and version MCP servers, slash commands, and prompts across Claude Code, Gemini CLI, and Codex CLI.
 
 ```bash
 weave install @webdev    # install a web dev MCP stack
@@ -42,7 +42,9 @@ weave install @webdev
                       ~/.claude/CLAUDE.md, ~/.claude/.packweave_manifest.json
         Gemini CLI:   ~/.gemini/settings.json, ~/.gemini/GEMINI.md,
                       ~/.gemini/.packweave_manifest.json
-        (+ project-scope equivalents when ./.claude/ or ./.gemini/ exist,
+        Codex CLI:    ~/.codex/config.toml, ~/.codex/AGENTS.md,
+                      ~/.codex/skills/, ~/.codex/.packweave_manifest.json
+        (+ project-scope equivalents when ./.claude/, ./.gemini/, or ./.codex/ exist,
            plus Claude Code's ./.mcp.json for project-scope MCP servers)
 ```
 
@@ -189,7 +191,7 @@ See [pack.schema.toml](./pack.schema.toml) for the full annotated schema and [do
 |-----|--------|--------------------|
 | **Claude Code** | ✅ v0.1 | MCP servers · slash commands · system prompt · settings |
 | **Gemini CLI** | ✅ v0.1 | MCP servers · system prompt · settings |
-| **OpenAI Codex CLI** | 🔜 Planned (v0.2) | MCP servers · system prompt · settings |
+| **OpenAI Codex CLI** | ✅ v0.2 | MCP servers · skills · system prompt · settings |
 
 ---
 
@@ -220,14 +222,12 @@ Running diagnostics (profile 'default')...
 
 These features are in active development. See [docs/ROADMAP.md](./docs/ROADMAP.md) for full milestones.
 
-**v0.2 — Codex support and pack authoring:**
+**v0.2 — Pack authoring:**
 
 ```bash
 weave update             # update installed packs to latest compatible versions
 weave init my-pack       # scaffold a new pack
 ```
-
-Codex CLI adapter support also ships in v0.2 — no new command needed, packs automatically apply to Codex once installed.
 
 **v0.3 — Profiles, hooks, and community taps:**
 
