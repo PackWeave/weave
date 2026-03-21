@@ -47,6 +47,12 @@ enum Commands {
         query: String,
     },
 
+    /// Initialize a new pack directory
+    Init {
+        /// Pack name (creates a subdirectory). Omit to initialize the current directory.
+        name: Option<String>,
+    },
+
     /// Check for config drift and project-scope staleness across all adapters
     Diagnose,
 }
@@ -57,6 +63,7 @@ fn main() {
     let cli = Cli::parse();
 
     let result = match cli.command {
+        Commands::Init { name } => cli::init::run(name.as_deref()),
         Commands::Install { name, version } => cli::install::run(&name, version.as_deref()),
         Commands::List => cli::list::run(),
         Commands::Remove { name } => cli::remove::run(&name),
