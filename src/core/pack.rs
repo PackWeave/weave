@@ -39,9 +39,17 @@ pub struct McpServer {
     pub package_type: Option<String>,
     #[serde(default)]
     pub package: Option<String>,
-    pub command: String,
+    /// The executable to run. Required for stdio transport; unused for http.
+    #[serde(default)]
+    pub command: Option<String>,
     #[serde(default)]
     pub args: Vec<String>,
+    /// The endpoint URL. Required for http transport; unused for stdio.
+    #[serde(default)]
+    pub url: Option<String>,
+    /// Optional HTTP headers (e.g. `Authorization`). Only used for http transport.
+    #[serde(default)]
+    pub headers: Option<HashMap<String, String>>,
     #[serde(default)]
     pub transport: Option<Transport>,
     #[serde(default)]
