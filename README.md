@@ -8,8 +8,8 @@ Think **oh-my-zsh for AI CLIs**: portable, shareable packs that configure Claude
 
 ```bash
 weave install @webdev
-weave use work
-weave publish my-pack
+weave list
+weave diagnose
 ```
 
 ---
@@ -32,9 +32,9 @@ Weave ships with **adapters** for each supported CLI. An adapter knows exactly h
 
 ## Status
 
-> **v0.1 (MVP)** — `install`, `list`, `remove`, `search`, and `diagnose` are functional for Claude Code and Gemini CLI. Not yet published to a package registry; install via the shell script or `cargo install`.
+> **v0.1 (MVP)** — `install`, `list`, `remove`, `search`, and `diagnose` are functional for Claude Code and Gemini CLI. Not yet published to a package registry; install via the shell script or build from source.
 
-AI assistants should read the repo instructions in `CLAUDE.md` (Claude), `GEMINI.md` (Gemini), or `CODEX.md` (Codex).
+---
 
 ## Docs
 
@@ -43,6 +43,8 @@ See [docs/README.md](./docs/README.md) for the full index, or jump straight to:
 - [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
 - [docs/ROADMAP.md](./docs/ROADMAP.md)
 - [docs/CONTRIBUTING.md](./docs/CONTRIBUTING.md)
+
+AI assistants working in this repo should read [`AGENTS.md`](./AGENTS.md).
 
 ---
 
@@ -70,17 +72,12 @@ Set `WEAVE_INSTALL_DIR` to override the install location (default: `/usr/local/b
 WEAVE_INSTALL_DIR=~/.local/bin curl -fsSL https://raw.githubusercontent.com/PackWeave/weave/main/install.sh | sh
 ```
 
-**Homebrew (macOS):**
+**Build from source:**
 
 ```bash
-brew tap PackWeave/tap
-brew install weave
-```
-
-**cargo:**
-
-```bash
-cargo install weave
+git clone https://github.com/PackWeave/weave
+cd weave
+cargo build --release
 ```
 
 ---
@@ -91,25 +88,16 @@ cargo install weave
 # Install a pack from the registry
 weave install @webdev
 
-# Install into a specific profile
-weave install @rust-dev --profile work
-
-# Switch active profile (rewrites CLI configs)
-weave use work
-
 # List installed packs
 weave list
+
+# Remove a pack
+weave remove webdev
 
 # Search the registry
 weave search "browser automation"
 
-# Publish a pack
-weave publish
-
 # Check CLI configuration health
-weave doctor
-
-# Detect project-scope config staleness
 weave diagnose
 ```
 
@@ -187,4 +175,4 @@ See [docs/CONTRIBUTING.md](./docs/CONTRIBUTING.md).
 
 ## License
 
-Apache 2.0
+Apache 2.0 — Copyright 2026 Brenno Rangel Ferrari. See [LICENSE](./LICENSE).
