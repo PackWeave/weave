@@ -376,6 +376,12 @@ mod tests {
     /// tar crate's path validation. This lets us craft malicious archives that
     /// real attackers could produce to test our extraction defences.
     fn make_raw_tar_gz(path: &str, content: &[u8]) -> Vec<u8> {
+        make_raw_tar_gz_with_type(path, content, b'0')
+    }
+
+    /// Build a tar.gz with a raw header and an explicit typeflag byte.
+    /// typeflag values: b'0' = regular file, b'1' = hardlink, b'2' = symlink.
+    fn make_raw_tar_gz_with_type(path: &str, content: &[u8], typeflag: u8) -> Vec<u8> {
         let mut header = [0u8; 512];
 
         // Name field (bytes 0–99)
@@ -394,8 +400,8 @@ mod tests {
         // Mtime
         header[136..147].copy_from_slice(b"00000000000");
 
-        // Typeflag: regular file
-        header[156] = b'0';
+        // Typeflag: regular file, hardlink, symlink, etc.
+        header[156] = typeflag;
 
         // Checksum: sum of all bytes with checksum field treated as spaces
         header[148..156].fill(b' ');
@@ -457,5 +463,23 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let bytes = make_tar_gz(&[]);
         assert!(Store::extract_archive("empty", &bytes, dir.path()).is_ok());
+    }
+
+    #[test]
+    fn extract_rejects_symlink() {
+        let dir = TempDir::new().unwrap();
+        // typeflag b'2' = symbolic link
+        let bytes = make_raw_tar_gz_with_type("innocent.md", b"", b'2');
+        let result = Store::extract_archive("evil-pack", &bytes, dir.path());
+        assert!(result.is_err(), "symlink entry should be rejected");
+    }
+
+    #[test]
+    fn extract_rejects_hardlink() {
+        let dir = TempDir::new().unwrap();
+        // typeflag b'1' = hard link
+        let bytes = make_raw_tar_gz_with_type("innocent.md", b"", b'1');
+        let result = Store::extract_archive("evil-pack", &bytes, dir.path());
+        assert!(result.is_err(), "hardlink entry should be rejected");
     }
 }
