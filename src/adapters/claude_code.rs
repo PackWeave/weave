@@ -52,7 +52,6 @@ impl ClaudeCodeAdapter {
         }
     }
 
-    #[cfg(test)]
     pub fn with_home_and_project(home: PathBuf, project_root: PathBuf) -> Self {
         Self {
             home: Some(home),
