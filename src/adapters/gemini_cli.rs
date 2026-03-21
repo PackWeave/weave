@@ -300,9 +300,9 @@ impl GeminiCliAdapter {
             }
         }
         let fragment = &sanitised;
-        let frag_obj = fragment.as_object().expect(
-            "sanitised is always an object — we just checked is_object() above",
-        );
+        let frag_obj = fragment
+            .as_object()
+            .expect("sanitised is always an object — we just checked is_object() above");
 
         let mut snap = serde_json::Map::new();
         for key in frag_obj.keys() {

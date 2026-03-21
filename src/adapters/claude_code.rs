@@ -302,11 +302,14 @@ impl ClaudeCodeAdapter {
 
         // A non-object fragment would cause deep_merge's fallthrough arm to replace
         // the entire settings file. Reject it here with a clear error.
-        let frag_obj = fragment.as_object().ok_or_else(|| WeaveError::ApplyFailed {
-            pack: pack.pack.name.clone(),
-            cli: "Claude Code".into(),
-            reason: "settings/claude.json must be a JSON object, not a primitive or array".into(),
-        })?;
+        let frag_obj = fragment
+            .as_object()
+            .ok_or_else(|| WeaveError::ApplyFailed {
+                pack: pack.pack.name.clone(),
+                cli: "Claude Code".into(),
+                reason: "settings/claude.json must be a JSON object, not a primitive or array"
+                    .into(),
+            })?;
 
         let mut snap = serde_json::Map::new();
         for key in frag_obj.keys() {
