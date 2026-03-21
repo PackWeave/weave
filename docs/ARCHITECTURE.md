@@ -129,8 +129,13 @@ pub struct McpServer {
     pub name: String,
     pub package_type: Option<String>,
     pub package: Option<String>,
-    pub command: String,
+    /// Required for stdio transport; None for http.
+    pub command: Option<String>,
     pub args: Vec<String>,
+    /// Required for http transport; None for stdio.
+    pub url: Option<String>,
+    /// Optional HTTP headers (e.g. Authorization). Only used for http transport.
+    pub headers: Option<HashMap<String, String>>,
     pub transport: Option<Transport>,
     pub namespace: Option<String>,
     pub tools: Vec<String>,

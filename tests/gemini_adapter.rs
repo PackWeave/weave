@@ -77,8 +77,10 @@ fn simple_server(name: &str) -> McpServer {
         name: name.to_string(),
         package_type: None,
         package: None,
-        command: "npx".into(),
+        command: Some("npx".into()),
         args: vec!["-y".into(), name.to_string()],
+        url: None,
+        headers: None,
         transport: Some(Transport::Stdio),
         namespace: None,
         tools: vec![],
@@ -102,8 +104,10 @@ fn server_with_env(name: &str, env_keys: &[&str]) -> McpServer {
         name: name.to_string(),
         package_type: None,
         package: None,
-        command: "npx".into(),
+        command: Some("npx".into()),
         args: vec!["-y".into(), name.to_string()],
+        url: None,
+        headers: None,
         transport: Some(Transport::Stdio),
         namespace: None,
         tools: vec![],
@@ -245,8 +249,10 @@ fn apply_writes_server_args() {
         name: "arg-server".into(),
         package_type: None,
         package: None,
-        command: "node".into(),
+        command: Some("node".into()),
         args: vec!["--flag".into(), "value".into()],
+        url: None,
+        headers: None,
         transport: Some(Transport::Stdio),
         namespace: None,
         tools: vec![],
@@ -1026,4 +1032,81 @@ fn remove_after_missing_settings_file_is_graceful() {
 
     // remove should not panic or return an error — the server simply isn't there to remove.
     adapter.remove("ghost-pack").unwrap();
+}
+
+#[test]
+fn apply_http_server_writes_url() {
+    let home = TempDir::new().unwrap();
+    setup_gemini_home(&home);
+    let adapter = make_adapter(&home);
+
+    let server = McpServer {
+        name: "http-server".into(),
+        package_type: None,
+        package: None,
+        command: None,
+        args: vec![],
+        url: Some("https://example.com/mcp".into()),
+        headers: Some(
+            [("Authorization".to_string(), "Bearer ${TOKEN}".to_string())]
+                .into_iter()
+                .collect(),
+        ),
+        transport: Some(Transport::Http),
+        namespace: None,
+        tools: vec![],
+        env: HashMap::new(),
+    };
+    let pack = pack_with_servers("http-pack", vec![server]);
+    adapter.apply(&pack).unwrap();
+
+    let settings_path = home.path().join(".gemini/settings.json");
+    let config = read_json(&settings_path);
+    let entry = &config["mcpServers"]["http-server"];
+    assert_eq!(
+        entry["url"], "https://example.com/mcp",
+        "url must be written"
+    );
+    assert_eq!(
+        entry["headers"]["Authorization"], "Bearer ${TOKEN}",
+        "headers must be written"
+    );
+    assert!(
+        entry["command"].is_null(),
+        "command must not appear in HTTP server config"
+    );
+    // Gemini does not use a "type" key for http servers
+    assert!(
+        entry["type"].is_null(),
+        "type key must not appear in Gemini HTTP server config"
+    );
+}
+
+#[test]
+fn apply_http_server_without_url_returns_error() {
+    let home = TempDir::new().unwrap();
+    setup_gemini_home(&home);
+    let adapter = make_adapter(&home);
+
+    let server = McpServer {
+        name: "no-url-server".into(),
+        package_type: None,
+        package: None,
+        command: None,
+        args: vec![],
+        url: None, // missing url
+        headers: None,
+        transport: Some(Transport::Http),
+        namespace: None,
+        tools: vec![],
+        env: HashMap::new(),
+    };
+    let pack = pack_with_servers("bad-http-pack", vec![server]);
+    let result = adapter.apply(&pack);
+    assert!(result.is_err(), "should fail when HTTP server has no url");
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("url"),
+        "error message should mention the missing url field"
+    );
 }

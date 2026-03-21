@@ -235,7 +235,14 @@ impl ClaudeCodeAdapter {
                     ),
                 });
             }
-            servers_obj.insert(server.name.clone(), build_claude_server_config(server));
+            servers_obj.insert(
+                server.name.clone(),
+                build_claude_server_config(server).map_err(|reason| WeaveError::ApplyFailed {
+                    pack: pack.pack.name.clone(),
+                    cli: "Claude Code".into(),
+                    reason,
+                })?,
+            );
             servers_map.insert(server.name.clone(), pack.pack.name.clone());
         }
 
@@ -842,46 +849,76 @@ impl CliAdapter for ClaudeCodeAdapter {
 }
 
 /// Build a Claude Code MCP server config JSON value.
-fn build_claude_server_config(server: &McpServer) -> serde_json::Value {
+///
+/// Returns an error if the server uses HTTP transport but has no `url` set.
+/// Build a Claude Code MCP server config JSON object.
+/// Returns `Err(reason)` on invalid config so the caller can attach the pack name.
+fn build_claude_server_config(
+    server: &McpServer,
+) -> std::result::Result<serde_json::Value, String> {
     let mut config = serde_json::Map::new();
 
-    config.insert(
-        "command".into(),
-        serde_json::Value::String(server.command.clone()),
-    );
-
-    if !server.args.is_empty() {
-        config.insert(
-            "args".into(),
-            serde_json::Value::Array(
-                server
-                    .args
-                    .iter()
-                    .map(|a| serde_json::Value::String(a.clone()))
-                    .collect(),
-            ),
-        );
-    }
-
     if let Some(Transport::Http) = server.transport {
+        // HTTP transport: requires `url`, writes optional `headers`; no command/args.
+        let url = server.url.as_deref().ok_or_else(|| {
+            format!(
+                "server '{}' uses HTTP transport but has no `url` field — \
+                 add `url = \"https://...\"` to the server definition in pack.toml",
+                server.name
+            )
+        })?;
         config.insert("type".into(), serde_json::Value::String("http".into()));
-    }
+        config.insert("url".into(), serde_json::Value::String(url.to_owned()));
+        if let Some(headers) = &server.headers {
+            let headers_map: serde_json::Map<String, serde_json::Value> = headers
+                .iter()
+                .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+                .collect();
+            config.insert("headers".into(), serde_json::Value::Object(headers_map));
+        }
+    } else {
+        // Stdio transport (default): requires `command`.
+        let command = server.command.as_deref().ok_or_else(|| {
+            format!(
+                "server '{}' uses stdio transport but has no `command` field — \
+                 add `command = \"...\"` to the server definition in pack.toml",
+                server.name
+            )
+        })?;
+        config.insert(
+            "command".into(),
+            serde_json::Value::String(command.to_owned()),
+        );
 
-    if !server.env.is_empty() {
-        let mut env_map = serde_json::Map::new();
-        for key in server.env.keys() {
-            // Write "${KEY}" references so the config clearly signals which env
-            // vars the user must populate. An empty string would silently
-            // override any value the user already has in their environment.
-            env_map.insert(
-                key.clone(),
-                serde_json::Value::String(format!("${{{key}}}")),
+        if !server.args.is_empty() {
+            config.insert(
+                "args".into(),
+                serde_json::Value::Array(
+                    server
+                        .args
+                        .iter()
+                        .map(|a| serde_json::Value::String(a.clone()))
+                        .collect(),
+                ),
             );
         }
-        config.insert("env".into(), serde_json::Value::Object(env_map));
+
+        if !server.env.is_empty() {
+            let mut env_map = serde_json::Map::new();
+            for key in server.env.keys() {
+                // Write "${KEY}" references so the config clearly signals which env
+                // vars the user must populate. An empty string would silently
+                // override any value the user already has in their environment.
+                env_map.insert(
+                    key.clone(),
+                    serde_json::Value::String(format!("${{{key}}}")),
+                );
+            }
+            config.insert("env".into(), serde_json::Value::Object(env_map));
+        }
     }
 
-    serde_json::Value::Object(config)
+    Ok(serde_json::Value::Object(config))
 }
 
 /// Deep-merge source into target. Arrays are replaced, objects are merged recursively.
@@ -944,8 +981,10 @@ mod tests {
                     name: "test-server".into(),
                     package_type: None,
                     package: None,
-                    command: "npx".into(),
+                    command: Some("npx".into()),
                     args: vec!["-y".into(), "test-server".into()],
+                    url: None,
+                    headers: None,
                     transport: Some(Transport::Stdio),
                     namespace: None,
                     tools: vec![],
@@ -1216,8 +1255,10 @@ mod tests {
                     name: "env-server".into(),
                     package_type: None,
                     package: None,
-                    command: "npx".into(),
+                    command: Some("npx".into()),
                     args: vec!["-y".into(), "env-server".into()],
+                    url: None,
+                    headers: None,
                     transport: None,
                     namespace: None,
                     tools: vec![],

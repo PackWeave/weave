@@ -39,9 +39,17 @@ pub struct McpServer {
     pub package_type: Option<String>,
     #[serde(default)]
     pub package: Option<String>,
-    pub command: String,
+    /// The executable to run. Required for stdio transport; unused for http.
+    #[serde(default)]
+    pub command: Option<String>,
     #[serde(default)]
     pub args: Vec<String>,
+    /// The endpoint URL. Required for http transport; unused for stdio.
+    #[serde(default)]
+    pub url: Option<String>,
+    /// Optional HTTP headers (e.g. `Authorization`). Only used for http transport.
+    #[serde(default)]
+    pub headers: Option<HashMap<String, String>>,
     #[serde(default)]
     pub transport: Option<Transport>,
     #[serde(default)]
@@ -219,7 +227,7 @@ impl Pack {
             });
         }
 
-        // Validate server names are unique within the pack
+        // Validate server names are unique and transport requirements are met
         let mut seen_servers = std::collections::HashSet::new();
         for server in &self.servers {
             if !seen_servers.insert(&server.name) {
@@ -227,6 +235,32 @@ impl Pack {
                     path: path.to_path_buf(),
                     reason: format!("duplicate server name '{}'", server.name),
                 });
+            }
+
+            match server.transport.as_ref() {
+                Some(Transport::Http) => {
+                    if server.url.is_none() {
+                        return Err(WeaveError::InvalidManifest {
+                            path: path.to_path_buf(),
+                            reason: format!(
+                                "server '{}' uses HTTP transport but has no `url` field",
+                                server.name
+                            ),
+                        });
+                    }
+                }
+                _ => {
+                    // Stdio (default): command is required
+                    if server.command.is_none() {
+                        return Err(WeaveError::InvalidManifest {
+                            path: path.to_path_buf(),
+                            reason: format!(
+                                "server '{}' uses stdio transport but has no `command` field",
+                                server.name
+                            ),
+                        });
+                    }
+                }
             }
         }
 
@@ -338,5 +372,58 @@ description = "Test"
         assert!(pack.targets.claude_code);
         assert!(pack.targets.gemini_cli);
         assert!(pack.targets.codex_cli);
+    }
+
+    #[test]
+    fn reject_stdio_server_without_command() {
+        let toml = r#"
+[pack]
+name = "test"
+version = "1.0.0"
+description = "Test"
+
+[[servers]]
+name = "my-server"
+transport = "stdio"
+"#;
+        let result = Pack::from_toml(toml, &PathBuf::from("test.toml"));
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("stdio"), "expected 'stdio' in error: {msg}");
+    }
+
+    #[test]
+    fn reject_http_server_without_url() {
+        let toml = r#"
+[pack]
+name = "test"
+version = "1.0.0"
+description = "Test"
+
+[[servers]]
+name = "my-http-server"
+transport = "http"
+"#;
+        let result = Pack::from_toml(toml, &PathBuf::from("test.toml"));
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("http"), "expected 'http' in error: {msg}");
+    }
+
+    #[test]
+    fn accept_http_server_with_url() {
+        let toml = r#"
+[pack]
+name = "test"
+version = "1.0.0"
+description = "Test"
+
+[[servers]]
+name = "my-http-server"
+transport = "http"
+url = "https://example.com/mcp"
+"#;
+        let result = Pack::from_toml(toml, &PathBuf::from("test.toml"));
+        assert!(result.is_ok());
     }
 }
