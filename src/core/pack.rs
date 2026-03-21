@@ -1,0 +1,342 @@
+use std::collections::HashMap;
+use std::path::Path;
+
+use serde::{Deserialize, Serialize};
+
+use crate::error::{Result, WeaveError};
+
+/// The in-memory representation of a parsed `pack.toml`.
+/// A `Pack` that exists is always structurally valid.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Pack {
+    pub name: String,
+    pub version: semver::Version,
+    pub description: String,
+    pub authors: Vec<String>,
+    #[serde(default)]
+    pub license: Option<String>,
+    #[serde(default)]
+    pub repository: Option<String>,
+    #[serde(default)]
+    pub keywords: Vec<String>,
+    #[serde(default)]
+    pub min_tool_version: Option<semver::Version>,
+    #[serde(default)]
+    pub servers: Vec<McpServer>,
+    #[serde(default)]
+    pub dependencies: HashMap<String, semver::VersionReq>,
+    #[serde(default)]
+    pub extensions: PackExtensions,
+    #[serde(default)]
+    pub targets: PackTargets,
+}
+
+/// An MCP server definition within a pack.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpServer {
+    pub name: String,
+    #[serde(rename = "type", default)]
+    pub package_type: Option<String>,
+    #[serde(default)]
+    pub package: Option<String>,
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub transport: Option<Transport>,
+    #[serde(default)]
+    pub namespace: Option<String>,
+    #[serde(default)]
+    pub tools: Vec<String>,
+    #[serde(default)]
+    pub env: HashMap<String, EnvVar>,
+}
+
+/// Transport type for an MCP server.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Transport {
+    Stdio,
+    Http,
+}
+
+/// Environment variable metadata. Never stores the actual secret value.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnvVar {
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub secret: bool,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+/// CLI-specific extension configuration.
+/// Adapters ignore keys they don't understand (forward compatibility).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PackExtensions {
+    #[serde(default)]
+    pub claude_code: Option<serde_json::Value>,
+    #[serde(default)]
+    pub gemini_cli: Option<serde_json::Value>,
+    #[serde(default)]
+    pub codex_cli: Option<serde_json::Value>,
+}
+
+/// Which CLIs this pack targets. Defaults to all true.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PackTargets {
+    #[serde(default = "default_true")]
+    pub claude_code: bool,
+    #[serde(default = "default_true")]
+    pub gemini_cli: bool,
+    #[serde(default = "default_true")]
+    pub codex_cli: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for PackTargets {
+    fn default() -> Self {
+        Self {
+            claude_code: true,
+            gemini_cli: true,
+            codex_cli: true,
+        }
+    }
+}
+
+/// A pack with resolved (exact, pinned) version.
+#[derive(Debug, Clone)]
+pub struct ResolvedPack {
+    pub pack: Pack,
+    pub source: PackSource,
+}
+
+/// Where a pack was sourced from.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum PackSource {
+    Registry { registry_url: String },
+    Local { path: String },
+    Git { url: String, rev: Option<String> },
+}
+
+/// Wraps the raw TOML structure for deserialization.
+#[derive(Debug, Deserialize)]
+struct PackManifest {
+    pack: PackMetadataToml,
+    #[serde(default)]
+    servers: Option<Vec<McpServer>>,
+    #[serde(default)]
+    dependencies: Option<HashMap<String, semver::VersionReq>>,
+    #[serde(default)]
+    extensions: Option<PackExtensions>,
+    #[serde(default)]
+    targets: Option<PackTargets>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PackMetadataToml {
+    name: String,
+    version: semver::Version,
+    description: String,
+    #[serde(default)]
+    authors: Vec<String>,
+    #[serde(default)]
+    license: Option<String>,
+    #[serde(default)]
+    repository: Option<String>,
+    #[serde(default)]
+    keywords: Vec<String>,
+    #[serde(default)]
+    min_tool_version: Option<semver::Version>,
+}
+
+impl Pack {
+    /// Parse and validate a pack manifest from a TOML string.
+    pub fn from_toml(content: &str, path: &Path) -> Result<Self> {
+        let manifest: PackManifest = toml::from_str(content).map_err(|e| WeaveError::Toml {
+            path: path.to_path_buf(),
+            source: Box::new(e),
+        })?;
+
+        let pack = Pack {
+            name: manifest.pack.name,
+            version: manifest.pack.version,
+            description: manifest.pack.description,
+            authors: manifest.pack.authors,
+            license: manifest.pack.license,
+            repository: manifest.pack.repository,
+            keywords: manifest.pack.keywords,
+            min_tool_version: manifest.pack.min_tool_version,
+            servers: manifest.servers.unwrap_or_default(),
+            dependencies: manifest.dependencies.unwrap_or_default(),
+            extensions: manifest.extensions.unwrap_or_default(),
+            targets: manifest.targets.unwrap_or_default(),
+        };
+
+        pack.validate(path)?;
+        Ok(pack)
+    }
+
+    /// Load a pack from a directory containing `pack.toml`.
+    pub fn load(dir: &Path) -> Result<Self> {
+        let manifest_path = dir.join("pack.toml");
+        let content = crate::util::read_file(&manifest_path)?;
+        Self::from_toml(&content, &manifest_path)
+    }
+
+    fn validate(&self, path: &Path) -> Result<()> {
+        if self.name.is_empty() {
+            return Err(WeaveError::InvalidManifest {
+                path: path.to_path_buf(),
+                reason: "pack name cannot be empty".into(),
+            });
+        }
+
+        // Name must be lowercase alphanumeric + hyphens
+        if !self
+            .name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        {
+            return Err(WeaveError::InvalidManifest {
+                path: path.to_path_buf(),
+                reason: format!(
+                    "pack name '{}' must contain only lowercase letters, numbers, and hyphens",
+                    self.name
+                ),
+            });
+        }
+
+        if self.description.is_empty() {
+            return Err(WeaveError::InvalidManifest {
+                path: path.to_path_buf(),
+                reason: "pack description cannot be empty".into(),
+            });
+        }
+
+        // Validate server names are unique within the pack
+        let mut seen_servers = std::collections::HashSet::new();
+        for server in &self.servers {
+            if !seen_servers.insert(&server.name) {
+                return Err(WeaveError::InvalidManifest {
+                    path: path.to_path_buf(),
+                    reason: format!("duplicate server name '{}'", server.name),
+                });
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn parse_minimal_pack() {
+        let toml = r#"
+[pack]
+name = "test-pack"
+version = "1.0.0"
+description = "A test pack"
+authors = ["tester"]
+"#;
+        let pack = Pack::from_toml(toml, &PathBuf::from("test.toml")).unwrap();
+        assert_eq!(pack.name, "test-pack");
+        assert_eq!(pack.version, semver::Version::new(1, 0, 0));
+        assert!(pack.targets.claude_code);
+        assert!(pack.targets.gemini_cli);
+        assert!(pack.servers.is_empty());
+    }
+
+    #[test]
+    fn parse_pack_with_servers() {
+        let toml = r#"
+[pack]
+name = "webdev"
+version = "0.1.0"
+description = "Web development essentials"
+authors = ["dev"]
+
+[[servers]]
+name = "filesystem"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem"]
+transport = "stdio"
+
+[servers.env.FS_ROOT]
+required = true
+secret = false
+description = "Root directory"
+"#;
+        let pack = Pack::from_toml(toml, &PathBuf::from("test.toml")).unwrap();
+        assert_eq!(pack.servers.len(), 1);
+        assert_eq!(pack.servers[0].name, "filesystem");
+        assert!(pack.servers[0].env["FS_ROOT"].required);
+    }
+
+    #[test]
+    fn reject_invalid_name() {
+        let toml = r#"
+[pack]
+name = "Invalid_Name"
+version = "1.0.0"
+description = "Bad name"
+"#;
+        let result = Pack::from_toml(toml, &PathBuf::from("test.toml"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn reject_empty_description() {
+        let toml = r#"
+[pack]
+name = "test"
+version = "1.0.0"
+description = ""
+"#;
+        let result = Pack::from_toml(toml, &PathBuf::from("test.toml"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn reject_duplicate_servers() {
+        let toml = r#"
+[pack]
+name = "test"
+version = "1.0.0"
+description = "Test"
+
+[[servers]]
+name = "dup"
+command = "a"
+
+[[servers]]
+name = "dup"
+command = "b"
+"#;
+        let result = Pack::from_toml(toml, &PathBuf::from("test.toml"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn targets_default_to_true() {
+        let toml = r#"
+[pack]
+name = "test"
+version = "1.0.0"
+description = "Test"
+"#;
+        let pack = Pack::from_toml(toml, &PathBuf::from("test.toml")).unwrap();
+        assert!(pack.targets.claude_code);
+        assert!(pack.targets.gemini_cli);
+        assert!(pack.targets.codex_cli);
+    }
+}

@@ -1,0 +1,16 @@
+#!/bin/sh
+# Pre-commit hook — mirrors the CI fmt + clippy checks so failures are caught
+# locally before push rather than in CI.
+#
+# To activate: git config core.hooksPath .githooks
+# (run once after cloning; persists in your local git config)
+
+set -e
+
+echo "pre-commit: checking formatting..."
+cargo fmt --all -- --check
+
+echo "pre-commit: running clippy..."
+cargo clippy -- -D warnings
+
+echo "pre-commit: ok"

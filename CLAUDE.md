@@ -86,7 +86,19 @@ The adapters are opaque. They expose only the `CliAdapter` trait. The core does 
 1. Read the relevant section of docs/ARCHITECTURE.md
 1. Write the types first — get the data model right before writing logic
 1. Write tests before or alongside implementation
-1. Run `cargo fmt`, `cargo clippy`, `cargo test` before considering it done
+1. Run `cargo fmt --all`, `cargo clippy -- -D warnings`, `cargo test` before considering it done — **in that order, every time**
+
+-----
+
+## Local pre-commit hook
+
+The repo ships a pre-commit hook that mirrors CI. Activate it once after cloning:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+After activation, every `git commit` runs `cargo fmt --check` and `cargo clippy` locally. This catches formatting and lint failures before push rather than in CI.
 
 -----
 
