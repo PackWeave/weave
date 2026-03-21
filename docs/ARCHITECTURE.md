@@ -58,6 +58,11 @@ weave use work
 
 ## Module structure
 
+> **This is the intended design, not a snapshot of current source.**
+> Modules that are not yet implemented are still listed here — this document
+> guides implementation, it does not track it. Check `src/` for the current
+> state of the code.
+
 ```
 src/
   main.rs                  Entry point. Builds CLI, dispatches to handlers.
