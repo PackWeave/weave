@@ -60,6 +60,12 @@ AI assistants working in this repo should read [`AGENTS.md`](./AGENTS.md).
 
 ## Installation
 
+**Homebrew (macOS and Linux):**
+
+```bash
+brew install PackWeave/tap/weave
+```
+
 **Shell script (macOS and Linux):**
 
 ```bash
@@ -99,6 +105,38 @@ weave search "browser automation"
 
 # Check CLI configuration health
 weave diagnose
+```
+
+---
+
+## Coming soon
+
+These features are actively planned. See [docs/ROADMAP.md](./docs/ROADMAP.md) for milestones and details.
+
+**v0.2 — Codex, profiles, and pack authoring:**
+
+```bash
+# Switch between named profiles (e.g. work, oss, personal)
+weave use work
+
+# Create a new pack scaffold
+weave init my-pack
+
+# Update installed packs to latest compatible versions
+weave update
+
+# Publish a pack to the registry
+weave publish my-pack
+```
+
+**v0.3 — Hooks, taps, and sync:**
+
+```bash
+# Add a community pack source
+weave tap add user/repo
+
+# Reapply the active profile (after manual config changes)
+weave sync
 ```
 
 ---
