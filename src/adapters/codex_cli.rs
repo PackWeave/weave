@@ -241,7 +241,14 @@ impl CodexAdapter {
                     ),
                 });
             }
-            mcp_table.insert(server.name.clone(), build_codex_server_config(server));
+            mcp_table.insert(
+                server.name.clone(),
+                build_codex_server_config(server).map_err(|reason| WeaveError::ApplyFailed {
+                    pack: pack.pack.name.clone(),
+                    cli: "Codex CLI".into(),
+                    reason,
+                })?,
+            );
             servers_map.insert(server.name.clone(), pack.pack.name.clone());
         }
 
@@ -840,20 +847,33 @@ impl CliAdapter for CodexAdapter {
 // ── TOML server config builder ────────────────────────────────────────────────
 
 /// Build a Codex CLI MCP server config TOML value.
-fn build_codex_server_config(server: &McpServer) -> toml::Value {
+///
+/// Returns `Err(reason)` if required fields are missing for the chosen transport.
+fn build_codex_server_config(server: &McpServer) -> std::result::Result<toml::Value, String> {
     let mut table = toml::value::Table::new();
 
     match server.transport {
         Some(Transport::Http) => {
-            // HTTP transport: use `url` field (command is treated as URL for HTTP servers)
-            table.insert("url".into(), toml::Value::String(server.command.clone()));
+            // HTTP transport: requires `url`.
+            let url = server.url.as_deref().ok_or_else(|| {
+                format!(
+                    "server '{}' uses HTTP transport but has no `url` field — \
+                     add `url = \"https://...\"` to the server definition in pack.toml",
+                    server.name
+                )
+            })?;
+            table.insert("url".into(), toml::Value::String(url.to_owned()));
         }
         _ => {
-            // Stdio (default): use command + args
-            table.insert(
-                "command".into(),
-                toml::Value::String(server.command.clone()),
-            );
+            // Stdio (default): requires `command`.
+            let command = server.command.as_deref().ok_or_else(|| {
+                format!(
+                    "server '{}' uses stdio transport but has no `command` field — \
+                     add `command = \"...\"` to the server definition in pack.toml",
+                    server.name
+                )
+            })?;
+            table.insert("command".into(), toml::Value::String(command.to_owned()));
 
             if !server.args.is_empty() {
                 table.insert(
@@ -882,7 +902,7 @@ fn build_codex_server_config(server: &McpServer) -> toml::Value {
         table.insert("env".into(), toml::Value::Table(env_table));
     }
 
-    toml::Value::Table(table)
+    Ok(toml::Value::Table(table))
 }
 
 // ── Settings helpers ──────────────────────────────────────────────────────────
