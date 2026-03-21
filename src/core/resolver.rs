@@ -4,6 +4,22 @@ use crate::core::profile::Profile;
 use crate::core::registry::Registry;
 use crate::error::{Result, WeaveError};
 
+// NOTE: resolve_pack calls registry.fetch_version() for every pack in the
+// dependency tree to obtain its declared dependencies. For GitHubRegistry
+// this is one HTTP round-trip per pack. A future optimisation could cache
+// releases or batch-fetch metadata, but for M3 pack counts this is fine.
+
+/// Mutable state threaded through recursive dependency resolution.
+/// Bundled into a struct to keep resolve_pack's argument count manageable.
+struct ResolveCtx {
+    to_install: Vec<(String, semver::Version)>,
+    already_satisfied: Vec<String>,
+    /// Active resolution stack for O(1) cycle detection.
+    visited: HashSet<String>,
+    /// Traversal order for human-readable cycle error messages.
+    path: Vec<String>,
+}
+
 /// The result of dependency resolution: what to install, what to remove,
 /// and what is already satisfied.
 #[derive(Debug, Clone)]
@@ -30,23 +46,19 @@ impl<'a> Resolver<'a> {
         version_req: Option<&semver::VersionReq>,
         profile: &Profile,
     ) -> Result<InstallPlan> {
-        let mut to_install = Vec::new();
-        let mut already_satisfied = Vec::new();
-        let mut visited = HashSet::new();
+        let mut ctx = ResolveCtx {
+            to_install: Vec::new(),
+            already_satisfied: Vec::new(),
+            visited: HashSet::new(),
+            path: Vec::new(),
+        };
 
-        self.resolve_pack(
-            pack_name,
-            version_req,
-            profile,
-            &mut to_install,
-            &mut already_satisfied,
-            &mut visited,
-        )?;
+        self.resolve_pack(pack_name, version_req, profile, &mut ctx)?;
 
         Ok(InstallPlan {
-            to_install,
+            to_install: ctx.to_install,
             to_remove: Vec::new(),
-            already_satisfied,
+            already_satisfied: ctx.already_satisfied,
         })
     }
 
@@ -70,32 +82,35 @@ impl<'a> Resolver<'a> {
         pack_name: &str,
         version_req: Option<&semver::VersionReq>,
         profile: &Profile,
-        to_install: &mut Vec<(String, semver::Version)>,
-        already_satisfied: &mut Vec<String>,
-        visited: &mut HashSet<String>,
+        ctx: &mut ResolveCtx,
     ) -> Result<()> {
-        // Cycle detection must come first: `visited` tracks the active resolution
-        // stack. If this pack is currently being resolved upstream it means we
-        // have a circular dependency (A → B → A). A pack that has already been
-        // fully resolved (in `to_install` but not in `visited`) is a diamond
-        // dependency and is fine — the duplicate-queue guard below handles it.
-        if !visited.insert(pack_name.to_string()) {
-            let chain = {
-                let mut v: Vec<&str> = visited.iter().map(String::as_str).collect();
-                v.sort();
-                v.join(" → ")
-            };
+        // Cycle detection must come first: `ctx.visited` tracks the active
+        // resolution stack. If this pack is currently being resolved upstream
+        // it means we have a circular dependency (A → B → A). A pack that has
+        // already been fully resolved (in `to_install` but not in `visited`) is
+        // a diamond dependency — the duplicate-queue guard below handles it.
+        if !ctx.visited.insert(pack_name.to_string()) {
+            // `ctx.path` records traversal order; append the cycle-closing pack
+            // to show the full loop (e.g. "pack-a → pack-b → pack-a").
+            let mut chain_parts = ctx.path.clone();
+            chain_parts.push(pack_name.to_string());
+            let chain = chain_parts.join(" → ");
             return Err(WeaveError::CircularDependency {
                 pack: pack_name.to_string(),
                 chain,
             });
         }
 
+        // Record traversal position for error messages. Mirrored by ctx.path.pop()
+        // at every exit point that also calls ctx.visited.remove().
+        ctx.path.push(pack_name.to_string());
+
         // Skip if already queued for installation — this pack was fully resolved
         // in a sibling branch (diamond dependency). Remove from `visited` first
         // because we inserted above and won't recurse further.
-        if to_install.iter().any(|(n, _)| n == pack_name) {
-            visited.remove(pack_name);
+        if ctx.to_install.iter().any(|(n, _)| n == pack_name) {
+            ctx.visited.remove(pack_name);
+            ctx.path.pop();
             return Ok(());
         }
 
@@ -131,34 +146,33 @@ impl<'a> Resolver<'a> {
         // when 1.1.0 is the latest release matching the constraint.
         if let Some(installed) = profile.get_pack(pack_name) {
             if installed.version == version {
-                already_satisfied.push(pack_name.to_string());
+                ctx.already_satisfied.push(pack_name.to_string());
                 // Backtrack before returning: this pack is satisfied so we don't
                 // traverse its deps again, but it must not stay in `visited` as
                 // a false cycle anchor for sibling packs that depend on it.
-                visited.remove(pack_name);
+                ctx.visited.remove(pack_name);
+                ctx.path.pop();
                 return Ok(());
             }
         }
 
-        to_install.push((pack_name.to_string(), version.clone()));
+        ctx.to_install
+            .push((pack_name.to_string(), version.clone()));
 
         // Fetch the release record to get its declared dependencies, then
-        // recursively resolve each one.
+        // recursively resolve each one. Sort deps alphabetically for a
+        // deterministic to_install order regardless of HashMap iteration order.
         let release = self.registry.fetch_version(pack_name, &version)?;
-        for (dep_name, dep_req) in &release.dependencies {
-            self.resolve_pack(
-                dep_name,
-                Some(dep_req),
-                profile,
-                to_install,
-                already_satisfied,
-                visited,
-            )?;
+        let mut deps: Vec<(&String, &semver::VersionReq)> = release.dependencies.iter().collect();
+        deps.sort_by_key(|(name, _)| name.as_str());
+        for (dep_name, dep_req) in deps {
+            self.resolve_pack(dep_name, Some(dep_req), profile, ctx)?;
         }
 
         // Backtrack: remove from the active path so sibling packs that share
         // this dependency don't incorrectly detect a cycle.
-        visited.remove(pack_name);
+        ctx.visited.remove(pack_name);
+        ctx.path.pop();
 
         Ok(())
     }
@@ -438,10 +452,18 @@ mod tests {
         };
 
         let result = resolver.plan_install("pack-a", None, &profile);
-        assert!(
-            matches!(result, Err(WeaveError::CircularDependency { .. })),
-            "expected CircularDependency error, got: {result:?}"
-        );
+        match result {
+            Err(WeaveError::CircularDependency { pack, chain }) => {
+                assert_eq!(pack, "pack-a", "cycle closes on pack-a");
+                // chain must show traversal order, not alphabetical:
+                // pack-a was entered first, pack-b second, then pack-a closes the cycle
+                assert_eq!(
+                    chain, "pack-a → pack-b → pack-a",
+                    "chain should show traversal order"
+                );
+            }
+            other => panic!("expected CircularDependency error, got: {other:?}"),
+        }
     }
 
     /// A deep chain A → B → C should install all three packs.
