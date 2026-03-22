@@ -1,9 +1,10 @@
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 
 use crate::adapters;
 use crate::core::config::Config;
-use crate::core::pack::ResolvedPack;
+use crate::core::pack::{Pack, PackSource, ResolvedPack};
 use crate::core::profile::Profile;
+use crate::core::registry::{GitHubRegistry, Registry};
 use crate::core::store::Store;
 use crate::error::WeaveError;
 
@@ -59,12 +60,12 @@ pub fn run(profile_name: Option<&str>) -> Result<()> {
     for installed in &to_add {
         println!("  Applying {}@{}...", installed.name, installed.version);
 
-        // Load the pack from the store (it should already be cached)
-        let pack = match Store::load_pack(&installed.name, &installed.version) {
+        let pack = match load_or_fetch_pack(&installed.name, &installed.version, &installed.source)
+        {
             Ok(p) => p,
             Err(e) => {
                 eprintln!(
-                    "  warning: could not load {}@{} from store: {e}",
+                    "  warning: could not load {}@{}: {e}",
                     installed.name, installed.version
                 );
                 continue;
@@ -90,6 +91,28 @@ pub fn run(profile_name: Option<&str>) -> Result<()> {
 
     println!("Switched to profile '{target_name}'");
     Ok(())
+}
+
+/// Try to load a pack from the store; if missing, attempt to fetch it from the registry.
+fn load_or_fetch_pack(name: &str, version: &semver::Version, source: &PackSource) -> Result<Pack> {
+    // Try loading from store first
+    if let Ok(pack) = Store::load_pack(name, version) {
+        return Ok(pack);
+    }
+
+    // Try fetching from registry
+    let registry_url = match source {
+        PackSource::Registry { registry_url } => registry_url,
+        _ => bail!("pack {name}@{version} not in local store and source is not a registry"),
+    };
+
+    println!("  Fetching {name}@{version} from registry...");
+    let registry = GitHubRegistry::new(registry_url);
+    let release = registry
+        .fetch_version(name, version)
+        .context("resolving pack from registry")?;
+    Store::fetch(name, &release).context("downloading pack")?;
+    Store::load_pack(name, version).context("loading fetched pack")
 }
 
 /// Compute the diff between two profiles.

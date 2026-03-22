@@ -140,6 +140,7 @@ impl Profile {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     fn test_pack(name: &str) -> InstalledPack {
         InstalledPack {
@@ -172,6 +173,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn list_all_and_delete_with_temp_dir() {
         let tmp = tempfile::TempDir::new().unwrap();
         // Point WEAVE_TEST_STORE_DIR so profile I/O goes to our temp dir
