@@ -2,7 +2,7 @@
 name: check-pr-review
 description: Review all comments and reviews on a GitHub PR — inline code annotations, review verdicts (APPROVED / CHANGES_REQUESTED), and conversation threads. Classifies each as stale/valid/deferred/skip, fixes valid ones in the working tree, creates GitHub issues for deferred ones. Pass a PR number or omit to auto-detect from the current branch.
 argument-hint: <PR number> (optional)
-allowed-tools: Bash, Read, Edit, Write, Grep
+allowed-tools: Bash, Read, Edit, Write, Grep, Glob
 ---
 
 ## PR context

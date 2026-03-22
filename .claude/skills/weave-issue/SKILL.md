@@ -1,7 +1,7 @@
 ---
 name: weave-issue
 description: Create a well-formed GitHub issue for the weave project with current work context auto-injected. Pass a title and optional description as arguments.
-allowed-tools: Bash
+allowed-tools: Bash, Read, Grep, Glob
 ---
 
 ## Context

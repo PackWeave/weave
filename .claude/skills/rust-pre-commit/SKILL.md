@@ -1,7 +1,7 @@
 ---
 name: rust-pre-commit
 description: Run the Weave quality gate (cargo fmt, clippy, tests) before committing. Use when you want to verify the working tree is clean and CI-ready.
-allowed-tools: Bash
+allowed-tools: Bash, Read, Grep, Glob
 ---
 
 ## Weave pre-commit quality gate
