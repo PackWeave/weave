@@ -60,7 +60,7 @@ jobs:
 
       - name: Install cross
         if: matrix.use_cross
-        run: cargo install cross --locked
+        run: command -v cross || cargo install cross --locked
 
       - name: Build release binary
         run: |
