@@ -299,7 +299,8 @@ pub async fn mount_registry(server: &MockServer, packs: &[&FixturePack]) {
 /// groups packs by name and puts all versions into a single `PackMetadata.versions`
 /// array, which is what the resolver needs to find newer versions during update.
 pub async fn mount_registry_multi_version(server: &MockServer, packs: &[&FixturePack]) {
-    // Group packs by name, preserving insertion order of first occurrence.
+    // Group packs by name. Order does not matter — the resolver selects
+    // versions by semver comparison, not by position in the array.
     let mut index: HashMap<String, serde_json::Value> = HashMap::new();
     let mut versions_map: HashMap<String, Vec<serde_json::Value>> = HashMap::new();
     let mut meta_map: HashMap<String, (String, String)> = HashMap::new();
