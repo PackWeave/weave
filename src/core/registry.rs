@@ -15,6 +15,7 @@ pub struct PackSummary {
 }
 
 /// Full metadata for a pack in the registry.
+/// Deserialized from `packs/{name}.json` in the sparse index.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PackMetadata {
     pub name: String,
@@ -25,6 +26,8 @@ pub struct PackMetadata {
     pub license: Option<String>,
     #[serde(default)]
     pub repository: Option<String>,
+    #[serde(default)]
+    pub keywords: Vec<String>,
     pub versions: Vec<PackRelease>,
 }
 
@@ -37,8 +40,6 @@ pub struct PackRelease {
     #[serde(default)]
     pub size_bytes: Option<u64>,
     /// Direct dependencies of this release, keyed by pack name with a semver requirement.
-    /// Uses `#[serde(default)]` so existing index.json entries without this field
-    /// deserialise as an empty map without breaking backwards compatibility.
     #[serde(default)]
     pub dependencies: HashMap<String, semver::VersionReq>,
 }
@@ -63,84 +64,135 @@ pub trait Registry: Send + Sync {
     }
 }
 
-/// The registry index format: a JSON file mapping pack names to their metadata.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RegistryIndex {
-    #[serde(flatten)]
-    pub packs: HashMap<String, PackMetadata>,
+/// Entry in the lightweight search index (`index.json`).
+/// Contains only what is needed for `weave search` and `weave list` — no version arrays.
+/// Clients fetch this once and cache it in-process.
+#[derive(Debug, Clone, Deserialize)]
+struct PackListing {
+    #[allow(dead_code)]
+    name: String,
+    description: String,
+    #[serde(default)]
+    keywords: Vec<String>,
+    latest_version: semver::Version,
 }
 
-/// GitHub-backed registry implementation.
-/// Reads a JSON index from the PackWeave/registry GitHub repo.
+/// The lightweight search index — a flat JSON object mapping pack names to their listing.
+type SearchIndex = HashMap<String, PackListing>;
+
+/// GitHub-backed registry implementation using a two-tier sparse index.
+///
+/// - `{base_url}/index.json` — lightweight catalog fetched once for search and listing
+/// - `{base_url}/packs/{name}.json` — full metadata fetched on demand per pack
 pub struct GitHubRegistry {
-    index_url: String,
-    cached_index: std::sync::Mutex<Option<RegistryIndex>>,
+    base_url: String,
+    cached_search_index: std::sync::Mutex<Option<SearchIndex>>,
+    cached_packs: std::sync::Mutex<HashMap<String, PackMetadata>>,
 }
 
 impl GitHubRegistry {
-    pub fn new(index_url: &str) -> Self {
+    pub fn new(base_url: &str) -> Self {
+        // Strip trailing slash and also normalise old-style URLs that already
+        // include the `/index.json` suffix (e.g. configs written before the
+        // sparse-index migration).  Without this, old installs would request
+        // `.../index.json/index.json` and break silently.
+        let base_url = base_url
+            .trim_end_matches('/')
+            .trim_end_matches("/index.json");
         Self {
-            index_url: index_url.to_string(),
-            cached_index: std::sync::Mutex::new(None),
+            base_url: base_url.to_string(),
+            cached_search_index: std::sync::Mutex::new(None),
+            cached_packs: std::sync::Mutex::new(HashMap::new()),
         }
     }
 
-    fn load_index(&self) -> Result<RegistryIndex> {
-        // Check cache first. Recover from a poisoned mutex rather than panicking —
-        // the inner value is still valid even if a previous holder panicked.
+    /// Fetch and cache the lightweight `index.json`.
+    fn load_search_index(&self) -> Result<SearchIndex> {
         {
-            let cache = self.cached_index.lock().unwrap_or_else(|e| e.into_inner());
+            let cache = self
+                .cached_search_index
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             if let Some(ref index) = *cache {
                 return Ok(index.clone());
             }
         }
 
-        let response = reqwest::blocking::get(&self.index_url)
-            .map_err(|e| WeaveError::Registry(format!("failed to fetch registry index: {e}")))?;
+        let url = format!("{}/index.json", self.base_url);
+        let index: SearchIndex = http_get_json(&url, "registry search index")?;
 
-        if !response.status().is_success() {
-            return Err(WeaveError::Registry(format!(
-                "registry returned HTTP {}",
-                response.status()
-            )));
-        }
-
-        let index: RegistryIndex = response
-            .json()
-            .map_err(|e| WeaveError::Registry(format!("failed to parse registry index: {e}")))?;
-
-        // Cache the index.
         {
-            let mut cache = self.cached_index.lock().unwrap_or_else(|e| e.into_inner());
+            let mut cache = self
+                .cached_search_index
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             *cache = Some(index.clone());
         }
 
         Ok(index)
     }
+
+    /// Fetch and cache full metadata for a single pack from `packs/{name}.json`.
+    fn load_pack_metadata(&self, name: &str) -> Result<PackMetadata> {
+        {
+            let cache = self.cached_packs.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(meta) = cache.get(name) {
+                return Ok(meta.clone());
+            }
+        }
+
+        // Validate the name before interpolating it into the URL.  Pack names
+        // must be [a-z0-9-]+ and this is already enforced for user-supplied
+        // names by Pack::validate, but dependency names from registry responses
+        // could in theory contain path-traversal segments like `../`.
+        if name.is_empty()
+            || !name
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        {
+            return Err(WeaveError::Registry(format!(
+                "invalid pack name '{name}' — names must contain only lowercase letters, numbers, and hyphens"
+            )));
+        }
+
+        let url = format!("{}/packs/{}.json", self.base_url, name);
+        let meta: PackMetadata = http_get_json(&url, &format!("pack metadata for '{name}'"))
+            .map_err(|e| match e {
+                WeaveError::RegistryHttp { status: 404, .. } => WeaveError::PackNotFound {
+                    name: name.to_string(),
+                },
+                other => other,
+            })?;
+
+        {
+            let mut cache = self.cached_packs.lock().unwrap_or_else(|e| e.into_inner());
+            cache.insert(name.to_string(), meta.clone());
+        }
+
+        Ok(meta)
+    }
 }
 
 impl Registry for GitHubRegistry {
     fn search(&self, query: &str) -> Result<Vec<PackSummary>> {
-        let index = self.load_index()?;
+        let index = self.load_search_index()?;
         let query_lower = query.to_lowercase();
 
-        // Keywords are not yet populated in the registry index (the index format
-        // will include them once the registry is seeded — see MILESTONE_2_FOLLOWUP.md).
-        // Search on name and description only until keywords are available.
         let mut results: Vec<PackSummary> = index
-            .packs
             .iter()
-            .filter(|(name, meta)| {
+            .filter(|(name, listing)| {
                 name.to_lowercase().contains(&query_lower)
-                    || meta.description.to_lowercase().contains(&query_lower)
+                    || listing.description.to_lowercase().contains(&query_lower)
+                    || listing
+                        .keywords
+                        .iter()
+                        .any(|k| k.to_lowercase().contains(&query_lower))
             })
-            .filter_map(|(name, meta)| {
-                meta.latest_version().ok().map(|ver| PackSummary {
-                    name: name.clone(),
-                    description: meta.description.clone(),
-                    latest_version: ver,
-                    keywords: Vec::new(),
-                })
+            .map(|(name, listing)| PackSummary {
+                name: name.clone(),
+                description: listing.description.clone(),
+                latest_version: listing.latest_version.clone(),
+                keywords: listing.keywords.clone(),
             })
             .collect();
 
@@ -149,14 +201,7 @@ impl Registry for GitHubRegistry {
     }
 
     fn fetch_metadata(&self, name: &str) -> Result<PackMetadata> {
-        let index = self.load_index()?;
-        index
-            .packs
-            .get(name)
-            .cloned()
-            .ok_or_else(|| WeaveError::PackNotFound {
-                name: name.to_string(),
-            })
+        self.load_pack_metadata(name)
     }
 
     fn fetch_version(&self, name: &str, version: &semver::Version) -> Result<PackRelease> {
@@ -191,12 +236,28 @@ impl PackMetadata {
                 name: self.name.clone(),
             })
     }
+}
 
-    /// Get keywords from the metadata (not stored at top level in index, extracted from description for now).
-    pub fn keywords(&self) -> Vec<String> {
-        // In v1, keywords come from the pack manifests stored in the index
-        Vec::new()
+/// Perform a blocking HTTP GET and deserialize the JSON response body.
+fn http_get_json<T: serde::de::DeserializeOwned>(url: &str, label: &str) -> Result<T> {
+    let client = reqwest::blocking::Client::new();
+    let response = client
+        .get(url)
+        .header("User-Agent", format!("weave/{}", env!("CARGO_PKG_VERSION")))
+        .send()
+        .map_err(|e| WeaveError::Registry(format!("failed to fetch {label}: {e}")))?;
+
+    let status = response.status().as_u16();
+    if !response.status().is_success() {
+        return Err(WeaveError::RegistryHttp {
+            status,
+            url: url.to_string(),
+        });
     }
+
+    response
+        .json()
+        .map_err(|e| WeaveError::Registry(format!("failed to parse {label}: {e}")))
 }
 
 /// A mock registry for testing. No network calls.
@@ -233,7 +294,7 @@ impl Registry for MockRegistry {
                         name: meta.name.clone(),
                         description: meta.description.clone(),
                         latest_version: ver,
-                        keywords: Vec::new(),
+                        keywords: meta.keywords.clone(),
                     })
                 } else {
                     None
@@ -281,6 +342,7 @@ mod tests {
             authors: vec!["tester".into()],
             license: Some("MIT".into()),
             repository: None,
+            keywords: vec!["web".into(), "dev".into()],
             versions: vec![
                 PackRelease {
                     version: semver::Version::new(1, 0, 0),
@@ -334,6 +396,25 @@ mod tests {
     }
 
     #[test]
+    fn new_strips_trailing_slash() {
+        let r = GitHubRegistry::new("https://example.com/registry/");
+        assert_eq!(r.base_url, "https://example.com/registry");
+    }
+
+    #[test]
+    fn new_strips_old_index_json_suffix() {
+        // Old configs stored the full URL including /index.json.
+        let r = GitHubRegistry::new("https://example.com/registry/index.json");
+        assert_eq!(r.base_url, "https://example.com/registry");
+    }
+
+    #[test]
+    fn new_strips_index_json_with_trailing_slash() {
+        let r = GitHubRegistry::new("https://example.com/registry/index.json/");
+        assert_eq!(r.base_url, "https://example.com/registry");
+    }
+
+    #[test]
     fn latest_version_no_releases() {
         let meta = PackMetadata {
             name: "empty".into(),
@@ -341,6 +422,7 @@ mod tests {
             authors: vec![],
             license: None,
             repository: None,
+            keywords: vec![],
             versions: vec![],
         };
         assert!(meta.latest_version().is_err());

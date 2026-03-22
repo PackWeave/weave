@@ -247,6 +247,7 @@ mod tests {
             authors: vec![],
             license: None,
             repository: None,
+            keywords: vec![],
             versions: releases,
         }
     }

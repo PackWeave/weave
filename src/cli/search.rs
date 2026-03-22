@@ -104,7 +104,9 @@ fn run_mcp_search(query: &str) -> Result<()> {
         }
 
         if let Some(repo) = &server.repository {
-            println!("    Repository: {}", repo.url);
+            if let Some(url) = &repo.url {
+                println!("    Repository: {url}");
+            }
         }
 
         println!();
