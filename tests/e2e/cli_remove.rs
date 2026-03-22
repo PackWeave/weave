@@ -137,13 +137,10 @@ async fn remove_cleans_project_scope_from_different_directory() {
         .assert()
         .success();
 
-    // The project-scope .mcp.json must no longer contain the server.
-    let mcp_after: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&mcp_json_path).unwrap()).unwrap();
-    let servers = mcp_after["mcpServers"].as_object();
+    // The project-scope .mcp.json should be deleted entirely when the last
+    // server is removed (no empty stub left behind).
     assert!(
-        servers.map_or(true, |m| !m.contains_key("echo-server")),
-        "echo-server should be removed from .mcp.json even when `weave remove` \
-         runs from a different directory"
+        !mcp_json_path.exists(),
+        ".mcp.json should be deleted when the last project-scope server is removed"
     );
 }
