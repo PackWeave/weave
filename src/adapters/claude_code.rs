@@ -938,6 +938,7 @@ impl CliAdapter for ClaudeCodeAdapter {
                                 "server '{server_name}' (from pack '{pack_name}') is tracked but missing from claude.json"
                             ),
                             suggestion: Some(format!("run `weave install {pack_name}` to re-apply")),
+                            pack: Some(pack_name.clone()),
                         });
                     }
                 }
@@ -954,6 +955,7 @@ impl CliAdapter for ClaudeCodeAdapter {
                         "command file '{filename}' (from pack '{pack_name}') is tracked but missing"
                     ),
                     suggestion: Some(format!("run `weave install {pack_name}` to re-apply")),
+                    pack: Some(pack_name.clone()),
                 });
             }
         }
@@ -975,6 +977,7 @@ impl CliAdapter for ClaudeCodeAdapter {
                             "prompt block for '{pack_name}' is tracked but missing from CLAUDE.md"
                         ),
                         suggestion: Some(format!("run `weave install {pack_name}` to re-apply")),
+                        pack: Some(pack_name.clone()),
                     });
                 }
             }
@@ -998,6 +1001,7 @@ impl CliAdapter for ClaudeCodeAdapter {
                                         suggestion: Some(format!(
                                             "run `weave install {pack_name}` to re-apply"
                                         )),
+                                        pack: Some(pack_name.clone()),
                                     });
                                 }
                             }

@@ -739,6 +739,7 @@ impl CliAdapter for GeminiCliAdapter {
                                 "server '{server_name}' (from pack '{pack_name}') tracked but missing from settings.json"
                             ),
                             suggestion: Some(format!("run `weave install {pack_name}` to re-apply")),
+                            pack: Some(pack_name.clone()),
                         });
                     }
                 }
@@ -762,6 +763,7 @@ impl CliAdapter for GeminiCliAdapter {
                             "prompt block for '{pack_name}' is tracked but missing from GEMINI.md"
                         ),
                         suggestion: Some(format!("run `weave install {pack_name}` to re-apply")),
+                        pack: Some(pack_name.clone()),
                     });
                 }
             }
@@ -783,6 +785,7 @@ impl CliAdapter for GeminiCliAdapter {
                                     suggestion: Some(format!(
                                         "run `weave install {pack_name}` to re-apply"
                                     )),
+                                    pack: Some(pack_name.clone()),
                                 });
                             }
                         }

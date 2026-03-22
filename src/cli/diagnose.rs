@@ -1,10 +1,13 @@
 use anyhow::{Context, Result};
+use log::warn;
 use serde::Serialize;
 
 use crate::adapters;
 use crate::adapters::{CliAdapter, DiagnosticIssue};
 use crate::core::config::Config;
+use crate::core::pack::PackTargets;
 use crate::core::profile::Profile;
+use crate::core::store::Store;
 
 // ── Structured output types ─────────────────────────────────────────────────
 
@@ -37,16 +40,34 @@ pub struct AdapterStatus {
 
 /// Health status of a pack in an adapter.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
+// Use snake_case (not lowercase) so the multi-word `NotTargeted` variant
+// serializes as "not_targeted" rather than "nottargeted".
+#[serde(rename_all = "snake_case")]
 pub enum PackHealth {
     Ok,
     Drifted,
     Missing,
     /// The adapter's CLI is not installed on this system.
     Skipped,
+    /// The pack does not target this adapter.
+    NotTargeted,
 }
 
-// ── Core logic (testable, no I/O of its own) ────────────────────────────────
+// ── Core logic ───────────────────────────────────────────────────────────────
+
+/// Returns `true` if the pack targets the adapter, or if the adapter name is
+/// unknown (fail-open: we still diagnose unknown adapters).
+fn pack_targets_adapter(targets: &PackTargets, adapter_name: &str) -> bool {
+    match adapter_name {
+        "Claude Code" => targets.claude_code,
+        "Gemini CLI" => targets.gemini_cli,
+        "Codex CLI" => targets.codex_cli,
+        name => {
+            log::debug!("unknown adapter name '{name}' in target check; assuming targeted");
+            true
+        }
+    }
+}
 
 /// Build the full diagnostic report.
 ///
@@ -90,6 +111,18 @@ pub fn build_report(
     let mut total_issues = 0;
 
     for installed_pack in &profile.packs {
+        // Try to load the pack's targets from the store.
+        let targets = match Store::load_pack(&installed_pack.name, &installed_pack.version) {
+            Ok(pack) => pack.targets,
+            Err(e) => {
+                warn!(
+                    "could not load pack '{}' v{} from store to check targets: {e}; assuming all targets",
+                    installed_pack.name, installed_pack.version
+                );
+                PackTargets::default()
+            }
+        };
+
         let mut adapter_statuses = Vec::new();
 
         for diag in &adapter_diags {
@@ -102,15 +135,21 @@ pub fn build_report(
                 continue;
             }
 
-            // Collect issues that mention this pack.
+            // If the pack does not target this adapter, skip it.
+            if !pack_targets_adapter(&targets, &diag.name) {
+                adapter_statuses.push(AdapterStatus {
+                    adapter: diag.name.clone(),
+                    status: PackHealth::NotTargeted,
+                    issues: Vec::new(),
+                });
+                continue;
+            }
+
+            // Collect issues that belong to this pack via the structured field.
             let pack_issues: Vec<DiagnosticIssue> = diag
                 .issues
                 .iter()
-                .filter(|issue| {
-                    issue
-                        .message
-                        .contains(&format!("'{}'", installed_pack.name))
-                })
+                .filter(|issue| issue.pack.as_deref() == Some(&installed_pack.name))
                 .cloned()
                 .collect();
 
@@ -167,6 +206,7 @@ pub fn format_human(report: &DiagnoseReport) -> String {
                 PackHealth::Ok => "ok".to_string(),
                 PackHealth::Skipped => "skipped (not installed)".to_string(),
                 PackHealth::Missing => "missing (not tracked by adapter)".to_string(),
+                PackHealth::NotTargeted => "skipped (not targeted)".to_string(),
                 PackHealth::Drifted => {
                     let details: Vec<&str> = adapter_status
                         .issues
@@ -317,6 +357,7 @@ mod tests {
                 severity: Severity::Warning,
                 message: "server 'puppeteer' (from pack 'webdev') tracked but missing".into(),
                 suggestion: Some("run `weave install webdev` to re-apply".into()),
+                pack: Some("webdev".into()),
             }],
         )];
 
@@ -342,6 +383,24 @@ mod tests {
 
         let report = build_report("default", &profile, &adapters).unwrap();
         assert_eq!(report.packs[0].adapters[0].status, PackHealth::Skipped);
+    }
+
+    #[test]
+    fn pack_targets_adapter_mapping() {
+        let all_true = PackTargets::default();
+        assert!(pack_targets_adapter(&all_true, "Claude Code"));
+        assert!(pack_targets_adapter(&all_true, "Gemini CLI"));
+        assert!(pack_targets_adapter(&all_true, "Codex CLI"));
+        assert!(pack_targets_adapter(&all_true, "Unknown Future CLI"));
+
+        let gemini_only = PackTargets {
+            claude_code: false,
+            gemini_cli: true,
+            codex_cli: false,
+        };
+        assert!(!pack_targets_adapter(&gemini_only, "Claude Code"));
+        assert!(pack_targets_adapter(&gemini_only, "Gemini CLI"));
+        assert!(!pack_targets_adapter(&gemini_only, "Codex CLI"));
     }
 
     #[test]
@@ -396,6 +455,7 @@ mod tests {
                         severity: Severity::Warning,
                         message: "server 'puppeteer' missing".into(),
                         suggestion: None,
+                        pack: Some("webdev".into()),
                     }],
                 }],
             }],
