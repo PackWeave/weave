@@ -964,6 +964,13 @@ fn build_codex_server_config(server: &McpServer) -> std::result::Result<toml::Va
                 )
             })?;
             table.insert("url".into(), toml::Value::String(url.to_owned()));
+            if let Some(headers) = &server.headers {
+                let mut headers_table = toml::value::Table::new();
+                for (k, v) in headers {
+                    headers_table.insert(k.clone(), toml::Value::String(v.clone()));
+                }
+                table.insert("http_headers".into(), toml::Value::Table(headers_table));
+            }
         }
         _ => {
             // Stdio (default): requires `command`.
