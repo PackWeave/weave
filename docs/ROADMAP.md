@@ -40,7 +40,7 @@ The milestones below are sequential. Each one produces something usable before t
 
 ## Milestone 3 — v0.2
 
-> Pack authoring, MCP Registry search, and distribution improvements. Codex CLI adapter shipped.
+> Pack authoring, MCP Registry search, and distribution improvements. Codex CLI adapter shipped. All code complete — crates.io publishing pending infra setup (issue #78).
 
 - [x] Codex CLI adapter (servers, skills, prompts, settings)
 - [x] `weave search --mcp` against the official MCP Registry (pack registry search shipped in M2)
@@ -49,7 +49,7 @@ The milestones below are sequential. Each one produces something usable before t
 - [x] Environment variable handling for secrets (write `${VAR}` references only)
 - [x] Recursive transitive dependency resolution with cycle detection
 - [x] Improved conflict detection using declared tool lists
-- [ ] Publish `packweave` crate to crates.io (required for `cargo binstall` and `cargo install` to resolve by name)
+- [ ] Publish `packweave` crate to crates.io (requires `CARGO_REGISTRY_TOKEN` secret — see issue #78)
 - [x] SHA256 checksums alongside release binaries (see issue #40)
 - [x] ARM Linux release target — `aarch64-unknown-linux-gnu` via `cross` (see issue #41)
 
@@ -57,14 +57,14 @@ The milestones below are sequential. Each one produces something usable before t
 
 ## Milestone 4 — v0.3
 
-> Hooks, profiles, and community taps.
+> Hooks, profiles, and community taps. Profiles, diagnose expansion, and sync are shipped — hooks and taps remain.
 
 - [ ] Hooks support via `extensions.<cli>.hooks` with explicit opt-in
-- [ ] Profiles: group packs into named sets
-- [ ] `weave use <profile>`
+- [x] Profiles: group packs into named sets
+- [x] `weave use <profile>`
 - [ ] Community taps (`weave tap add user/repo`)
-- [ ] `weave diagnose` — full config drift and health check across all adapters (basic version shipped in M2; M4 expands it)
-- [ ] `weave sync` — reapply active profile
+- [x] `weave diagnose` — full config drift and health check across all adapters (per-pack, per-adapter status with `--json` output)
+- [x] `weave sync` — reapply active profile
 
 -----
 
