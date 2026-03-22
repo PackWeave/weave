@@ -93,7 +93,7 @@ The milestones below are sequential. Each one produces something usable before t
 
 - [ ] Release Please integration — automated CHANGELOG.md and release PRs (issue #43)
 - [ ] Set up `CARGO_REGISTRY_TOKEN` for crates.io publishing (issue #78)
-- [ ] Manual E2E validation on macOS, including all 18 Claude Code hook events (issue #93)
+- [ ] Manual E2E validation on macOS, including all Claude Code hook events supported by the spec (issue #93)
 - [ ] Cut first public release — GitHub Release with binaries, Homebrew, cargo-binstall (issue #92)
 
 -----
