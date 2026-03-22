@@ -40,6 +40,12 @@ Read docs/ARCHITECTURE.md before writing any code. It defines the module structu
 - Prefer `std::fs` for simple operations; `tokio::fs` only in async contexts
 - Always check that a directory exists before writing into it
 
+### State safety
+
+- Multi-step operations that mutate state (install, remove, profile switch) must validate preconditions **before** making any changes. If step 3 of 5 can fail, verify it will succeed before running steps 1 and 2.
+- Never leave the user in a state that is neither the old nor the new. If a profile switch removes old packs and then fails to apply new ones, the user is stranded.
+- When reviewing code with `continue` or `warn and skip` in a mutation loop, trace the full state: what files have been modified so far? Can the user recover?
+
 ### Mutating CLI config files
 
 - **Read the docs/ARCHITECTURE.md section on non-destructive mutations before touching any adapter code**
@@ -50,9 +56,11 @@ Read docs/ARCHITECTURE.md before writing any code. It defines the module structu
 ### Testing
 
 - Unit tests go in `#[cfg(test)]` blocks in the same file
-- Integration tests go in `tests/`
-- Adapter tests use fixture directories under `tests/fixtures/` — never write to the real `~/.claude/` in tests
-- No network calls in tests — mock the registry client
+- Integration tests go in `tests/` (adapter tests, init tests)
+- E2E tests go in `tests/e2e/` — invoke the `weave` binary as a subprocess with full isolation via `TestEnv` (mock HTTP registry, fake HOME, fake store). Gated with `#[cfg(not(target_os = "windows"))]`
+- Never write to the real `~/.claude/`, `~/.gemini/`, `~/.codex/` in tests — use `TempDir` and env var overrides (`WEAVE_TEST_STORE_DIR`, `WEAVE_REGISTRY_URL`, `HOME`)
+- No network calls in tests — use `wiremock` for HTTP mocking
+- Tests that mutate process-global env vars must use `#[serial]` from `serial_test` to prevent parallel races
 
 ### Naming
 
@@ -69,14 +77,14 @@ Read docs/ARCHITECTURE.md before writing any code. It defines the module structu
 ## Module map (quick reference)
 
 ```
-src/cli/          Command handlers — parse args, call core, print output
-src/core/         Business logic — no I/O to CLI config files here
-  core/mcp_registry.rs   Upstream MCP registry integration
-  core/conflict.rs       Tool-level conflict detection across installed packs
-src/adapters/     CLI-specific config read/write — no business logic here
-src/error.rs      All error types
-src/core/config.rs    Global weave config
-src/util.rs       Shared helpers (file ops, path resolution, etc.)
+src/cli/              Command handlers — parse args, call core, print output
+src/core/             Business logic — no I/O to CLI config files here
+  core/config.rs        Global weave config (~/.packweave/config.toml)
+  core/mcp_registry.rs  MCP Registry client (weave search --mcp)
+  core/conflict.rs      Tool-level conflict detection
+src/adapters/         CLI-specific config read/write — no business logic here
+src/error.rs          All error types
+src/util.rs           Shared helpers (path resolution, file ops)
 ```
 
 The CLI handlers are thin. They parse arguments, call into `core/` or `adapters/`, and format output. Business logic does not live in `cli/`.
@@ -89,6 +97,8 @@ The adapters are opaque. They expose only the `CliAdapter` trait. The core does 
 
 **Never commit directly to `main`.** All changes must go through a pull request, even docs-only changes. Create a feature branch, push it, and open a PR via `gh pr create`.
 
+**Always assign PRs to the current user.** When creating a PR, determine the GitHub username via `gh api user --jq .login` and pass it with `--assignee <username>`.
+
 **Before committing to any branch, verify its PR has not already been merged into `main`.**
 
 ```sh
@@ -96,6 +106,8 @@ gh pr list --head <branch-name> --state merged
 ```
 
 If the PR is merged, do not commit to that branch. Create a fresh branch from `main` instead. Committing to a merged branch creates orphaned history that must be untangled with cherry-picks.
+
+**Always commit and push changes immediately.** After editing a file, commit it to the appropriate branch and push before moving on to the next task. Never leave changes uncommitted in the working tree — they get lost on branch switches or session ends.
 
 -----
 
@@ -139,6 +151,17 @@ After activation, every `git commit` runs `cargo fmt --check` and `cargo clippy`
 
 -----
 
+## Updating documentation
+
+The project has two documents with module maps — they have different contracts:
+
+- **`docs/ARCHITECTURE.md`** — aspirational design document. It explicitly lists modules that do not exist yet. **Never remove entries** just because the code has not been written. Only add new modules or update descriptions.
+- **`AGENTS.md`** (this file) — quick reference for the current codebase. The module map here should match what actually exists in `src/`.
+
+When your changes add new modules, CLI commands, or env vars, update both documents accordingly.
+
+-----
+
 ## What not to do
 
 - Do not write to `~/.claude/`, `~/.gemini/`, `~/.codex/`, or any real user config in tests
@@ -147,3 +170,15 @@ After activation, every `git commit` runs `cargo fmt --check` and `cargo clippy`
 - Do not put CLI-specific knowledge (file paths, config schemas) outside of adapters
 - Do not use `println!` for output in library code — use `log` or return values
 - Do not implement features listed under "Explicitly deferred" in docs/ROADMAP.md
+
+-----
+
+## Standards for "skip" decisions
+
+Do not label issues as "cosmetic" or "low priority" to avoid fixing them. If something is wrong — a misleading comment, an inaccurate doc, a missing validation — fix it. The bar for skipping is:
+
+1. The fix requires a design decision that needs human input
+2. The fix is genuinely out of scope (belongs in a different PR or milestone)
+3. The fix has no impact on correctness, maintainability, or future contributors
+
+A misleading comment fails test 3 — it will mislead the next person who reads it. An inaccurate doc fails test 3 — it erodes trust. When in doubt, fix it now.
