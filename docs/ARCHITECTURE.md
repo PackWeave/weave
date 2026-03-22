@@ -76,9 +76,11 @@ src/
     search.rs
     update.rs
     init.rs
+    publish.rs
     profile.rs
     sync.rs
     diagnose.rs
+    auth.rs
 
   core/
     pack.rs                Pack manifest: parsing, validation, the Pack struct.
