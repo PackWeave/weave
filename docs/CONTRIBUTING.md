@@ -1,12 +1,8 @@
 # Contributing
 
+Contributions are welcome — code improvements, bug fixes, and new packs all make weave better.
+
 weave accepts two kinds of contributions: **code** and **packs**.
-
-## AI assistant instructions
-
-If you use AI assistants for contributions, read `AGENTS.md` at the repo root — it is the single source of truth for codebase conventions. `CLAUDE.md`, `GEMINI.md`, and `CODEX.md` are thin pointers to it.
-
-If a PR was built with AI assistance, note the tool used in the PR description.
 
 -----
 
@@ -21,8 +17,12 @@ If a PR was built with AI assistance, note the tool used in the PR description.
 git clone https://github.com/PackWeave/weave
 cd weave
 cargo build
+./target/debug/weave --help    # confirm the binary built and runs
 cargo test
 ```
+
+> **Branches:** Always work on a feature branch — never commit directly to `main`.
+> Use `feat/`, `fix/`, or `docs/` prefixes: `feat/my-feature`, `fix/bug-description`.
 
 ## Running tests
 
@@ -45,6 +45,8 @@ E2E tests use `wiremock` for mock HTTP, `assert_cmd` for subprocess assertions, 
 - `cargo test` — all tests must pass
 - New behaviour must have tests
 - Public types and functions must have doc comments
+
+Once open, a maintainer will review within a few days. PRs addressing open issues are prioritised.
 
 ### Commit style
 
@@ -71,7 +73,7 @@ Packs are published to the `PackWeave/registry` repo via pull request.
 
 1. Create a new folder and add a `pack.toml` with basic metadata and `[[servers]]` entries.
 2. Add optional files under `prompts/`, `commands/`, or `settings/` as needed.
-3. Run `weave init` once available to scaffold a pack, then validate with `weave publish`.
+3. Run `weave init my-pack` to scaffold the directory structure.
 
 If you are not ready to build a pack, open a **Pack request** issue using the template in `.github/ISSUE_TEMPLATE/pack_request.md`.
 
@@ -85,7 +87,7 @@ If you are not ready to build a pack, open a **Pack request** issue using the te
 
 ### Requirements for a pack to be accepted
 
-- `pack.toml` is valid and passes `weave publish` validation
+- `pack.toml` is valid and passes schema validation
 - All MCP servers referenced are publicly available
 - Description is clear and accurate
 - At least one tag
@@ -93,9 +95,9 @@ If you are not ready to build a pack, open a **Pack request** issue using the te
 
 ### Process
 
-1. Build your pack locally and test it with `weave install <local-path>`
-1. Run `weave publish` — this validates your pack and opens a draft PR against the registry
-1. A maintainer reviews and merges; CI auto-generates `packs/{name}.json` from your `src/` files
+1. Build your pack locally and test it with `weave install ./my-pack`
+2. Open a pull request against [PackWeave/registry](https://github.com/PackWeave/registry) — add your pack source under `src/`
+3. A maintainer reviews and merges; CI auto-generates `packs/{name}.json` from your `src/` entry
 
 ### Pack naming
 
@@ -108,3 +110,11 @@ If you are not ready to build a pack, open a **Pack request** issue using the te
 ## Questions
 
 Open a GitHub Discussion, not an issue, for general questions.
+
+-----
+
+## AI assistant instructions
+
+If you use AI assistants for contributions, read `AGENTS.md` at the repo root — it is the single source of truth for codebase conventions. `CLAUDE.md`, `GEMINI.md`, and `CODEX.md` are thin pointers to it.
+
+If a PR was built with AI assistance, note the tool used in the PR description.
