@@ -35,9 +35,6 @@ jobs:
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             use_cross: true
-          - target: x86_64-apple-darwin
-            os: macos-13       # Intel runner — native x86_64 build
-            use_cross: false
           - target: aarch64-apple-darwin
             os: macos-latest   # Apple Silicon runner — native arm64 build
             use_cross: false
