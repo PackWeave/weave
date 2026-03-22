@@ -148,7 +148,8 @@ fn shared_store_root() -> &'static TempDir {
         let dir = TempDir::new().expect("shared store TempDir");
         // Unconditionally set so Store::pack_dir() always resolves under this TempDir,
         // regardless of any pre-existing env var from the test runner.
-        std::env::set_var("WEAVE_TEST_STORE_DIR", dir.path());
+        // SAFETY: serial test (serial_test crate)
+        unsafe { std::env::set_var("WEAVE_TEST_STORE_DIR", dir.path()) };
         dir
     })
 }

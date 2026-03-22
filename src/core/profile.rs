@@ -91,12 +91,11 @@ impl Profile {
         for entry in entries {
             let entry = entry.map_err(|e| WeaveError::io("reading profiles directory entry", e))?;
             let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("toml") {
-                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                    if validate_profile_name(stem).is_ok() {
-                        names.push(stem.to_string());
-                    }
-                }
+            if path.extension().and_then(|e| e.to_str()) == Some("toml")
+                && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+                && validate_profile_name(stem).is_ok()
+            {
+                names.push(stem.to_string());
             }
         }
         names.sort();
@@ -182,7 +181,8 @@ mod tests {
     impl EnvGuard {
         fn set(key: &'static str, value: &str) -> Self {
             let prev = std::env::var(key).ok();
-            std::env::set_var(key, value);
+            // SAFETY: env mutation is scoped to profile activation, no concurrent access
+            unsafe { std::env::set_var(key, value) };
             Self { key, prev }
         }
     }
@@ -190,8 +190,9 @@ mod tests {
     impl Drop for EnvGuard {
         fn drop(&mut self) {
             match &self.prev {
-                Some(val) => std::env::set_var(self.key, val),
-                None => std::env::remove_var(self.key),
+                // SAFETY: restoring env on drop, single-threaded context
+                Some(val) => unsafe { std::env::set_var(self.key, val) },
+                None => unsafe { std::env::remove_var(self.key) },
             }
         }
     }

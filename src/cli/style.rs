@@ -1,8 +1,8 @@
 use std::borrow::Cow;
 use std::fmt;
 use std::io::IsTerminal;
-use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 // ── Catppuccin Mocha palette (24-bit ANSI) ──────────────────────────────────
 

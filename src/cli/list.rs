@@ -58,23 +58,23 @@ pub fn run() -> Result<()> {
                 }
 
                 // Show scope only for packs targeting Claude Code.
-                if pack.targets.claude_code {
-                    if let Some(ref dirs) = project_dirs {
-                        if let Some(paths) = dirs.get(&installed.name) {
-                            if paths.is_empty() {
-                                println!("    {}: user", style::dim("Scope"));
-                            } else {
-                                for path in paths {
-                                    println!(
-                                        "    {}: {}",
-                                        style::dim("Scope"),
-                                        style::subtext(format!("user + project ({path})"))
-                                    );
-                                }
-                            }
-                        } else {
+                if pack.targets.claude_code
+                    && let Some(ref dirs) = project_dirs
+                {
+                    if let Some(paths) = dirs.get(&installed.name) {
+                        if paths.is_empty() {
                             println!("    {}: user", style::dim("Scope"));
+                        } else {
+                            for path in paths {
+                                println!(
+                                    "    {}: {}",
+                                    style::dim("Scope"),
+                                    style::subtext(format!("user + project ({path})"))
+                                );
+                            }
                         }
+                    } else {
+                        println!("    {}: user", style::dim("Scope"));
                     }
                 }
             }

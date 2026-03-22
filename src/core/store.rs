@@ -257,10 +257,10 @@ impl Store {
                 // semver portion.
                 let semver_str = Self::strip_local_suffix(&ver_str);
 
-                if let Ok(version) = semver::Version::parse(semver_str) {
-                    if ver_entry.path().join("pack.toml").exists() {
-                        result.push((name.clone(), version));
-                    }
+                if let Ok(version) = semver::Version::parse(semver_str)
+                    && ver_entry.path().join("pack.toml").exists()
+                {
+                    result.push((name.clone(), version));
                 }
             }
         }
@@ -276,10 +276,11 @@ impl Store {
         const SUFFIX_LEN: usize = "-local-".len() + 16; // 23
         if dir_name.len() > SUFFIX_LEN {
             let (prefix, suffix) = dir_name.split_at(dir_name.len() - SUFFIX_LEN);
-            if let Some(hex_part) = suffix.strip_prefix("-local-") {
-                if hex_part.len() == 16 && hex_part.chars().all(|c| c.is_ascii_hexdigit()) {
-                    return prefix;
-                }
+            if let Some(hex_part) = suffix.strip_prefix("-local-")
+                && hex_part.len() == 16
+                && hex_part.chars().all(|c| c.is_ascii_hexdigit())
+            {
+                return prefix;
             }
         }
         dir_name
@@ -299,13 +300,11 @@ impl Store {
             let is_empty = std::fs::read_dir(&name_dir)
                 .map(|mut d| d.next().is_none())
                 .unwrap_or(false);
-            if is_empty {
-                if let Err(e) = std::fs::remove_dir(&name_dir) {
-                    log::warn!(
-                        "could not remove empty pack directory {}: {e}",
-                        name_dir.display()
-                    );
-                }
+            if is_empty && let Err(e) = std::fs::remove_dir(&name_dir) {
+                log::warn!(
+                    "could not remove empty pack directory {}: {e}",
+                    name_dir.display()
+                );
             }
         }
 
@@ -345,14 +344,16 @@ mod tests {
 
     impl EnvGuard {
         fn set(key: &'static str, value: &std::path::Path) -> Self {
-            std::env::set_var(key, value);
+            // SAFETY: test helper, serial execution
+            unsafe { std::env::set_var(key, value) };
             Self { key }
         }
     }
 
     impl Drop for EnvGuard {
         fn drop(&mut self) {
-            std::env::remove_var(self.key);
+            // SAFETY: restoring env on drop in test
+            unsafe { std::env::remove_var(self.key) };
         }
     }
 

@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
 use crate::adapters::{self, ApplyOptions};
 use crate::cli::style;
@@ -81,7 +81,9 @@ pub fn add_pack(pack_name: &str, profile_name: &str) -> Result<()> {
     let pack_name = pack_name.strip_prefix('@').unwrap_or(pack_name);
 
     if !Profile::exists(profile_name).context("checking profile existence")? {
-        bail!("profile '{profile_name}' does not exist — create it first with `weave profile create {profile_name}`");
+        bail!(
+            "profile '{profile_name}' does not exist — create it first with `weave profile create {profile_name}`"
+        );
     }
 
     let config = Config::load().context("loading weave config")?;

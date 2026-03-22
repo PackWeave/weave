@@ -5,7 +5,7 @@
 
 use crate::adapters::{ApplyOptions, CliAdapter};
 use crate::core::config::Config;
-use crate::core::install::{apply_to_adapters, check_missing_env_vars, MissingEnvVar};
+use crate::core::install::{MissingEnvVar, apply_to_adapters, check_missing_env_vars};
 use crate::core::lockfile::LockFile;
 use crate::core::pack::{Pack, PackSource, ResolvedPack};
 use crate::core::profile::{InstalledPack, Profile};
@@ -137,14 +137,14 @@ pub fn update_packs(
 
     for (name, version_req) in &packs_to_update {
         // Local packs are not updated automatically.
-        if let Some(locked) = lockfile.packs.get(name) {
-            if matches!(&locked.source, Some(PackSource::Local { .. })) {
-                result.skipped.push(SkippedPack {
-                    name: name.clone(),
-                    reason: "local source; re-run `weave install ./path` to refresh".to_string(),
-                });
-                continue;
-            }
+        if let Some(locked) = lockfile.packs.get(name)
+            && matches!(&locked.source, Some(PackSource::Local { .. }))
+        {
+            result.skipped.push(SkippedPack {
+                name: name.clone(),
+                reason: "local source; re-run `weave install ./path` to refresh".to_string(),
+            });
+            continue;
         }
 
         // For a named pack without @latest, derive the major-version constraint

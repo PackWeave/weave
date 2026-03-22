@@ -383,14 +383,14 @@ pub fn is_local_path(s: &str) -> bool {
 
 /// Expand a leading `~` to the user's home directory.
 pub fn expand_home(s: &str) -> std::path::PathBuf {
-    if let Some(rest) = s.strip_prefix("~/") {
-        if let Some(home) = dirs::home_dir() {
-            return home.join(rest);
-        }
-    } else if s == "~" {
-        if let Some(home) = dirs::home_dir() {
-            return home;
-        }
+    if let Some(rest) = s.strip_prefix("~/")
+        && let Some(home) = dirs::home_dir()
+    {
+        return home.join(rest);
+    } else if s == "~"
+        && let Some(home) = dirs::home_dir()
+    {
+        return home;
     }
     std::path::PathBuf::from(s)
 }

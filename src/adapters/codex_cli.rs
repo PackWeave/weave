@@ -630,17 +630,17 @@ impl CodexAdapter {
         // Remove existing block (idempotency).
         // Search for end_tag starting after begin_tag to avoid matching another
         // pack's end tag that might appear before this pack's begin tag.
-        if let Some(start) = content.find(&begin_tag) {
-            if let Some(end_offset) = content[start..].find(&end_tag) {
-                let end_pos = start + end_offset;
-                let end = end_pos + end_tag.len();
-                let end = if content[end..].starts_with('\n') {
-                    end + 1
-                } else {
-                    end
-                };
-                content.replace_range(start..end, "");
-            }
+        if let Some(start) = content.find(&begin_tag)
+            && let Some(end_offset) = content[start..].find(&end_tag)
+        {
+            let end_pos = start + end_offset;
+            let end = end_pos + end_tag.len();
+            let end = if content[end..].starts_with('\n') {
+                end + 1
+            } else {
+                end
+            };
+            content.replace_range(start..end, "");
         }
 
         if !content.is_empty() && !content.ends_with('\n') {
@@ -673,18 +673,18 @@ impl CodexAdapter {
         let begin_tag = format!("<!-- packweave:begin:{pack_name} -->");
         let end_tag = format!("<!-- packweave:end:{pack_name} -->");
 
-        if let Some(start) = content.find(&begin_tag) {
-            if let Some(end_offset) = content[start..].find(&end_tag) {
-                let end_pos = start + end_offset;
-                let end = end_pos + end_tag.len();
-                let end = if content[end..].starts_with('\n') {
-                    end + 1
-                } else {
-                    end
-                };
-                content.replace_range(start..end, "");
-                util::write_file(&agents_md, &content)?;
-            }
+        if let Some(start) = content.find(&begin_tag)
+            && let Some(end_offset) = content[start..].find(&end_tag)
+        {
+            let end_pos = start + end_offset;
+            let end = end_pos + end_tag.len();
+            let end = if content[end..].starts_with('\n') {
+                end + 1
+            } else {
+                end
+            };
+            content.replace_range(start..end, "");
+            util::write_file(&agents_md, &content)?;
         }
 
         manifest.prompt_blocks.retain(|n| n != pack_name);
@@ -827,23 +827,23 @@ impl CliAdapter for CodexAdapter {
 
         // Check tracked servers exist in config.toml
         let config_path = self.config_toml_path()?;
-        if config_path.exists() {
-            if let Ok(config) = Self::read_config_toml(&config_path) {
-                let mcp_servers = config
-                    .as_table()
-                    .and_then(|t| t.get("mcp_servers"))
-                    .and_then(|v| v.as_table());
-                for (server_name, pack_name) in &manifest.servers {
-                    if mcp_servers.and_then(|m| m.get(server_name)).is_none() {
-                        issues.push(DiagnosticIssue {
-                            severity: Severity::Warning,
-                            message: format!(
-                                "server '{server_name}' (from pack '{pack_name}') tracked but missing from config.toml"
-                            ),
-                            suggestion: Some(format!("run `weave install {pack_name}` to re-apply")),
-                            pack: Some(pack_name.clone()),
-                        });
-                    }
+        if config_path.exists()
+            && let Ok(config) = Self::read_config_toml(&config_path)
+        {
+            let mcp_servers = config
+                .as_table()
+                .and_then(|t| t.get("mcp_servers"))
+                .and_then(|v| v.as_table());
+            for (server_name, pack_name) in &manifest.servers {
+                if mcp_servers.and_then(|m| m.get(server_name)).is_none() {
+                    issues.push(DiagnosticIssue {
+                        severity: Severity::Warning,
+                        message: format!(
+                            "server '{server_name}' (from pack '{pack_name}') tracked but missing from config.toml"
+                        ),
+                        suggestion: Some(format!("run `weave install {pack_name}` to re-apply")),
+                        pack: Some(pack_name.clone()),
+                    });
                 }
             }
         }
@@ -888,25 +888,25 @@ impl CliAdapter for CodexAdapter {
         }
 
         // Check tracked settings keys still exist in config.toml
-        if !manifest.settings.is_empty() && config_path.exists() {
-            if let Ok(config) = Self::read_config_toml(&config_path) {
-                if let Some(config_table) = config.as_table() {
-                    for (pack_name, record) in &manifest.settings {
-                        if let Some(frag_obj) = record.applied.as_object() {
-                            for key in frag_obj.keys() {
-                                if config_table.get(key).is_none() {
-                                    issues.push(DiagnosticIssue {
-                                        severity: Severity::Warning,
-                                        message: format!(
-                                            "settings key '{key}' (from pack '{pack_name}') is tracked but missing from config.toml"
-                                        ),
-                                        suggestion: Some(format!(
-                                            "run `weave install {pack_name}` to re-apply"
-                                        )),
-                                        pack: Some(pack_name.clone()),
-                                    });
-                                }
-                            }
+        if !manifest.settings.is_empty()
+            && config_path.exists()
+            && let Ok(config) = Self::read_config_toml(&config_path)
+            && let Some(config_table) = config.as_table()
+        {
+            for (pack_name, record) in &manifest.settings {
+                if let Some(frag_obj) = record.applied.as_object() {
+                    for key in frag_obj.keys() {
+                        if config_table.get(key).is_none() {
+                            issues.push(DiagnosticIssue {
+                                severity: Severity::Warning,
+                                message: format!(
+                                    "settings key '{key}' (from pack '{pack_name}') is tracked but missing from config.toml"
+                                ),
+                                suggestion: Some(format!(
+                                    "run `weave install {pack_name}` to re-apply"
+                                )),
+                                pack: Some(pack_name.clone()),
+                            });
                         }
                     }
                 }
