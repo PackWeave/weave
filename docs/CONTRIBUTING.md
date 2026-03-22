@@ -21,8 +21,8 @@ cargo build
 cargo test
 ```
 
-> **Branches:** Always work on a feature branch — never commit directly to `main`.
-> Use `feat/`, `fix/`, or `docs/` prefixes: `feat/my-feature`, `fix/bug-description`.
+> [!IMPORTANT]
+> Always work on a feature branch — never commit directly to `main`. Use `feat/`, `fix/`, or `docs/` prefixes: `feat/my-feature`, `fix/bug-description`.
 
 ## 🧪 Running tests
 
@@ -36,7 +36,8 @@ cargo test
 - **Integration tests** — `tests/` directory (adapter tests, init tests)
 - **E2E tests** — `tests/e2e/` (requires macOS/Linux, gated on Windows)
 
-E2E tests use `wiremock` for mock HTTP, `assert_cmd` for subprocess assertions, and full isolation via environment variables (`HOME`, `WEAVE_TEST_STORE_DIR`, `WEAVE_REGISTRY_URL`).
+> [!NOTE]
+> E2E tests require macOS or Linux — they are gated on Windows in CI. They use `wiremock` for mock HTTP, `assert_cmd` for subprocess assertions, and full isolation via environment variables (`HOME`, `WEAVE_TEST_STORE_DIR`, `WEAVE_REGISTRY_URL`).
 
 ### ✅ Before opening a PR
 
@@ -75,7 +76,8 @@ Packs are published to the `PackWeave/registry` repo via pull request.
 2. Add optional files under `prompts/`, `commands/`, or `settings/` as needed.
 3. Run `weave init my-pack` to scaffold the directory structure.
 
-If you are not ready to build a pack, open a **Pack request** issue using the template in `.github/ISSUE_TEMPLATE/pack_request.md`.
+> [!TIP]
+> Not ready to build a pack yourself? Open a **Pack request** issue using the template in `.github/ISSUE_TEMPLATE/pack_request.md` and the community can pick it up.
 
 ### ✨ Pack quality bar
 

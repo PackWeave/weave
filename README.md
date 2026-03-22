@@ -194,11 +194,8 @@ Packs can also declare:
 > [!IMPORTANT]
 > Packs never store secret values. Env vars are written as `${MY_API_KEY}` references into CLI config files — the actual values come from your shell environment at runtime.
 
-**Test your pack locally before publishing:**
-
-```bash
-weave install ./my-pack    # install from a local directory — idempotent, re-reads files on each run
-```
+> [!TIP]
+> Test your pack locally before publishing: `weave install ./my-pack` — idempotent, re-reads files on each run.
 
 See [pack.schema.toml](https://github.com/PackWeave/weave/blob/main/pack.schema.toml) for the full annotated schema and [docs/PACKS.md](https://github.com/PackWeave/weave/blob/main/docs/PACKS.md) for quality guidelines.
 
