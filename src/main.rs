@@ -75,7 +75,11 @@ enum Commands {
     Sync,
 
     /// Check for config drift and project-scope staleness across all adapters
-    Diagnose,
+    Diagnose {
+        /// Output results as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 fn main() {
@@ -95,7 +99,7 @@ fn main() {
         Commands::Search { query, target, mcp } => cli::search::run(&query, target.as_deref(), mcp),
         Commands::Update { name } => cli::update::run(name.as_deref()),
         Commands::Sync => cli::sync::run(),
-        Commands::Diagnose => cli::diagnose::run(),
+        Commands::Diagnose { json } => cli::diagnose::run(json),
     };
 
     if let Err(err) = result {

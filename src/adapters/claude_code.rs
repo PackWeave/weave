@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -861,6 +861,42 @@ impl CliAdapter for ClaudeCodeAdapter {
         }
 
         Ok(issues)
+    }
+
+    fn tracked_packs(&self) -> Result<HashSet<String>> {
+        let mut packs = HashSet::new();
+
+        // Collect from user-scope manifest.
+        let user_manifest = self.load_manifest()?;
+        for pack_name in user_manifest.servers.values() {
+            packs.insert(pack_name.clone());
+        }
+        for pack_name in user_manifest.commands.values() {
+            packs.insert(pack_name.clone());
+        }
+        for pack_name in &user_manifest.prompt_blocks {
+            packs.insert(pack_name.clone());
+        }
+        for pack_name in user_manifest.settings.keys() {
+            packs.insert(pack_name.clone());
+        }
+
+        // Union with project-scope manifest (if it exists).
+        let project_manifest = self.load_project_manifest()?;
+        for pack_name in project_manifest.servers.values() {
+            packs.insert(pack_name.clone());
+        }
+        for pack_name in project_manifest.commands.values() {
+            packs.insert(pack_name.clone());
+        }
+        for pack_name in &project_manifest.prompt_blocks {
+            packs.insert(pack_name.clone());
+        }
+        for pack_name in project_manifest.settings.keys() {
+            packs.insert(pack_name.clone());
+        }
+
+        Ok(packs)
     }
 }
 
