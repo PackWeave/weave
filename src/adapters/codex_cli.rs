@@ -789,7 +789,7 @@ impl CliAdapter for CodexAdapter {
         Ok(())
     }
 
-    fn remove(&self, pack_name: &str) -> Result<()> {
+    fn remove(&self, pack_name: &str) -> Result<Vec<String>> {
         // User-scope — only touch the manifest if it already exists.
         let manifest_path = self.manifest_path()?;
         if manifest_path.exists() {
@@ -810,7 +810,7 @@ impl CliAdapter for CodexAdapter {
             self.save_project_manifest(&project_manifest)?;
         }
 
-        Ok(())
+        Ok(vec![])
     }
 
     fn diagnose(&self) -> Result<Vec<DiagnosticIssue>> {

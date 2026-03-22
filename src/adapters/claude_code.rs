@@ -983,11 +983,12 @@ impl CliAdapter for ClaudeCodeAdapter {
         Ok(())
     }
 
-    fn remove(&self, pack_name: &str) -> Result<()> {
+    fn remove(&self, pack_name: &str) -> Result<Vec<String>> {
         // Collect all project roots to clean up. We start from the user-scope
         // manifest (which records roots from previous `weave install` calls) and
         // also include the current directory in case the user installs and removes
         // from the same project or is on an older weave version without tracking.
+        let mut warnings: Vec<String> = Vec::new();
         let mut roots_to_clean: Vec<PathBuf> = Vec::new();
 
         // User-scope — only touch the manifest if it already exists.
@@ -1030,11 +1031,10 @@ impl CliAdapter for ClaudeCodeAdapter {
                 if let Err(e) = self.remove_from_project_root(pack_name, root, &known_server_names)
                 {
                     // Non-fatal: the project dir may have been deleted or moved.
-                    // Warn so the user can investigate if needed.
-                    eprintln!(
-                        "  warning: could not clean project scope in {}: {e}",
-                        root.display()
-                    );
+                    // Log internally and surface to the CLI layer.
+                    let msg = format!("could not clean project scope in {}: {e}", root.display());
+                    log::warn!("{}", msg);
+                    warnings.push(msg);
                     failed_roots.push(root.to_string_lossy().to_string());
                 }
             }
@@ -1051,7 +1051,7 @@ impl CliAdapter for ClaudeCodeAdapter {
             self.save_manifest(&manifest)?;
         }
 
-        Ok(())
+        Ok(warnings)
     }
 
     fn diagnose(&self) -> Result<Vec<DiagnosticIssue>> {
