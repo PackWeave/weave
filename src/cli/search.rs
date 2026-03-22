@@ -1,19 +1,27 @@
 use anyhow::{bail, Context, Result};
 
 use crate::core::config::Config;
+use crate::core::mcp_registry::McpRegistryClient;
 use crate::core::registry::GitHubRegistry;
 use crate::core::registry::Registry;
 
 /// Valid target CLI names for the `--target` filter.
 const VALID_TARGETS: &[&str] = &["claude_code", "gemini_cli", "codex_cli"];
 
-/// Search for packs in the registry.
+/// Search for packs in the registry, or MCP servers via `--mcp`.
 ///
 /// The optional `target` filter validates early but currently includes all results
 /// because the registry index does not yet expose per-pack target information.
 /// Once the registry adds target fields to `PackSummary`, the filter will narrow
 /// results to packs that support the requested CLI.
-pub fn run(query: &str, target: Option<&str>) -> Result<()> {
+pub fn run(query: &str, target: Option<&str>, mcp: bool) -> Result<()> {
+    if mcp {
+        if target.is_some() {
+            bail!("--mcp and --target cannot be used together");
+        }
+        return run_mcp_search(query);
+    }
+
     // Validate --target value early so the user gets immediate feedback.
     if let Some(t) = target {
         if !VALID_TARGETS.contains(&t) {
@@ -54,6 +62,57 @@ pub fn run(query: &str, target: Option<&str>) -> Result<()> {
     }
 
     println!("{} pack(s) found.", results.len());
+
+    Ok(())
+}
+
+/// Search the official MCP Registry for servers.
+fn run_mcp_search(query: &str) -> Result<()> {
+    let client = McpRegistryClient::new();
+    let results = client.search(query).context("searching MCP Registry")?;
+
+    if results.is_empty() {
+        println!("No MCP servers found matching '{query}'.");
+        return Ok(());
+    }
+
+    println!("MCP Registry results for '{query}':");
+    println!();
+
+    for server in &results {
+        // Prefer title; fall back to the short name (after last '/').
+        let display_name = server
+            .title
+            .as_deref()
+            .unwrap_or_else(|| server.name.rsplit('/').next().unwrap_or(&server.name));
+
+        println!("  {display_name}");
+
+        if !server.description.is_empty() {
+            println!("    {}", server.description);
+        }
+
+        for pkg in &server.packages {
+            if let Some(ver) = &pkg.version {
+                println!(
+                    "    Package: {} ({}) v{}",
+                    pkg.identifier, pkg.registry_type, ver
+                );
+            } else {
+                println!("    Package: {} ({})", pkg.identifier, pkg.registry_type);
+            }
+        }
+
+        if let Some(repo) = &server.repository {
+            println!("    Repository: {}", repo.url);
+        }
+
+        println!();
+    }
+
+    println!("{} server(s) found.", results.len());
+    println!();
+    println!("Note: these are MCP servers, not weave packs.");
 
     Ok(())
 }
