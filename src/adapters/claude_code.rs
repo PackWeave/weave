@@ -414,13 +414,37 @@ impl ClaudeCodeAdapter {
         let output = serde_json::to_string_pretty(&config).expect("JSON serialization cannot fail");
         util::write_file(path, &output)?;
 
-        settings_map.insert(
-            pack.pack.name.clone(),
-            SettingsRecord {
-                applied: fragment.clone(),
-                original,
-            },
-        );
+        // Merge into existing record if present (e.g. a pack with both
+        // settings/claude.json AND extensions.claude_code.hooks calls this
+        // twice). Replacing would lose the first call's snapshot.
+        if let Some(existing) = settings_map.get_mut(&pack.pack.name) {
+            if let (Some(existing_applied), Some(new_applied)) =
+                (existing.applied.as_object_mut(), fragment.as_object())
+            {
+                for (k, v) in new_applied {
+                    existing_applied.insert(k.clone(), v.clone());
+                }
+            }
+            if let (Some(existing_original), Some(new_original)) =
+                (existing.original.as_object_mut(), original.as_object())
+            {
+                for (k, v) in new_original {
+                    // Only record the first snapshot — don't overwrite with
+                    // a value that was already modified by a prior fragment.
+                    existing_original
+                        .entry(k.clone())
+                        .or_insert_with(|| v.clone());
+                }
+            }
+        } else {
+            settings_map.insert(
+                pack.pack.name.clone(),
+                SettingsRecord {
+                    applied: fragment.clone(),
+                    original,
+                },
+            );
+        }
 
         Ok(())
     }

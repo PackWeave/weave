@@ -235,7 +235,18 @@ impl Pack {
             _ => return None,
         };
         let hooks_value = ext_value.get("hooks")?;
-        serde_json::from_value(hooks_value.clone()).ok()
+        match serde_json::from_value(hooks_value.clone()) {
+            Ok(hooks) => Some(hooks),
+            Err(e) => {
+                log::warn!(
+                    "pack '{}': malformed extensions.{}.hooks — {}",
+                    self.name,
+                    cli,
+                    e
+                );
+                None
+            }
+        }
     }
 
     fn validate(&self, path: &Path) -> Result<()> {
