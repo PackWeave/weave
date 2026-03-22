@@ -166,3 +166,15 @@ When your changes add new modules, CLI commands, or env vars, update both docume
 - Do not put CLI-specific knowledge (file paths, config schemas) outside of adapters
 - Do not use `println!` for output in library code — use `log` or return values
 - Do not implement features listed under "Explicitly deferred" in docs/ROADMAP.md
+
+-----
+
+## Standards for "skip" decisions
+
+Do not label issues as "cosmetic" or "low priority" to avoid fixing them. If something is wrong — a misleading comment, an inaccurate doc, a missing validation — fix it. The bar for skipping is:
+
+1. The fix requires a design decision that needs human input
+2. The fix is genuinely out of scope (belongs in a different PR or milestone)
+3. The fix has no impact on correctness, maintainability, or future contributors
+
+A misleading comment fails test 3 — it will mislead the next person who reads it. An inaccurate doc fails test 3 — it erodes trust. When in doubt, fix it now.
