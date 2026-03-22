@@ -177,9 +177,8 @@ mod tests {
     fn deserialize_real_api_response() {
         // Captured from https://registry.modelcontextprotocol.io/v0.1/servers?search=filesystem&version=latest&limit=20
         // This test catches schema drift between the live API and our structs.
-        let json =
-            std::fs::read_to_string("tests/fixtures_mcp_resp.json").expect("fixture missing");
-        let result: Result<McpRegistryResponse, _> = serde_json::from_str(&json);
+        let json = include_str!("../../tests/fixtures_mcp_resp.json");
+        let result: Result<McpRegistryResponse, _> = serde_json::from_str(json);
         match &result {
             Err(e) => panic!("Failed to parse real MCP registry response: {e}"),
             Ok(r) => assert!(!r.servers.is_empty(), "expected at least one server"),
