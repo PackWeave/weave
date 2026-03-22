@@ -49,7 +49,7 @@ The milestones below are sequential. Each one produces something usable before t
 - [x] Environment variable handling for secrets (write `${VAR}` references only)
 - [x] Recursive transitive dependency resolution with cycle detection
 - [x] Improved conflict detection using declared tool lists
-- [ ] Publish `packweave` crate to crates.io (requires `CARGO_REGISTRY_TOKEN` secret — see issue #78)
+- [x] Prepare `packweave` crate for crates.io publishing (workflow ready; actual publish deferred to M5 first release)
 - [x] SHA256 checksums alongside release binaries (see issue #40)
 - [x] ARM Linux release target — `aarch64-unknown-linux-gnu` via `cross` (see issue #41)
 
@@ -69,15 +69,17 @@ The milestones below are sequential. Each one produces something usable before t
 
 -----
 
-## Milestone 5 — v0.4+
+## Milestone 5 — v0.4 (first public release)
 
-> Quality-of-life and ecosystem features.
+> Quality-of-life, ecosystem features, and first public release. The first release will be cut after M5 is complete — ship a polished, full-featured product, not an early preview.
 
 - [ ] Template management for CLI prompt files (CLAUDE.md, AGENTS.md, etc.)
 - [ ] Auto-update mechanism
 - [ ] Plugin system for extending weave
 - [ ] Org/team configuration sharing
 - [ ] Release Please integration — automated CHANGELOG.md and release PRs via `develop` → `main` merge flow
+- [ ] Publish `packweave` crate to crates.io (issue #78, #92)
+- [ ] Cut first public release — GitHub Release with binaries, Homebrew, cargo-binstall (issue #92)
 
 -----
 
