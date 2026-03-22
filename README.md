@@ -84,6 +84,35 @@ weave sync          # fix it — reapply your profile
 weave remove web-dev # clean undo, manual edits survive
 ```
 
+**Add community pack sources:**
+
+```bash
+weave tap add acme-corp/packs    # register a third-party pack registry
+weave install acme-corp/internal # install packs from the tap
+weave tap list                   # see all registered taps
+```
+
+**Opt in to pack-defined hooks:**
+
+```bash
+weave install ci-tools --allow-hooks
+# → pack hooks (e.g., pre-commit checks) applied to Claude Code
+# hooks are never applied without explicit --allow-hooks consent
+```
+
+**Connect to remote MCP servers:**
+
+```toml
+# In pack.toml — HTTP transport with auth headers
+[[servers]]
+name = "remote-api"
+transport = "http"
+url = "https://api.example.com/mcp"
+
+[servers.headers]
+Authorization = "${API_KEY}"   # secret stays in your env, never in config
+```
+
 **Create and share your own packs:**
 
 ```bash
@@ -161,7 +190,7 @@ weave remove web-dev        # clean undo
 
 | Command | Description |
 |---------|-------------|
-| `weave install <pack>` | Install a pack and apply it to all supported CLIs. Use `--version` to pin (e.g. `^1.0`, `=1.2.0`). Use `--project` to also write to `.mcp.json` in the current directory. |
+| `weave install <pack>` | Install a pack and apply it to all supported CLIs. Use `--version` to pin (e.g. `^1.0`, `=1.2.0`). Use `--project` to also write to `.mcp.json` in the current directory. Use `--allow-hooks` to apply pack-defined lifecycle hooks. |
 | `weave remove <pack>` | Remove a pack and clean up all config entries it wrote |
 | `weave list` | Show installed packs with versions, scope, and target CLIs |
 | `weave search <query>` | Search the pack registry |
@@ -175,6 +204,9 @@ weave remove web-dev        # clean undo
 | `weave profile add <pack> -p <name>` | Add a pack to a named profile |
 | `weave use [profile]` | Switch to a named profile, or print the active one |
 | `weave sync` | Reapply the active profile to all adapters |
+| `weave tap add <user/repo>` | Add a community tap (third-party pack registry) |
+| `weave tap list` | Show registered taps |
+| `weave tap remove <user/repo>` | Remove a community tap |
 
 ---
 
@@ -225,7 +257,7 @@ See [pack.schema.toml](https://github.com/PackWeave/weave/blob/main/pack.schema.
 
 | CLI | Status | What Weave manages |
 |-----|--------|--------------------|
-| **Claude Code** | ✅ Supported | MCP servers · slash commands · system prompt · settings |
+| **Claude Code** | ✅ Supported | MCP servers · slash commands · system prompt · settings · hooks |
 | **Gemini CLI** | ✅ Supported | MCP servers · system prompt · settings |
 | **Codex CLI** | ✅ Supported | MCP servers · skills · system prompt · settings |
 
@@ -262,10 +294,11 @@ Packs: 1 installed
 
 See [docs/ROADMAP.md](https://github.com/PackWeave/weave/blob/main/docs/ROADMAP.md) for full milestones.
 
-- **Hooks** — pack-defined lifecycle hooks with explicit opt-in (`--allow-hooks`)
-- **Community taps** — `weave tap add user/repo` for third-party pack sources
-- **Remote MCP servers** — `url`/`headers` transport in all adapters
+- **Templates** — manage CLI prompt files (`CLAUDE.md`, `AGENTS.md`, etc.) as reusable templates
+- **Auto-update** — keep weave itself up to date automatically
+- **Plugin system** — extend weave with custom commands
 - **Org config sharing** — team-wide profiles and pack sets
+- **First public release** — crates.io publish, Homebrew formula, `v0.4.0`
 
 ---
 

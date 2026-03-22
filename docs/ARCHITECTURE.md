@@ -67,40 +67,45 @@ weave use work
 src/
   main.rs                  Entry point. Builds CLI, dispatches to handlers.
   lib.rs                   Crate root; re-exports public modules.
-
-  cli/                     Clap command definitions and handler functions.
-    mod.rs
-    install.rs
-    list.rs
-    remove.rs
-    search.rs
-    update.rs
-    init.rs
-    publish.rs
-    profile.rs
-    sync.rs
-    diagnose.rs
-    auth.rs
-
-  core/
-    pack.rs                Pack manifest: parsing, validation, the Pack struct.
-    profile.rs             Profile: read/write, active profile tracking.
-    lockfile.rs            Lock file: read/write, version pinning.
-    resolver.rs            Dependency graph construction and semver resolution.
-    store.rs               Local pack cache: download, extract, verify, evict.
-    registry.rs            Registry trait + default GitHub-backed implementation.
-    mcp_registry.rs        Upstream MCP registry integration.
-    conflict.rs            Tool-level conflict detection across installed packs.
-    config.rs              Global weave config (~/.packweave/config.toml).
-
-  adapters/
-    mod.rs                 CliAdapter trait definition.
-    claude_code.rs         Claude Code adapter (~/.claude/).
-    gemini_cli.rs          Gemini CLI adapter (~/.gemini/).
-    codex_cli.rs           Codex CLI adapter (~/.codex/).
-
   error.rs                 Unified error types via thiserror.
   util.rs                  Shared helpers (file ops, path resolution, etc.)
+
+  cli/                     Clap command definitions and thin handler functions.
+    mod.rs                 CLI dispatch and shared argument types.
+    auth.rs                Registry authentication (login/logout/status).
+    diagnose.rs            Config drift detection and health reporting.
+    init.rs                Scaffold a new pack directory.
+    install.rs             Thin wrapper → core::install.
+    list.rs                Show installed packs with versions and scope.
+    profile.rs             Profile create/list/delete/add.
+    publish.rs             Publish a pack to the registry.
+    remove.rs              Remove a pack and clean up config entries.
+    search.rs              Pack registry and MCP Registry search.
+    sync.rs                Reapply active profile to all adapters.
+    tap.rs                 Community tap add/list/remove.
+    update.rs              Thin wrapper → core::update.
+    use_profile.rs         Thin wrapper → core::use_profile.
+
+  core/                    Business logic — no I/O to CLI config files here.
+    mod.rs                 Module re-exports.
+    config.rs              Global weave config (~/.packweave/config.toml).
+    conflict.rs            Tool-level conflict detection across installed packs.
+    install.rs             Install orchestration (registry + local).
+    lockfile.rs            Lock file: read/write, version pinning.
+    mcp_registry.rs        Upstream MCP Registry client (weave search --mcp).
+    pack.rs                Pack manifest: parsing, validation, the Pack struct.
+    profile.rs             Profile: read/write, active profile tracking.
+    registry.rs            Registry trait, GitHubRegistry, and CompositeRegistry.
+    resolver.rs            Dependency graph construction and semver resolution.
+    store.rs               Local pack cache: download, extract, verify, evict.
+    update.rs              Update orchestration (version comparison + apply).
+    use_profile.rs         Profile switch orchestration (diff + remove + apply).
+
+  adapters/                CLI-specific config read/write — no business logic here.
+    mod.rs                 CliAdapter trait, ApplyOptions, AdapterId, DiagnosticIssue.
+    claude_code.rs         Claude Code adapter (~/.claude/).
+    codex_cli.rs           Codex CLI adapter (~/.codex/).
+    gemini_cli.rs          Gemini CLI adapter (~/.gemini/).
 ```
 
 -----
@@ -138,7 +143,7 @@ pub struct McpServer {
     pub url: Option<String>,
     /// Optional HTTP headers (e.g. Authorization). Only used for http transport.
     pub headers: Option<HashMap<String, String>>,
-    pub transport: Option<Transport>,
+    pub transport: Option<Transport>,  // Stdio (default) or Http
     pub tools: Vec<String>,
     pub env: HashMap<String, EnvVar>,
 }
@@ -214,6 +219,10 @@ Adapters ignore unknown `extensions.<cli>` keys to preserve forward compatibilit
 
 ```rust
 pub trait CliAdapter: Send + Sync {
+    /// Stable machine identifier for this adapter.
+    /// Used for internal logic (target mapping, diagnose attribution).
+    fn id(&self) -> AdapterId;
+
     /// Human-readable name, e.g. "Claude Code"
     fn name(&self) -> &str;
 
@@ -225,15 +234,41 @@ pub trait CliAdapter: Send + Sync {
 
     /// Apply a pack's contributions to this CLI's config.
     /// Must be idempotent — calling twice has the same effect as calling once.
-    fn apply(&self, pack: &ResolvedPack) -> Result<()>;
+    /// `options` controls optional behaviours like hooks application.
+    fn apply(&self, pack: &ResolvedPack, options: &ApplyOptions) -> Result<()>;
 
     /// Remove all contributions made by a pack.
     /// Must leave user's manual edits untouched.
-    fn remove(&self, pack_name: &str) -> Result<()>;
+    /// Returns a list of non-fatal warnings (e.g. project-scope cleanup failures).
+    fn remove(&self, pack_name: &str) -> Result<Vec<String>>;
 
     /// Verify the CLI's current config is consistent with installed packs.
     /// Returns a list of issues for `weave diagnose`.
     fn diagnose(&self) -> Result<Vec<DiagnosticIssue>>;
+
+    /// Returns the set of pack names this adapter is currently tracking
+    /// (i.e., has contributions for in its sidecar manifest).
+    fn tracked_packs(&self) -> Result<HashSet<String>>;
+}
+
+pub struct ApplyOptions {
+    /// When true, hooks declared in the pack manifest are written to the
+    /// CLI config. Hooks execute arbitrary shell commands, so they require
+    /// explicit user consent via the `--allow-hooks` flag.
+    pub allow_hooks: bool,
+}
+
+pub enum AdapterId {
+    ClaudeCode,
+    GeminiCli,
+    CodexCli,
+}
+
+pub struct DiagnosticIssue {
+    pub severity: Severity,  // Warning or Error
+    pub message: String,
+    pub suggestion: Option<String>,
+    pub pack: Option<String>,
 }
 ```
 
@@ -375,7 +410,18 @@ Pack settings (`settings/claude.json`) are deep-merged into `~/.claude/settings.
 
 ### Hooks
 
-Hooks are planned for v0.3 (Milestone 4). When introduced, they will live under `extensions.claude_code.hooks` and require explicit opt-in (for example, `--allow-hooks`).
+Hooks allow packs to register shell commands that run at Claude Code lifecycle events (e.g. `PreToolUse`, `PostToolUse`). Because hooks execute arbitrary code, they require explicit user consent.
+
+Pack manifests declare hooks under `extensions.claude_code.hooks`:
+
+```toml
+[extensions.claude_code.hooks]
+PreToolUse = [{ matcher = "Bash", command = "echo pre-check" }]
+```
+
+The adapter writes hooks to `~/.claude/settings.json` under the `hooks` key only when the user passes `--allow-hooks` to `install`, `sync`, or `use`. Without the flag, the CLI prints a notice that hooks were skipped. Hooks are tracked in the sidecar manifest for surgical removal.
+
+Gemini CLI and Codex CLI do not support hooks. If a pack declares hooks for these CLIs, the adapter logs a warning and skips them.
 
 -----
 
