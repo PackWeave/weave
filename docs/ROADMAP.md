@@ -65,6 +65,7 @@ The milestones below are sequential. Each one produces something usable before t
 - [ ] Community taps (`weave tap add user/repo`)
 - [x] `weave diagnose` — full config drift and health check across all adapters (per-pack, per-adapter status with `--json` output)
 - [x] `weave sync` — reapply active profile
+- [ ] Support remote MCP servers (`url`/`headers`) in all CLI adapters (see issue #59)
 
 -----
 
