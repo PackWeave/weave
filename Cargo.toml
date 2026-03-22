@@ -52,7 +52,7 @@ assert_cmd = "2"
 predicates = "3"
 serial_test = "3"
 tempfile = "3"
-tokio = { version = "1", features = ["rt", "macros"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
 wiremock = "0.6"
 
 # cargo-binstall support — tells binstall where to find pre-built binaries
