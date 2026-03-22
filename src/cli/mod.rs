@@ -6,5 +6,6 @@ pub mod profile;
 pub mod remove;
 pub mod search;
 pub mod sync;
+pub mod tap;
 pub mod update;
 pub mod use_profile;

@@ -2,8 +2,7 @@ use anyhow::{bail, Context, Result};
 
 use crate::core::config::Config;
 use crate::core::mcp_registry::McpRegistryClient;
-use crate::core::registry::GitHubRegistry;
-use crate::core::registry::Registry;
+use crate::core::registry::{registry_from_config, Registry};
 
 /// Valid target CLI names for the `--target` filter.
 const VALID_TARGETS: &[&str] = &["claude_code", "gemini_cli", "codex_cli"];
@@ -34,7 +33,7 @@ pub fn run(query: &str, target: Option<&str>, mcp: bool) -> Result<()> {
     }
 
     let config = Config::load().context("loading weave config")?;
-    let registry = GitHubRegistry::new(&config.registry_url);
+    let registry = registry_from_config(&config);
 
     let results = registry.search(query).context("searching registry")?;
 

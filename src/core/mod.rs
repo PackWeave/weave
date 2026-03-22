@@ -1,5 +1,6 @@
 pub mod config;
 pub mod conflict;
+pub mod install;
 pub mod lockfile;
 pub mod mcp_registry;
 pub mod pack;
@@ -7,3 +8,5 @@ pub mod profile;
 pub mod registry;
 pub mod resolver;
 pub mod store;
+pub mod update;
+pub mod use_profile;
