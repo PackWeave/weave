@@ -89,6 +89,8 @@ The adapters are opaque. They expose only the `CliAdapter` trait. The core does 
 
 **Never commit directly to `main`.** All changes must go through a pull request, even docs-only changes. Create a feature branch, push it, and open a PR via `gh pr create`.
 
+**Always assign PRs to the current user.** When creating a PR, determine the GitHub username via `gh api user --jq .login` and pass it with `--assignee <username>`.
+
 **Before committing to any branch, verify its PR has not already been merged into `main`.**
 
 ```sh
