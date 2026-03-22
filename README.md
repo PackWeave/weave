@@ -181,7 +181,7 @@ Packs can also declare:
 > [!IMPORTANT]
 > Packs never store secret values. Env vars are written as `${MY_API_KEY}` references into CLI config files — the actual values come from your shell environment at runtime. Pack authors must not embed credentials or tokens in a pack.
 
-See [pack.schema.toml](./pack.schema.toml) for the full annotated schema and [docs/PACKS.md](./docs/PACKS.md) for quality guidelines.
+See [pack.schema.toml](https://github.com/PackWeave/weave/blob/main/pack.schema.toml) for the full annotated schema and [docs/PACKS.md](https://github.com/PackWeave/weave/blob/main/docs/PACKS.md) for quality guidelines.
 
 ---
 
@@ -221,7 +221,7 @@ Running diagnostics (profile 'default')...
 
 ## 🚀 Coming in v0.2+
 
-These features are in active development. See [docs/ROADMAP.md](./docs/ROADMAP.md) for full milestones.
+These features are in active development. See [docs/ROADMAP.md](https://github.com/PackWeave/weave/blob/main/docs/ROADMAP.md) for full milestones.
 
 **v0.2 — Pack authoring:**
 
@@ -244,18 +244,18 @@ weave sync               # reapply the active profile after manual config change
 
 | Document | Description |
 |----------|-------------|
-| [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | Internal design: modules, data flow, adapter contracts |
-| [docs/ROADMAP.md](./docs/ROADMAP.md) | Milestones and planned scope |
-| [docs/CONTRIBUTING.md](./docs/CONTRIBUTING.md) | How to contribute |
-| [docs/PACKS.md](./docs/PACKS.md) | Pack format and quality guidelines |
+| [docs/ARCHITECTURE.md](https://github.com/PackWeave/weave/blob/main/docs/ARCHITECTURE.md) | Internal design: modules, data flow, adapter contracts |
+| [docs/ROADMAP.md](https://github.com/PackWeave/weave/blob/main/docs/ROADMAP.md) | Milestones and planned scope |
+| [docs/CONTRIBUTING.md](https://github.com/PackWeave/weave/blob/main/docs/CONTRIBUTING.md) | How to contribute |
+| [docs/PACKS.md](https://github.com/PackWeave/weave/blob/main/docs/PACKS.md) | Pack format and quality guidelines |
 
-AI assistants working in this repo should read [`AGENTS.md`](./AGENTS.md).
+AI assistants working in this repo should read [`AGENTS.md`](https://github.com/PackWeave/weave/blob/main/AGENTS.md).
 
 ---
 
 ## 🤝 Contributing
 
-See [docs/CONTRIBUTING.md](./docs/CONTRIBUTING.md).
+See [docs/CONTRIBUTING.md](https://github.com/PackWeave/weave/blob/main/docs/CONTRIBUTING.md).
 
 ---
 
