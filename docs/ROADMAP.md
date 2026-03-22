@@ -124,6 +124,13 @@ The milestones below are sequential. Each one produces something usable before t
 - [ ] SHA-256 script integrity verification — hash hook commands at install, verify at sync/use (issue #168)
 - [ ] Auto-update mechanism (issue #51)
 
+### Housekeeping
+
+- [ ] Use FNV-1a for local pack cache directory hashing (issue #132)
+- [ ] Include source info in `Store::list_cached` return type (issue #134)
+- [ ] Cover `CompositeRegistry` directly instead of mock reimplementation (issue #142)
+- [ ] Decouple `core::use_profile` from `GitHubRegistry` (issue #144)
+
 -----
 
 ## Explicitly deferred (no planned milestone)
