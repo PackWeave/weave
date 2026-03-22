@@ -12,11 +12,28 @@ use assert_cmd::prelude::*;
 /// `{version}-local-` and returns its full path.
 fn find_local_pack_dir(name_dir: &Path, version: &str) -> Option<PathBuf> {
     let prefix = format!("{version}-local-");
-    std::fs::read_dir(name_dir)
+    let matches: Vec<PathBuf> = std::fs::read_dir(name_dir)
         .ok()?
         .filter_map(|e| e.ok())
-        .find(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+        .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix) && e.path().is_dir())
         .map(|e| e.path())
+        .collect();
+
+    // Prefer the unique entry that contains pack.toml.
+    let with_toml: Vec<&PathBuf> = matches
+        .iter()
+        .filter(|p| p.join("pack.toml").is_file())
+        .collect();
+    if with_toml.len() == 1 {
+        return Some(with_toml[0].clone());
+    }
+
+    // Fall back to a unique matching directory.
+    if matches.len() == 1 {
+        return Some(matches[0].clone());
+    }
+
+    None
 }
 
 // ── Local pack install ────────────────────────────────────────────────────────

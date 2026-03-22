@@ -337,6 +337,25 @@ mod tests {
     use std::collections::HashMap;
     use tempfile::TempDir;
 
+    /// RAII guard that sets an env var on creation and removes it on drop,
+    /// even if the test panics. Prevents env var leaks across `#[serial]` tests.
+    struct EnvGuard {
+        key: &'static str,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &std::path::Path) -> Self {
+            std::env::set_var(key, value);
+            Self { key }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            std::env::remove_var(self.key);
+        }
+    }
+
     // ── write_files ───────────────────────────────────────────────────────────
 
     #[test]
@@ -513,7 +532,7 @@ mod tests {
     #[serial_test::serial]
     fn evict_local_does_not_affect_registry() {
         let tmp = TempDir::new().unwrap();
-        std::env::set_var("WEAVE_TEST_STORE_DIR", tmp.path());
+        let _guard = EnvGuard::set("WEAVE_TEST_STORE_DIR", tmp.path());
 
         let name = "shared-pack";
         let v = semver::Version::new(1, 0, 0);
@@ -542,15 +561,13 @@ mod tests {
             reg_dir.join("pack.toml").exists(),
             "registry cache must survive local eviction"
         );
-
-        std::env::remove_var("WEAVE_TEST_STORE_DIR");
     }
 
     #[test]
     #[serial_test::serial]
     fn evict_registry_does_not_affect_local() {
         let tmp = TempDir::new().unwrap();
-        std::env::set_var("WEAVE_TEST_STORE_DIR", tmp.path());
+        let _guard = EnvGuard::set("WEAVE_TEST_STORE_DIR", tmp.path());
 
         let name = "shared-pack";
         let v = semver::Version::new(1, 0, 0);
@@ -579,8 +596,6 @@ mod tests {
             local_dir.join("pack.toml").exists(),
             "local cache must survive registry eviction"
         );
-
-        std::env::remove_var("WEAVE_TEST_STORE_DIR");
     }
 
     #[test]
