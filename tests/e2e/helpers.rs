@@ -227,16 +227,17 @@ impl FixturePack {
 
 // ── Mock registry helpers ────────────────────────────────────────────────────
 
-/// Mount a mock registry index and pack archives on the given `MockServer`.
+/// Mount a two-tier sparse mock registry on the given `MockServer`.
 ///
-/// The registry index is served at `GET /` (since `WEAVE_REGISTRY_URL` points
-/// to the server root, and `GitHubRegistry` fetches that URL directly).
-/// Each pack archive is served at `GET /packs/<name>-<version>.tar.gz`.
+/// Routes served:
+/// - `GET /index.json` — lightweight search catalog (name, description, latest_version)
+/// - `GET /packs/{name}.json` — full per-pack metadata with versions array
+/// - `GET /packs/{name}-{version}.tar.gz` — archive bytes
+///
+/// `WEAVE_REGISTRY_URL` in tests points to the mock server root URI, which
+/// `GitHubRegistry` uses as `base_url` to construct these paths.
 pub async fn mount_registry(server: &MockServer, packs: &[&FixturePack]) {
-    // Build the RegistryIndex JSON.
-    // Format: a flat JSON object with pack names as keys, each containing
-    // PackMetadata { name, description, authors, license, repository, versions }.
-    let mut index: HashMap<String, serde_json::Value> = HashMap::new();
+    let mut lightweight_index: HashMap<String, serde_json::Value> = HashMap::new();
 
     for pack in packs {
         let download_url = format!(
@@ -255,21 +256,42 @@ pub async fn mount_registry(server: &MockServer, packs: &[&FixturePack]) {
             "dependencies": deps,
         });
 
-        let metadata = serde_json::json!({
+        // Full per-pack metadata served at GET /packs/{name}.json
+        let full_metadata = serde_json::json!({
             "name": pack.name,
             "description": pack.description,
             "authors": ["test-author"],
             "versions": [release],
         });
 
-        index.insert(pack.name.clone(), metadata);
+        let pack_path = format!("/packs/{}.json", pack.name);
+        let full_json =
+            serde_json::to_string(&full_metadata).expect("failed to serialize pack metadata");
+        Mock::given(method("GET"))
+            .and(path(&pack_path))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string(full_json)
+                    .insert_header("content-type", "application/json"),
+            )
+            .mount(server)
+            .await;
+
+        // Lightweight entry for the search index
+        lightweight_index.insert(
+            pack.name.clone(),
+            serde_json::json!({
+                "name": pack.name,
+                "description": pack.description,
+                "latest_version": pack.version,
+            }),
+        );
     }
 
-    let index_json = serde_json::to_string(&index).expect("failed to serialize index");
-
-    // Mount index at GET /
+    // Lightweight index at GET /index.json
+    let index_json = serde_json::to_string(&lightweight_index).expect("failed to serialize index");
     Mock::given(method("GET"))
-        .and(path("/"))
+        .and(path("/index.json"))
         .respond_with(
             ResponseTemplate::new(200)
                 .set_body_string(index_json)
@@ -278,7 +300,7 @@ pub async fn mount_registry(server: &MockServer, packs: &[&FixturePack]) {
         .mount(server)
         .await;
 
-    // Mount each pack archive at its download path.
+    // Archives at GET /packs/{name}-{version}.tar.gz
     for pack in packs {
         let archive_path = format!("/packs/{}-{}.tar.gz", pack.name, pack.version);
         Mock::given(method("GET"))
@@ -295,13 +317,10 @@ pub async fn mount_registry(server: &MockServer, packs: &[&FixturePack]) {
 
 /// Mount a mock registry where multiple versions of the same pack are available.
 ///
-/// Unlike `mount_registry` (which creates one version per pack entry), this
-/// groups packs by name and puts all versions into a single `PackMetadata.versions`
+/// Groups packs by name so all versions appear in a single `PackMetadata.versions`
 /// array, which is what the resolver needs to find newer versions during update.
+/// The lightweight index entry uses the highest semver version as `latest_version`.
 pub async fn mount_registry_multi_version(server: &MockServer, packs: &[&FixturePack]) {
-    // Group packs by name. Order does not matter — the resolver selects
-    // versions by semver comparison, not by position in the array.
-    let mut index: HashMap<String, serde_json::Value> = HashMap::new();
     let mut versions_map: HashMap<String, Vec<serde_json::Value>> = HashMap::new();
     let mut meta_map: HashMap<String, (String, String)> = HashMap::new();
 
@@ -332,21 +351,53 @@ pub async fn mount_registry_multi_version(server: &MockServer, packs: &[&Fixture
             .or_insert_with(|| (pack.name.clone(), pack.description.clone()));
     }
 
+    let mut lightweight_index: HashMap<String, serde_json::Value> = HashMap::new();
+
     for (name, versions) in &versions_map {
         let (ref pack_name, ref desc) = meta_map[name];
-        let metadata = serde_json::json!({
+
+        // Determine latest_version for lightweight index (max semver)
+        let latest = versions_map[name]
+            .iter()
+            .filter_map(|v| v["version"].as_str())
+            .filter_map(|s| semver::Version::parse(s).ok())
+            .max()
+            .map(|v| v.to_string())
+            .unwrap_or_default();
+
+        let full_metadata = serde_json::json!({
             "name": pack_name,
             "description": desc,
             "authors": ["test-author"],
             "versions": versions,
         });
-        index.insert(name.clone(), metadata);
+
+        let pack_path = format!("/packs/{name}.json");
+        let full_json =
+            serde_json::to_string(&full_metadata).expect("failed to serialize pack metadata");
+        Mock::given(method("GET"))
+            .and(path(&pack_path))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string(full_json)
+                    .insert_header("content-type", "application/json"),
+            )
+            .mount(server)
+            .await;
+
+        lightweight_index.insert(
+            name.clone(),
+            serde_json::json!({
+                "name": pack_name,
+                "description": desc,
+                "latest_version": latest,
+            }),
+        );
     }
 
-    let index_json = serde_json::to_string(&index).expect("failed to serialize index");
-
+    let index_json = serde_json::to_string(&lightweight_index).expect("failed to serialize index");
     Mock::given(method("GET"))
-        .and(path("/"))
+        .and(path("/index.json"))
         .respond_with(
             ResponseTemplate::new(200)
                 .set_body_string(index_json)
@@ -355,7 +406,7 @@ pub async fn mount_registry_multi_version(server: &MockServer, packs: &[&Fixture
         .mount(server)
         .await;
 
-    // Mount each pack archive at its download path.
+    // Archives
     for pack in packs {
         let archive_path = format!("/packs/{}-{}.tar.gz", pack.name, pack.version);
         Mock::given(method("GET"))

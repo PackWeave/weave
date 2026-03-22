@@ -278,7 +278,35 @@ pub trait Registry: Send + Sync {
 }
 ```
 
-The default implementation (`GitHubRegistry`) reads a JSON index from the `PackWeave/registry` GitHub repo and resolves download URLs to GitHub Releases assets.
+The default implementation (`GitHubRegistry`) uses a two-tier sparse index against the `PackWeave/registry` GitHub repo:
+
+- **`{base_url}/index.json`** — lightweight catalog fetched once for `weave search` and `weave list`. Contains only pack names, descriptions, and latest versions. Cached in-process after first fetch.
+- **`{base_url}/packs/{name}.json`** — full pack metadata fetched on demand when installing or resolving a specific pack. Contains all versions, download URLs, SHA256 checksums, and dependencies. Cached per-pack after first fetch.
+
+Key structs:
+
+```rust
+/// Entry in the lightweight search index.
+struct PackListing {
+    name: String,
+    description: String,
+    keywords: Vec<String>,
+    latest_version: semver::Version,
+}
+
+/// Full metadata for one pack, fetched on demand.
+pub struct PackMetadata {
+    pub name: String,
+    pub description: String,
+    pub authors: Vec<String>,
+    pub license: Option<String>,
+    pub repository: Option<String>,
+    pub keywords: Vec<String>,
+    pub versions: Vec<PackRelease>,
+}
+```
+
+This design keeps `weave install` fast regardless of registry size — clients never download more metadata than they need. See `docs/REGISTRY.md` for the full protocol specification.
 
 ### Upstream MCP registries
 

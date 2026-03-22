@@ -33,7 +33,8 @@ pub struct McpRegistryServer {
 /// Repository metadata for an MCP server.
 #[derive(Debug, Deserialize)]
 pub struct McpRegistryRepo {
-    pub url: String,
+    #[serde(default)]
+    pub url: Option<String>,
     #[serde(default)]
     pub source: Option<String>,
 }
@@ -157,7 +158,10 @@ mod tests {
         assert_eq!(server.version, "1.0.0");
 
         let repo = server.repository.as_ref().unwrap();
-        assert_eq!(repo.url, "https://github.com/org/my-server");
+        assert_eq!(
+            repo.url.as_deref(),
+            Some("https://github.com/org/my-server")
+        );
         assert_eq!(repo.source.as_deref(), Some("github"));
 
         assert_eq!(server.packages.len(), 1);
@@ -167,6 +171,19 @@ mod tests {
 
         assert_eq!(resp.metadata.next_cursor.as_deref(), Some("abc123"));
         assert_eq!(resp.metadata.count, Some(1));
+    }
+
+    #[test]
+    fn deserialize_real_api_response() {
+        // Captured from https://registry.modelcontextprotocol.io/v0.1/servers?search=filesystem&version=latest&limit=20
+        // This test catches schema drift between the live API and our structs.
+        let json =
+            std::fs::read_to_string("tests/fixtures_mcp_resp.json").expect("fixture missing");
+        let result: Result<McpRegistryResponse, _> = serde_json::from_str(&json);
+        match &result {
+            Err(e) => panic!("Failed to parse real MCP registry response: {e}"),
+            Ok(r) => assert!(!r.servers.is_empty(), "expected at least one server"),
+        }
     }
 
     #[test]

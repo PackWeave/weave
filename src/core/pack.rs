@@ -132,7 +132,7 @@ pub enum PackSource {
     Git { url: String, rev: Option<String> },
 }
 
-/// Wraps the raw TOML structure for deserialization.
+/// Canonical nested format: metadata under a `[pack]` section.
 #[derive(Debug, Deserialize)]
 struct PackManifest {
     pack: PackMetadataToml,
@@ -165,12 +165,13 @@ struct PackMetadataToml {
 
 impl Pack {
     /// Parse and validate a pack manifest from a TOML string.
+    ///
+    /// Expects the canonical nested format with a `[pack]` section header.
     pub fn from_toml(content: &str, path: &Path) -> Result<Self> {
         let manifest: PackManifest = toml::from_str(content).map_err(|e| WeaveError::Toml {
             path: path.to_path_buf(),
             source: Box::new(e),
         })?;
-
         let pack = Pack {
             name: manifest.pack.name,
             version: manifest.pack.version,
@@ -185,7 +186,6 @@ impl Pack {
             extensions: manifest.extensions.unwrap_or_default(),
             targets: manifest.targets.unwrap_or_default(),
         };
-
         pack.validate(path)?;
         Ok(pack)
     }

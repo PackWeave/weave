@@ -21,7 +21,7 @@ fn default_active_profile() -> String {
 }
 
 fn default_registry_url() -> String {
-    "https://raw.githubusercontent.com/PackWeave/registry/main/index.json".into()
+    "https://raw.githubusercontent.com/PackWeave/registry/main".into()
 }
 
 impl Default for Config {

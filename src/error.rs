@@ -63,6 +63,9 @@ pub enum WeaveError {
     #[error("registry error: {0}")]
     Registry(String),
 
+    #[error("registry HTTP {status} for {url}")]
+    RegistryHttp { status: u16, url: String },
+
     #[error("MCP Registry error: {0}")]
     McpRegistry(String),
 
