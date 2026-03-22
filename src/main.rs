@@ -7,15 +7,29 @@ mod error;
 #[allow(dead_code)]
 mod util;
 
-use clap::{Parser, Subcommand};
+use clap::{builder::styling, ColorChoice, CommandFactory, FromArgMatches, Parser, Subcommand};
 
 /// weave — a pack manager for AI CLI tools.
 ///
 /// Weave together MCP servers, prompts, commands, and settings
 /// into shareable, versioned packs across Claude Code, Gemini CLI, and more.
 #[derive(Parser)]
-#[command(name = "weave", version, about, long_about = None)]
+#[command(
+    name = "weave",
+    version,
+    about,
+    long_about = None,
+    styles = styling::Styles::styled()
+        .header(styling::AnsiColor::Magenta.on_default().bold())
+        .usage(styling::AnsiColor::Magenta.on_default().bold())
+        .literal(styling::AnsiColor::Cyan.on_default().bold())
+        .placeholder(styling::AnsiColor::Green.on_default())
+)]
 struct Cli {
+    /// Control color output (auto, always, never)
+    #[arg(long, global = true, default_value = "auto")]
+    color: cli::style::ColorMode,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -162,10 +176,44 @@ enum ProfileAction {
     },
 }
 
+/// Pre-parse `--color` from raw args so we can set the color mode before clap
+/// renders help text or parse errors (which happen during `Cli::parse()`).
+fn pre_parse_color_mode() -> cli::style::ColorMode {
+    let args: Vec<String> = std::env::args().collect();
+    for (i, arg) in args.iter().enumerate() {
+        // --color=value
+        if let Some(val) = arg.strip_prefix("--color=") {
+            if let Ok(mode) = val.parse() {
+                return mode;
+            }
+        }
+        // --color value
+        if arg == "--color" {
+            if let Some(val) = args.get(i + 1) {
+                if let Ok(mode) = val.parse() {
+                    return mode;
+                }
+            }
+        }
+    }
+    cli::style::ColorMode::Auto
+}
+
 fn main() {
     env_logger::init();
 
-    let cli = Cli::parse();
+    // Set color mode before parse() so clap's help/error output respects it.
+    let color_mode = pre_parse_color_mode();
+    cli::style::set_color_mode(color_mode);
+
+    let clap_color = match color_mode {
+        cli::style::ColorMode::Auto => ColorChoice::Auto,
+        cli::style::ColorMode::Always => ColorChoice::Always,
+        cli::style::ColorMode::Never => ColorChoice::Never,
+    };
+
+    let cli = Cli::command().color(clap_color).get_matches();
+    let cli = Cli::from_arg_matches(&cli).expect("clap arg mismatch");
 
     let result = match cli.command {
         Commands::Init { name } => cli::init::run(name.as_deref()),

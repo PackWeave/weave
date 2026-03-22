@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 
 use crate::adapters;
+use crate::cli::style;
 use crate::core::config::Config;
 use crate::core::lockfile::LockFile;
 use crate::core::profile::Profile;
@@ -27,7 +28,7 @@ pub fn run(pack_name: &str) -> Result<()> {
     let adapters = adapters::installed_adapters();
 
     for name in &plan.to_remove {
-        println!("  Removing {name}...");
+        println!("  Removing {}...", style::pack_name(name.as_str()));
 
         // Remove from each installed adapter. Continue through failures so the
         // profile/lockfile are always updated and partial state is surfaced as
@@ -36,16 +37,16 @@ pub fn run(pack_name: &str) -> Result<()> {
         for adapter in &adapters {
             match adapter.remove(name) {
                 Ok(warnings) => {
-                    println!("    Removed from {}", adapter.name());
+                    println!("    Removed from {}", style::target(adapter.name()));
                     for w in warnings {
-                        eprintln!("  warning: {}: {w}", adapter.name());
+                        eprintln!("  {}: {}: {w}", style::dim("warning"), adapter.name());
                     }
                 }
                 Err(e) => adapter_errors.push(format!("{}: {e}", adapter.name())),
             }
         }
         for err in &adapter_errors {
-            eprintln!("  warning: {err}");
+            eprintln!("  {}: {err}", style::dim("warning"));
         }
 
         // Remove from profile
@@ -61,6 +62,6 @@ pub fn run(pack_name: &str) -> Result<()> {
         .save(&config.active_profile)
         .context("saving lock file")?;
 
-    println!("Done.");
+    println!("{}", style::success("Done."));
     Ok(())
 }

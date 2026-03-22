@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 
 use crate::adapters::{self, ApplyOptions};
+use crate::cli::style;
 use crate::core::config::Config;
 use crate::core::lockfile::LockFile;
 use crate::core::pack::{PackSource, ResolvedPack};
@@ -17,14 +18,22 @@ pub fn run(allow_hooks: bool) -> Result<()> {
     let lockfile = LockFile::load(profile_name).context("loading lock file")?;
 
     if lockfile.packs.is_empty() {
-        println!("No packs locked in profile '{profile_name}' — nothing to sync.");
+        println!(
+            "{}",
+            style::subtext(format!(
+                "No packs locked in profile '{profile_name}' — nothing to sync."
+            ))
+        );
         return Ok(());
     }
 
     let adapters = adapters::installed_adapters();
 
     if adapters.is_empty() {
-        println!("No supported CLI adapters found on this system.");
+        println!(
+            "{}",
+            style::subtext("No supported CLI adapters found on this system.")
+        );
         return Ok(());
     }
 
@@ -38,8 +47,10 @@ pub fn run(allow_hooks: bool) -> Result<()> {
             Ok(p) => p,
             Err(e) => {
                 eprintln!(
-                    "  warning: could not load {pack_name}@{} from store: {e}",
-                    locked.version
+                    "  {}: could not load {}@{} from store: {e}",
+                    style::dim("warning"),
+                    style::pack_name(pack_name.as_str()),
+                    style::version(locked.version.to_string())
                 );
                 eprintln!(
                     "  hint: run 'weave install {pack_name} --version ={}' to re-fetch it",
@@ -61,13 +72,20 @@ pub fn run(allow_hooks: bool) -> Result<()> {
         for adapter in &adapters {
             match adapter.apply(&resolved, &apply_options) {
                 Ok(()) => {
-                    println!("  {pack_name}@{} -> {}", locked.version, adapter.name());
+                    println!(
+                        "  {}@{} -> {}",
+                        style::pack_name(pack_name.as_str()),
+                        style::version(locked.version.to_string()),
+                        style::target(adapter.name())
+                    );
                     synced_count += 1;
                 }
                 Err(e) => {
                     eprintln!(
-                        "  warning: failed to apply {pack_name} to {}: {e}",
-                        adapter.name()
+                        "  {}: failed to apply {} to {}: {e}",
+                        style::dim("warning"),
+                        style::pack_name(pack_name.as_str()),
+                        style::target(adapter.name())
                     );
                     error_count += 1;
                 }
@@ -76,9 +94,17 @@ pub fn run(allow_hooks: bool) -> Result<()> {
     }
 
     if error_count > 0 {
-        println!("Sync complete with {error_count} warning(s). {synced_count} adapter(s) applied.");
+        println!(
+            "Sync complete with {} warning(s). {} adapter(s) applied.",
+            style::subtext(error_count.to_string()),
+            style::success(synced_count.to_string())
+        );
     } else {
-        println!("Sync complete. {synced_count} adapter(s) applied.");
+        println!(
+            "{} {} adapter(s) applied.",
+            style::success("Sync complete."),
+            synced_count
+        );
     }
 
     Ok(())
