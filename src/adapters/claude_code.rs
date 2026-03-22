@@ -125,7 +125,18 @@ impl ClaudeCodeAdapter {
 
     /// Returns true if the project has a `.claude/` directory, indicating
     /// that project-scope config should be maintained.
+    ///
+    /// Explicitly excludes the home directory: `~/.claude/` is Claude Code's
+    /// user-scope global config directory, not a project indicator. Without
+    /// this guard, running `weave install` from `~` would write to `~/.mcp.json`
+    /// (a location Claude Code reads) and never clean it up via the normal
+    /// user-scope manifest path.
     fn has_project_scope(&self) -> bool {
+        if let Some(home) = &self.home {
+            if &self.project_root == home {
+                return false;
+            }
+        }
         self.project_claude_dir().exists()
     }
 
