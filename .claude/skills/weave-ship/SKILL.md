@@ -1,14 +1,14 @@
 ---
 name: weave-ship
 description: Full Weave workflow from working changes to open PR. Runs quality gates, commits, pushes, and opens a PR with the correct assignee. Use when ready to ship a change. Pass the commit message as the argument.
-allowed-tools: Bash, Read, Edit
+allowed-tools: Bash, Read, Edit, Write, Grep, Glob
 ---
 
 ## Current state
 
 - Branch: !`git branch --show-current`
 - Uncommitted changes: !`git status --short`
-- GitHub user: !`gh api user --jq .login`
+- GitHub user: !`gh api user --jq .login 2>/dev/null || echo "(not authenticated — run gh auth login)"`
 
 ## Commit message / PR title
 

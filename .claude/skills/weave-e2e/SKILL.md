@@ -1,7 +1,7 @@
 ---
 name: weave-e2e
 description: Run the manual E2E validation checklist against real CLI installations on this machine. Tests weave against actual ~/.claude.json, ~/.gemini/settings.json, ~/.codex/config.toml — not mocks. Pass a flow name to run a targeted subset (install, profiles, search, remove, diagnose), or omit for the full suite.
-allowed-tools: Bash, Read
+allowed-tools: Bash, Read, Edit, Write, Glob, Grep
 ---
 
 ## Current state
@@ -10,7 +10,7 @@ allowed-tools: Bash, Read
 !`weave --version 2>/dev/null || (cd "${CLAUDE_PROJECT_DIR:-.}" && cargo build --release 2>/dev/null && echo "Built. Add target/release to PATH or use ./target/release/weave") || echo "ERROR: weave not in PATH and build failed"`
 
 ### Installed CLIs
-!`{ [ -d ~/.claude ] && echo "Claude Code: YES (~/.claude/)"; } 2>/dev/null; { [ -f ~/.gemini/settings.json ] && echo "Gemini CLI: YES (~/.gemini/settings.json)"; } 2>/dev/null; { [ -f ~/.codex/config.toml ] && echo "Codex CLI: YES (~/.codex/config.toml)"; } 2>/dev/null`
+!`{ [ -d ~/.claude ] && echo "Claude Code: YES (~/.claude/)"; } 2>/dev/null; { [ -f ~/.gemini/settings.json ] && echo "Gemini CLI: YES (~/.gemini/settings.json)"; } 2>/dev/null; { [ -f ~/.codex/config.toml ] && echo "Codex CLI: YES (~/.codex/config.toml)"; } 2>/dev/null; true`
 
 ### Active profile
 !`weave profile list 2>/dev/null || echo "weave not available"`
