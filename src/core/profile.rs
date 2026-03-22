@@ -93,7 +93,9 @@ impl Profile {
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) == Some("toml") {
                 if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                    names.push(stem.to_string());
+                    if validate_profile_name(stem).is_ok() {
+                        names.push(stem.to_string());
+                    }
                 }
             }
         }
@@ -172,12 +174,34 @@ mod tests {
         assert!(!profile.remove_pack("webdev"));
     }
 
+    struct EnvGuard {
+        key: &'static str,
+        prev: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let prev = std::env::var(key).ok();
+            std::env::set_var(key, value);
+            Self { key, prev }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.prev {
+                Some(val) => std::env::set_var(self.key, val),
+                None => std::env::remove_var(self.key),
+            }
+        }
+    }
+
     #[test]
     #[serial]
     fn list_all_and_delete_with_temp_dir() {
         let tmp = tempfile::TempDir::new().unwrap();
         // Point WEAVE_TEST_STORE_DIR so profile I/O goes to our temp dir
-        std::env::set_var("WEAVE_TEST_STORE_DIR", tmp.path());
+        let _guard = EnvGuard::set("WEAVE_TEST_STORE_DIR", tmp.path().to_str().unwrap());
 
         // Create two profiles
         let p1 = Profile {
@@ -209,8 +233,6 @@ mod tests {
         // delete nonexistent should fail
         let result = Profile::delete("nonexistent");
         assert!(result.is_err());
-
-        std::env::remove_var("WEAVE_TEST_STORE_DIR");
     }
 
     #[test]

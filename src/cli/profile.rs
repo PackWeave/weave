@@ -1,6 +1,7 @@
 use anyhow::{bail, Context, Result};
 
 use crate::core::config::Config;
+use crate::core::lockfile::LockFile;
 use crate::core::pack::PackSource;
 use crate::core::profile::{InstalledPack, Profile};
 use crate::core::registry::{GitHubRegistry, Registry};
@@ -93,6 +94,8 @@ pub fn add_pack(pack_name: &str, profile_name: &str) -> Result<()> {
         return Ok(());
     }
 
+    let mut lockfile = LockFile::load(profile_name).context("loading lock file")?;
+
     for (name, version) in &plan.to_install {
         // Ensure the pack is in the store
         let release = registry.fetch_version(name, version)?;
@@ -106,10 +109,13 @@ pub fn add_pack(pack_name: &str, profile_name: &str) -> Result<()> {
             },
         });
 
+        lockfile.lock_pack(name, version.clone(), Some(release.sha256.clone()));
+
         println!("  Added {name}@{version} to profile '{profile_name}'");
     }
 
     profile.save().context("saving profile")?;
+    lockfile.save(profile_name).context("saving lock file")?;
     println!("Done.");
     Ok(())
 }
