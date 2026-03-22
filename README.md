@@ -88,7 +88,7 @@ weave remove web-dev # clean undo, manual edits survive
 
 ```bash
 weave tap add acme-corp/packs    # register a third-party pack registry
-weave install acme-corp/internal # install packs from the tap
+weave install internal-tools     # resolves from the tap if not in the official registry
 weave tap list                   # see all registered taps
 ```
 
