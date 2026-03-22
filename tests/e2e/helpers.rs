@@ -292,3 +292,79 @@ pub async fn mount_registry(server: &MockServer, packs: &[&FixturePack]) {
             .await;
     }
 }
+
+/// Mount a mock registry where multiple versions of the same pack are available.
+///
+/// Unlike `mount_registry` (which creates one version per pack entry), this
+/// groups packs by name and puts all versions into a single `PackMetadata.versions`
+/// array, which is what the resolver needs to find newer versions during update.
+pub async fn mount_registry_multi_version(server: &MockServer, packs: &[&FixturePack]) {
+    // Group packs by name, preserving insertion order of first occurrence.
+    let mut index: HashMap<String, serde_json::Value> = HashMap::new();
+    let mut versions_map: HashMap<String, Vec<serde_json::Value>> = HashMap::new();
+    let mut meta_map: HashMap<String, (String, String)> = HashMap::new();
+
+    for pack in packs {
+        let download_url = format!(
+            "{}/packs/{}-{}.tar.gz",
+            server.uri(),
+            pack.name,
+            pack.version
+        );
+
+        let deps: HashMap<String, String> = pack.dependencies.iter().cloned().collect();
+
+        let release = serde_json::json!({
+            "version": pack.version,
+            "url": download_url,
+            "sha256": pack.sha256,
+            "dependencies": deps,
+        });
+
+        versions_map
+            .entry(pack.name.clone())
+            .or_default()
+            .push(release);
+
+        meta_map
+            .entry(pack.name.clone())
+            .or_insert_with(|| (pack.name.clone(), pack.description.clone()));
+    }
+
+    for (name, versions) in &versions_map {
+        let (ref pack_name, ref desc) = meta_map[name];
+        let metadata = serde_json::json!({
+            "name": pack_name,
+            "description": desc,
+            "authors": ["test-author"],
+            "versions": versions,
+        });
+        index.insert(name.clone(), metadata);
+    }
+
+    let index_json = serde_json::to_string(&index).expect("failed to serialize index");
+
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string(index_json)
+                .insert_header("content-type", "application/json"),
+        )
+        .mount(server)
+        .await;
+
+    // Mount each pack archive at its download path.
+    for pack in packs {
+        let archive_path = format!("/packs/{}-{}.tar.gz", pack.name, pack.version);
+        Mock::given(method("GET"))
+            .and(path(&archive_path))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_bytes(pack.archive_bytes.clone())
+                    .insert_header("content-type", "application/octet-stream"),
+            )
+            .mount(server)
+            .await;
+    }
+}
