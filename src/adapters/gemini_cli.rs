@@ -500,10 +500,18 @@ impl GeminiCliAdapter {
 
     /// Apply prompt content to Gemini's GEMINI.md (using same tagged delimiter pattern).
     fn apply_prompts(&self, pack: &ResolvedPack, manifest: &mut GeminiManifest) -> Result<()> {
-        let prompt_content =
-            Store::read_pack_file(&pack.pack.name, &pack.pack.version, "prompts/gemini.md")?.or(
-                Store::read_pack_file(&pack.pack.name, &pack.pack.version, "prompts/system.md")?,
-            );
+        let prompt_content = Store::read_pack_file(
+            &pack.pack.name,
+            &pack.pack.version,
+            "prompts/gemini.md",
+            Some(&pack.source),
+        )?
+        .or(Store::read_pack_file(
+            &pack.pack.name,
+            &pack.pack.version,
+            "prompts/system.md",
+            Some(&pack.source),
+        )?);
 
         let prompt_content = match prompt_content {
             Some(c) if !c.trim().is_empty() => c,
@@ -594,8 +602,12 @@ impl GeminiCliAdapter {
 
     /// Deep-merge settings fragment into `~/.gemini/settings.json` (user scope).
     fn apply_settings(&self, pack: &ResolvedPack, manifest: &mut GeminiManifest) -> Result<()> {
-        let settings_content =
-            Store::read_pack_file(&pack.pack.name, &pack.pack.version, "settings/gemini.json")?;
+        let settings_content = Store::read_pack_file(
+            &pack.pack.name,
+            &pack.pack.version,
+            "settings/gemini.json",
+            Some(&pack.source),
+        )?;
 
         let settings_content = match settings_content {
             Some(c) if !c.trim().is_empty() => c,
@@ -625,8 +637,12 @@ impl GeminiCliAdapter {
         pack: &ResolvedPack,
         manifest: &mut GeminiManifest,
     ) -> Result<()> {
-        let settings_content =
-            Store::read_pack_file(&pack.pack.name, &pack.pack.version, "settings/gemini.json")?;
+        let settings_content = Store::read_pack_file(
+            &pack.pack.name,
+            &pack.pack.version,
+            "settings/gemini.json",
+            Some(&pack.source),
+        )?;
 
         let settings_content = match settings_content {
             Some(c) if !c.trim().is_empty() => c,

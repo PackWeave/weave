@@ -162,7 +162,8 @@ impl StoreFixture {
         let store = shared_store_root();
 
         let version = semver::Version::new(1, 0, 0);
-        let pack_dir = Store::pack_dir(name, &version).expect("store root must be determinable");
+        let pack_dir =
+            Store::pack_dir(name, &version, None).expect("store root must be determinable");
 
         assert!(
             pack_dir.starts_with(store.path()),
@@ -195,7 +196,8 @@ impl StoreFixture {
         let store = shared_store_root();
 
         let version = semver::Version::new(1, 0, 0);
-        let pack_dir = Store::pack_dir(name, &version).expect("store root must be determinable");
+        let pack_dir =
+            Store::pack_dir(name, &version, None).expect("store root must be determinable");
 
         assert!(
             pack_dir.starts_with(store.path()),

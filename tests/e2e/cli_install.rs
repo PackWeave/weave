@@ -1,7 +1,23 @@
+use std::path::{Path, PathBuf};
+
 use predicates::prelude::*;
 
 use super::helpers::*;
 use assert_cmd::prelude::*;
+
+/// Find the `-local-{hash}` version directory for a local pack install.
+///
+/// Local installs store files at `{name_dir}/{version}-local-{16-hex}/`.
+/// This helper scans `name_dir` for a directory whose name starts with
+/// `{version}-local-` and returns its full path.
+fn find_local_pack_dir(name_dir: &Path, version: &str) -> Option<PathBuf> {
+    let prefix = format!("{version}-local-");
+    std::fs::read_dir(name_dir)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .find(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+        .map(|e| e.path())
+}
 
 // ── Local pack install ────────────────────────────────────────────────────────
 
@@ -28,11 +44,11 @@ async fn install_local_pack() {
         .success()
         .stdout(predicate::str::contains("Installed my-local-pack@0.1.0 (local)").from_utf8());
 
-    // Pack files should be in the store.
-    let stored_toml = env
-        .store_dir
-        .path()
-        .join("packs/my-local-pack/0.1.0/pack.toml");
+    // Pack files should be in the store under a `-local-{hash}` directory.
+    let pack_name_dir = env.store_dir.path().join("packs/my-local-pack");
+    let stored_toml = find_local_pack_dir(&pack_name_dir, "0.1.0")
+        .expect("local pack version dir should exist in store")
+        .join("pack.toml");
     assert!(stored_toml.exists(), "pack.toml should be written to store");
 
     // Profile should record the pack.
@@ -389,12 +405,10 @@ async fn install_local_pack_refresh_eviction_failure() {
         .success();
 
     // Poison the cached directory so remove_dir_all fails.
-    // The cached pack lives at <store>/packs/evict-pack/0.1.0/.
-    let cached_pack_dir = env.store_dir.path().join("packs/evict-pack/0.1.0");
-    assert!(
-        cached_pack_dir.exists(),
-        "cached pack dir should exist after install"
-    );
+    // The cached pack lives at <store>/packs/evict-pack/0.1.0-local-{hash}/.
+    let pack_name_dir = env.store_dir.path().join("packs/evict-pack");
+    let cached_pack_dir = find_local_pack_dir(&pack_name_dir, "0.1.0")
+        .expect("cached pack dir should exist after install");
 
     let poison_dir = cached_pack_dir.join("poison");
     std::fs::create_dir_all(&poison_dir).unwrap();

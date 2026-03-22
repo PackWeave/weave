@@ -1,7 +1,9 @@
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::io::Read;
 use std::path::PathBuf;
 
-use crate::core::pack::Pack;
+use crate::core::pack::{Pack, PackSource};
 use crate::core::registry::PackRelease;
 use crate::error::{Result, WeaveError};
 use crate::util;
@@ -15,14 +17,49 @@ impl Store {
         Ok(util::packweave_dir()?.join("packs"))
     }
 
+    /// Compute the version directory name for a pack, including a `-local-{hash}`
+    /// suffix for local sources so that registry and local installs of the same
+    /// name+version do not share a cache directory.
+    fn version_dir_name(version: &semver::Version, source: Option<&PackSource>) -> String {
+        match source {
+            Some(PackSource::Local { path }) => {
+                let mut hasher = DefaultHasher::new();
+                path.hash(&mut hasher);
+                let hash = hasher.finish();
+                format!("{version}-local-{hash:016x}")
+            }
+            _ => version.to_string(),
+        }
+    }
+
     /// Path where a specific pack version is stored.
-    pub fn pack_dir(name: &str, version: &semver::Version) -> Result<PathBuf> {
-        Ok(Self::root()?.join(name).join(version.to_string()))
+    ///
+    /// For registry packs (or when `source` is `None`):
+    ///   `~/.packweave/packs/{name}/{version}/`
+    ///
+    /// For local packs:
+    ///   `~/.packweave/packs/{name}/{version}-local-{hash}/`
+    ///
+    /// The hash is derived from the local path so that different local sources
+    /// of the same name+version are isolated from each other and from registry
+    /// entries.
+    pub fn pack_dir(
+        name: &str,
+        version: &semver::Version,
+        source: Option<&PackSource>,
+    ) -> Result<PathBuf> {
+        Ok(Self::root()?
+            .join(name)
+            .join(Self::version_dir_name(version, source)))
     }
 
     /// Check if a pack version is already cached locally.
-    pub fn is_cached(name: &str, version: &semver::Version) -> Result<bool> {
-        let dir = Self::pack_dir(name, version)?;
+    pub fn is_cached(
+        name: &str,
+        version: &semver::Version,
+        source: Option<&PackSource>,
+    ) -> Result<bool> {
+        let dir = Self::pack_dir(name, version, source)?;
         Ok(dir.join("pack.toml").exists())
     }
 
@@ -34,7 +71,11 @@ impl Store {
     /// Uses an atomic staging pattern: files are written to a `.tmp` directory
     /// first, then renamed to the final destination so a failure never leaves
     /// a partial cache entry.
-    pub fn fetch(name: &str, release: &PackRelease) -> Result<PathBuf> {
+    pub fn fetch(
+        name: &str,
+        release: &PackRelease,
+        source: Option<&PackSource>,
+    ) -> Result<PathBuf> {
         // Validate up-front: a pack without pack.toml is not a valid pack.
         // Catching this before writing prevents the store from caching an
         // invalid directory that downstream Pack::load() would fail on.
@@ -45,7 +86,7 @@ impl Store {
             )));
         }
 
-        let dest = Self::pack_dir(name, &release.version)?;
+        let dest = Self::pack_dir(name, &release.version, source)?;
 
         // If already cached, return early.
         if dest.join("pack.toml").exists() {
@@ -163,12 +204,20 @@ impl Store {
     }
 
     /// Load a pack manifest from the store.
-    pub fn load_pack(name: &str, version: &semver::Version) -> Result<Pack> {
-        let dir = Self::pack_dir(name, version)?;
+    pub fn load_pack(
+        name: &str,
+        version: &semver::Version,
+        source: Option<&PackSource>,
+    ) -> Result<Pack> {
+        let dir = Self::pack_dir(name, version, source)?;
         Pack::load(&dir)
     }
 
     /// List all cached packs as (name, version) pairs.
+    ///
+    /// Handles both plain version directories (`1.0.0`) and local-suffixed
+    /// directories (`1.0.0-local-{hash}`). The suffix is stripped before
+    /// parsing the version so local entries are reported correctly.
     pub fn list_cached() -> Result<Vec<(String, semver::Version)>> {
         let root = Self::root()?;
         let mut result = Vec::new();
@@ -194,7 +243,12 @@ impl Store {
                 let ver_entry =
                     ver_entry.map_err(|e| WeaveError::io("reading version entry", e))?;
                 let ver_str = ver_entry.file_name().to_string_lossy().to_string();
-                if let Ok(version) = semver::Version::parse(&ver_str) {
+
+                // Strip `-local-{hex}` suffix if present so we can parse the
+                // semver portion.
+                let semver_str = Self::strip_local_suffix(&ver_str);
+
+                if let Ok(version) = semver::Version::parse(semver_str) {
                     if ver_entry.path().join("pack.toml").exists() {
                         result.push((name.clone(), version));
                     }
@@ -206,9 +260,25 @@ impl Store {
         Ok(result)
     }
 
+    /// Strip the `-local-{16-hex-digit}` suffix from a version directory name.
+    /// Returns the original string unchanged if the suffix is not present.
+    fn strip_local_suffix(dir_name: &str) -> &str {
+        // The suffix is exactly "-local-" + 16 hex digits = 23 characters.
+        const SUFFIX_LEN: usize = "-local-".len() + 16; // 23
+        if dir_name.len() > SUFFIX_LEN {
+            let (prefix, suffix) = dir_name.split_at(dir_name.len() - SUFFIX_LEN);
+            if let Some(hex_part) = suffix.strip_prefix("-local-") {
+                if hex_part.len() == 16 && hex_part.chars().all(|c| c.is_ascii_hexdigit()) {
+                    return prefix;
+                }
+            }
+        }
+        dir_name
+    }
+
     /// Remove a specific pack version from the store.
-    pub fn evict(name: &str, version: &semver::Version) -> Result<()> {
-        let dir = Self::pack_dir(name, version)?;
+    pub fn evict(name: &str, version: &semver::Version, source: Option<&PackSource>) -> Result<()> {
+        let dir = Self::pack_dir(name, version, source)?;
         if dir.exists() {
             std::fs::remove_dir_all(&dir)
                 .map_err(|e| WeaveError::io(format!("evicting {name}@{version}"), e))?;
@@ -238,8 +308,9 @@ impl Store {
         name: &str,
         version: &semver::Version,
         relative_path: &str,
+        source: Option<&PackSource>,
     ) -> Result<Option<String>> {
-        let path = Self::pack_dir(name, version)?.join(relative_path);
+        let path = Self::pack_dir(name, version, source)?.join(relative_path);
         if !path.exists() {
             return Ok(None);
         }
@@ -354,9 +425,179 @@ mod tests {
             files: HashMap::from([("prompts/system.md".to_string(), "hi".to_string())]),
             dependencies: HashMap::new(),
         };
-        let result = Store::fetch("bad-pack", &release);
+        let result = Store::fetch("bad-pack", &release, None);
         assert!(result.is_err(), "fetch should fail without pack.toml");
         let err = result.unwrap_err().to_string();
         assert!(err.contains("pack.toml"), "error should mention pack.toml");
+    }
+
+    // ── cache isolation ──────────────────────────────────────────────────────
+
+    #[test]
+    fn version_dir_name_registry_has_no_suffix() {
+        let v = semver::Version::new(1, 2, 3);
+        let registry = PackSource::Registry {
+            registry_url: "https://example.com".into(),
+        };
+        assert_eq!(Store::version_dir_name(&v, Some(&registry)), "1.2.3");
+        assert_eq!(Store::version_dir_name(&v, None), "1.2.3");
+    }
+
+    #[test]
+    fn version_dir_name_local_includes_hash_suffix() {
+        let v = semver::Version::new(1, 0, 0);
+        let local = PackSource::Local {
+            path: "/home/user/my-pack".into(),
+        };
+        let dir_name = Store::version_dir_name(&v, Some(&local));
+        assert!(
+            dir_name.starts_with("1.0.0-local-"),
+            "expected local suffix, got: {dir_name}"
+        );
+        // The hash part should be exactly 16 hex digits.
+        let suffix = dir_name.strip_prefix("1.0.0-local-").unwrap();
+        assert_eq!(suffix.len(), 16);
+        assert!(suffix.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn version_dir_name_different_paths_produce_different_hashes() {
+        let v = semver::Version::new(1, 0, 0);
+        let local_a = PackSource::Local {
+            path: "/path/a".into(),
+        };
+        let local_b = PackSource::Local {
+            path: "/path/b".into(),
+        };
+        assert_ne!(
+            Store::version_dir_name(&v, Some(&local_a)),
+            Store::version_dir_name(&v, Some(&local_b)),
+        );
+    }
+
+    #[test]
+    fn pack_dir_registry_and_local_are_different() {
+        let v = semver::Version::new(2, 0, 0);
+        let registry = PackSource::Registry {
+            registry_url: "https://example.com".into(),
+        };
+        let local = PackSource::Local {
+            path: "/tmp/my-pack".into(),
+        };
+        let reg_dir = Store::pack_dir("my-pack", &v, Some(&registry)).unwrap();
+        let local_dir = Store::pack_dir("my-pack", &v, Some(&local)).unwrap();
+        assert_ne!(
+            reg_dir, local_dir,
+            "registry and local dirs must not collide"
+        );
+        // Registry dir should end with just the version.
+        assert!(reg_dir.ends_with("2.0.0"));
+        // Local dir should have the -local- suffix.
+        let local_name = local_dir.file_name().unwrap().to_string_lossy();
+        assert!(
+            local_name.starts_with("2.0.0-local-"),
+            "expected local suffix, got: {local_name}"
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn evict_local_does_not_affect_registry() {
+        let tmp = TempDir::new().unwrap();
+        std::env::set_var("WEAVE_TEST_STORE_DIR", tmp.path());
+
+        let name = "shared-pack";
+        let v = semver::Version::new(1, 0, 0);
+        let registry_source = PackSource::Registry {
+            registry_url: "https://example.com".into(),
+        };
+        let local_source = PackSource::Local {
+            path: "/tmp/shared-pack".into(),
+        };
+
+        // Create both cache entries manually.
+        let reg_dir = Store::pack_dir(name, &v, Some(&registry_source)).unwrap();
+        let local_dir = Store::pack_dir(name, &v, Some(&local_source)).unwrap();
+        std::fs::create_dir_all(&reg_dir).unwrap();
+        std::fs::create_dir_all(&local_dir).unwrap();
+        std::fs::write(reg_dir.join("pack.toml"), "registry").unwrap();
+        std::fs::write(local_dir.join("pack.toml"), "local").unwrap();
+
+        // Evict the local entry.
+        Store::evict(name, &v, Some(&local_source)).unwrap();
+
+        // The local entry should be gone.
+        assert!(!local_dir.exists(), "local cache dir should be removed");
+        // The registry entry should still exist.
+        assert!(
+            reg_dir.join("pack.toml").exists(),
+            "registry cache must survive local eviction"
+        );
+
+        std::env::remove_var("WEAVE_TEST_STORE_DIR");
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn evict_registry_does_not_affect_local() {
+        let tmp = TempDir::new().unwrap();
+        std::env::set_var("WEAVE_TEST_STORE_DIR", tmp.path());
+
+        let name = "shared-pack";
+        let v = semver::Version::new(1, 0, 0);
+        let registry_source = PackSource::Registry {
+            registry_url: "https://example.com".into(),
+        };
+        let local_source = PackSource::Local {
+            path: "/tmp/shared-pack".into(),
+        };
+
+        // Create both cache entries manually.
+        let reg_dir = Store::pack_dir(name, &v, Some(&registry_source)).unwrap();
+        let local_dir = Store::pack_dir(name, &v, Some(&local_source)).unwrap();
+        std::fs::create_dir_all(&reg_dir).unwrap();
+        std::fs::create_dir_all(&local_dir).unwrap();
+        std::fs::write(reg_dir.join("pack.toml"), "registry").unwrap();
+        std::fs::write(local_dir.join("pack.toml"), "local").unwrap();
+
+        // Evict the registry entry.
+        Store::evict(name, &v, Some(&registry_source)).unwrap();
+
+        // The registry entry should be gone.
+        assert!(!reg_dir.exists(), "registry cache dir should be removed");
+        // The local entry should still exist.
+        assert!(
+            local_dir.join("pack.toml").exists(),
+            "local cache must survive registry eviction"
+        );
+
+        std::env::remove_var("WEAVE_TEST_STORE_DIR");
+    }
+
+    #[test]
+    fn strip_local_suffix_strips_valid_suffix() {
+        assert_eq!(
+            Store::strip_local_suffix("1.0.0-local-abcdef0123456789"),
+            "1.0.0"
+        );
+    }
+
+    #[test]
+    fn strip_local_suffix_preserves_plain_version() {
+        assert_eq!(Store::strip_local_suffix("1.0.0"), "1.0.0");
+    }
+
+    #[test]
+    fn strip_local_suffix_preserves_invalid_suffix() {
+        // Too short hex part.
+        assert_eq!(
+            Store::strip_local_suffix("1.0.0-local-abc"),
+            "1.0.0-local-abc"
+        );
+        // Non-hex chars.
+        assert_eq!(
+            Store::strip_local_suffix("1.0.0-local-ghijklmnopqrstuv"),
+            "1.0.0-local-ghijklmnopqrstuv"
+        );
     }
 }

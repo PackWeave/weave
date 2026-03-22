@@ -32,7 +32,7 @@ pub fn run() -> Result<()> {
 
     for (pack_name, locked) in &lockfile.packs {
         // Load the pack manifest from the local store.
-        let pack = match Store::load_pack(pack_name, &locked.version) {
+        let pack = match Store::load_pack(pack_name, &locked.version, locked.source.as_ref()) {
             Ok(p) => p,
             Err(e) => {
                 eprintln!(

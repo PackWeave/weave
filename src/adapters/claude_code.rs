@@ -689,7 +689,9 @@ impl ClaudeCodeAdapter {
     /// Copy slash command files with namespaced filenames.
     /// Removes stale commands from a previous version of the same pack before adding the new set.
     fn apply_commands(&self, pack: &ResolvedPack, manifest: &mut PackweaveManifest) -> Result<()> {
-        let commands_dir = Store::pack_dir(&pack.pack.name, &pack.pack.version)?.join("commands");
+        let commands_dir =
+            Store::pack_dir(&pack.pack.name, &pack.pack.version, Some(&pack.source))?
+                .join("commands");
 
         // Remove any commands previously installed for this pack so stale files
         // from an older version don't linger.
@@ -750,10 +752,19 @@ impl ClaudeCodeAdapter {
     /// Append prompt content between tagged delimiters to CLAUDE.md.
     fn apply_prompts(&self, pack: &ResolvedPack, manifest: &mut PackweaveManifest) -> Result<()> {
         // Try CLI-specific prompt first, fall back to system.md
-        let prompt_content =
-            Store::read_pack_file(&pack.pack.name, &pack.pack.version, "prompts/claude.md")?.or(
-                Store::read_pack_file(&pack.pack.name, &pack.pack.version, "prompts/system.md")?,
-            );
+        let src = Some(&pack.source);
+        let prompt_content = Store::read_pack_file(
+            &pack.pack.name,
+            &pack.pack.version,
+            "prompts/claude.md",
+            src,
+        )?
+        .or(Store::read_pack_file(
+            &pack.pack.name,
+            &pack.pack.version,
+            "prompts/system.md",
+            src,
+        )?);
 
         let prompt_content = match prompt_content {
             Some(c) if !c.trim().is_empty() => c,
@@ -843,8 +854,12 @@ impl ClaudeCodeAdapter {
 
     /// Deep-merge settings fragment into `~/.claude/settings.json` (user scope).
     fn apply_settings(&self, pack: &ResolvedPack, manifest: &mut PackweaveManifest) -> Result<()> {
-        let settings_content =
-            Store::read_pack_file(&pack.pack.name, &pack.pack.version, "settings/claude.json")?;
+        let settings_content = Store::read_pack_file(
+            &pack.pack.name,
+            &pack.pack.version,
+            "settings/claude.json",
+            Some(&pack.source),
+        )?;
 
         let settings_content = match settings_content {
             Some(c) if !c.trim().is_empty() => c,
@@ -874,8 +889,12 @@ impl ClaudeCodeAdapter {
         pack: &ResolvedPack,
         manifest: &mut PackweaveManifest,
     ) -> Result<()> {
-        let settings_content =
-            Store::read_pack_file(&pack.pack.name, &pack.pack.version, "settings/claude.json")?;
+        let settings_content = Store::read_pack_file(
+            &pack.pack.name,
+            &pack.pack.version,
+            "settings/claude.json",
+            Some(&pack.source),
+        )?;
 
         let settings_content = match settings_content {
             Some(c) if !c.trim().is_empty() => c,

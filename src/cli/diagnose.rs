@@ -243,7 +243,7 @@ pub fn run(json: bool) -> Result<()> {
         &config.active_profile,
         &profile,
         &adapters,
-        &|name, version| match Store::load_pack(name, version) {
+        &|name, version| match Store::load_pack(name, version, None) {
             Ok(pack) => pack.targets,
             Err(e) => {
                 warn!(
