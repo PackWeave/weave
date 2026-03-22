@@ -10,6 +10,17 @@ use serde::Serialize;
 use crate::core::pack::ResolvedPack;
 use crate::error::Result;
 
+/// Stable identifier for each supported CLI adapter.
+///
+/// Use this for all internal logic (target mapping, diagnose attribution).
+/// Use [`CliAdapter::name()`] only for user-facing display.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AdapterId {
+    ClaudeCode,
+    GeminiCli,
+    CodexCli,
+}
+
 /// A diagnostic issue found by an adapter.
 #[derive(Debug, Clone, Serialize)]
 pub struct DiagnosticIssue {
@@ -31,6 +42,10 @@ pub enum Severity {
 /// The central adapter trait. Every supported CLI implements this.
 /// The core calls these methods; it never touches CLI config files directly.
 pub trait CliAdapter: Send + Sync {
+    /// Stable machine identifier for this adapter.
+    /// Used for internal logic (target mapping, diagnose attribution).
+    fn id(&self) -> AdapterId;
+
     /// Human-readable name, e.g. "Claude Code"
     fn name(&self) -> &str;
 

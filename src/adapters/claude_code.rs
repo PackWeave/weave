@@ -895,6 +895,10 @@ impl ClaudeCodeAdapter {
 }
 
 impl CliAdapter for ClaudeCodeAdapter {
+    fn id(&self) -> super::AdapterId {
+        super::AdapterId::ClaudeCode
+    }
+
     fn name(&self) -> &str {
         "Claude Code"
     }

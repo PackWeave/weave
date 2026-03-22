@@ -3,7 +3,7 @@ use log::warn;
 use serde::Serialize;
 
 use crate::adapters;
-use crate::adapters::{CliAdapter, DiagnosticIssue};
+use crate::adapters::{AdapterId, CliAdapter, DiagnosticIssue};
 use crate::core::config::Config;
 use crate::core::pack::PackTargets;
 use crate::core::profile::Profile;
@@ -55,17 +55,12 @@ pub enum PackHealth {
 
 // ── Core logic ───────────────────────────────────────────────────────────────
 
-/// Returns `true` if the pack targets the adapter, or if the adapter name is
-/// unknown (fail-open: we still diagnose unknown adapters).
-fn pack_targets_adapter(targets: &PackTargets, adapter_name: &str) -> bool {
-    match adapter_name {
-        "Claude Code" => targets.claude_code,
-        "Gemini CLI" => targets.gemini_cli,
-        "Codex CLI" => targets.codex_cli,
-        name => {
-            log::debug!("unknown adapter name '{name}' in target check; assuming targeted");
-            true
-        }
+/// Returns `true` if the pack targets the given adapter.
+fn pack_targets_adapter(targets: &PackTargets, id: AdapterId) -> bool {
+    match id {
+        AdapterId::ClaudeCode => targets.claude_code,
+        AdapterId::GeminiCli => targets.gemini_cli,
+        AdapterId::CodexCli => targets.codex_cli,
     }
 }
 
@@ -79,6 +74,7 @@ pub fn build_report(
 ) -> Result<DiagnoseReport> {
     // Collect per-adapter issues once.
     struct AdapterDiag {
+        id: AdapterId,
         name: String,
         installed: bool,
         issues: Vec<DiagnosticIssue>,
@@ -100,6 +96,7 @@ pub fn build_report(
             (Vec::new(), std::collections::HashSet::new())
         };
         adapter_diags.push(AdapterDiag {
+            id: adapter.id(),
             name: adapter.name().to_string(),
             installed,
             issues,
@@ -136,7 +133,7 @@ pub fn build_report(
             }
 
             // If the pack does not target this adapter, skip it.
-            if !pack_targets_adapter(&targets, &diag.name) {
+            if !pack_targets_adapter(&targets, diag.id) {
                 adapter_statuses.push(AdapterStatus {
                     adapter: diag.name.clone(),
                     status: PackHealth::NotTargeted,
@@ -287,6 +284,7 @@ mod tests {
 
     /// A mock adapter for testing.
     struct MockAdapter {
+        adapter_id: AdapterId,
         adapter_name: String,
         installed: bool,
         issues: Vec<DiagnosticIssue>,
@@ -294,6 +292,9 @@ mod tests {
     }
 
     impl CliAdapter for MockAdapter {
+        fn id(&self) -> AdapterId {
+            self.adapter_id
+        }
         fn name(&self) -> &str {
             &self.adapter_name
         }
@@ -318,12 +319,14 @@ mod tests {
     }
 
     fn mock_adapter(
+        id: AdapterId,
         name: &str,
         installed: bool,
         tracked: &[&str],
         issues: Vec<DiagnosticIssue>,
     ) -> Box<dyn CliAdapter> {
         Box::new(MockAdapter {
+            adapter_id: id,
             adapter_name: name.to_string(),
             installed,
             issues,
@@ -335,8 +338,20 @@ mod tests {
     fn report_all_ok() {
         let profile = make_profile(&[("webdev", "1.0.0"), ("datatools", "2.1.0")]);
         let adapters: Vec<Box<dyn CliAdapter>> = vec![
-            mock_adapter("Claude Code", true, &["webdev", "datatools"], vec![]),
-            mock_adapter("Gemini CLI", true, &["webdev", "datatools"], vec![]),
+            mock_adapter(
+                AdapterId::ClaudeCode,
+                "Claude Code",
+                true,
+                &["webdev", "datatools"],
+                vec![],
+            ),
+            mock_adapter(
+                AdapterId::GeminiCli,
+                "Gemini CLI",
+                true,
+                &["webdev", "datatools"],
+                vec![],
+            ),
         ];
 
         let report = build_report("default", &profile, &adapters).unwrap();
@@ -350,6 +365,7 @@ mod tests {
     fn report_drifted() {
         let profile = make_profile(&[("webdev", "1.0.0")]);
         let adapters: Vec<Box<dyn CliAdapter>> = vec![mock_adapter(
+            AdapterId::GeminiCli,
             "Gemini CLI",
             true,
             &["webdev"],
@@ -369,7 +385,13 @@ mod tests {
     #[test]
     fn report_missing_pack() {
         let profile = make_profile(&[("webdev", "1.0.0")]);
-        let adapters: Vec<Box<dyn CliAdapter>> = vec![mock_adapter("Codex CLI", true, &[], vec![])];
+        let adapters: Vec<Box<dyn CliAdapter>> = vec![mock_adapter(
+            AdapterId::CodexCli,
+            "Codex CLI",
+            true,
+            &[],
+            vec![],
+        )];
 
         let report = build_report("default", &profile, &adapters).unwrap();
         assert_eq!(report.packs[0].adapters[0].status, PackHealth::Missing);
@@ -378,8 +400,13 @@ mod tests {
     #[test]
     fn report_skipped_uninstalled_adapter() {
         let profile = make_profile(&[("webdev", "1.0.0")]);
-        let adapters: Vec<Box<dyn CliAdapter>> =
-            vec![mock_adapter("Gemini CLI", false, &[], vec![])];
+        let adapters: Vec<Box<dyn CliAdapter>> = vec![mock_adapter(
+            AdapterId::GeminiCli,
+            "Gemini CLI",
+            false,
+            &[],
+            vec![],
+        )];
 
         let report = build_report("default", &profile, &adapters).unwrap();
         assert_eq!(report.packs[0].adapters[0].status, PackHealth::Skipped);
@@ -388,26 +415,48 @@ mod tests {
     #[test]
     fn pack_targets_adapter_mapping() {
         let all_true = PackTargets::default();
-        assert!(pack_targets_adapter(&all_true, "Claude Code"));
-        assert!(pack_targets_adapter(&all_true, "Gemini CLI"));
-        assert!(pack_targets_adapter(&all_true, "Codex CLI"));
-        assert!(pack_targets_adapter(&all_true, "Unknown Future CLI"));
+        assert!(pack_targets_adapter(&all_true, AdapterId::ClaudeCode));
+        assert!(pack_targets_adapter(&all_true, AdapterId::GeminiCli));
+        assert!(pack_targets_adapter(&all_true, AdapterId::CodexCli));
 
         let gemini_only = PackTargets {
             claude_code: false,
             gemini_cli: true,
             codex_cli: false,
         };
-        assert!(!pack_targets_adapter(&gemini_only, "Claude Code"));
-        assert!(pack_targets_adapter(&gemini_only, "Gemini CLI"));
-        assert!(!pack_targets_adapter(&gemini_only, "Codex CLI"));
+        assert!(!pack_targets_adapter(&gemini_only, AdapterId::ClaudeCode));
+        assert!(pack_targets_adapter(&gemini_only, AdapterId::GeminiCli));
+        assert!(!pack_targets_adapter(&gemini_only, AdapterId::CodexCli));
+
+        let claude_only = PackTargets {
+            claude_code: true,
+            gemini_cli: false,
+            codex_cli: false,
+        };
+        assert!(pack_targets_adapter(&claude_only, AdapterId::ClaudeCode));
+        assert!(!pack_targets_adapter(&claude_only, AdapterId::GeminiCli));
+        assert!(!pack_targets_adapter(&claude_only, AdapterId::CodexCli));
+
+        let codex_only = PackTargets {
+            claude_code: false,
+            gemini_cli: false,
+            codex_cli: true,
+        };
+        assert!(!pack_targets_adapter(&codex_only, AdapterId::ClaudeCode));
+        assert!(!pack_targets_adapter(&codex_only, AdapterId::GeminiCli));
+        assert!(pack_targets_adapter(&codex_only, AdapterId::CodexCli));
     }
 
     #[test]
     fn report_empty_profile() {
         let profile = make_profile(&[]);
-        let adapters: Vec<Box<dyn CliAdapter>> =
-            vec![mock_adapter("Claude Code", true, &[], vec![])];
+        let adapters: Vec<Box<dyn CliAdapter>> = vec![mock_adapter(
+            AdapterId::ClaudeCode,
+            "Claude Code",
+            true,
+            &[],
+            vec![],
+        )];
 
         let report = build_report("default", &profile, &adapters).unwrap();
         assert_eq!(report.pack_count, 0);

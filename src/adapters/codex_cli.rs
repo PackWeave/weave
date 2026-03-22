@@ -734,6 +734,10 @@ impl CodexAdapter {
 }
 
 impl CliAdapter for CodexAdapter {
+    fn id(&self) -> super::AdapterId {
+        super::AdapterId::CodexCli
+    }
+
     fn name(&self) -> &str {
         "Codex CLI"
     }
