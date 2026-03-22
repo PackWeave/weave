@@ -344,3 +344,86 @@ async fn install_with_project_flag_writes_mcp_json() {
         "echo-server must also be in ~/.claude.json"
     );
 }
+
+/// Eviction failure during local pack refresh must be a hard error (non-zero
+/// exit), not a silent fallback to stale cached data.
+///
+/// We simulate an un-removable cache directory by creating a subdirectory and
+/// revoking all permissions on it, which causes `remove_dir_all` to fail.
+#[cfg(unix)]
+#[tokio::test]
+async fn install_local_pack_refresh_eviction_failure() {
+    use std::os::unix::fs::PermissionsExt;
+
+    // Skip if running as root — chmod 000 cannot prevent root from deleting.
+    // Treat `id -u` failure (e.g. minimal container without coreutils) as
+    // "not root" and let the test proceed; the assertion will catch it if
+    // eviction unexpectedly succeeds.
+    let is_root = std::process::Command::new("id")
+        .arg("-u")
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "0")
+        .unwrap_or(false);
+    if is_root {
+        eprintln!("skipping: test cannot work when running as root");
+        return;
+    }
+
+    let env = TestEnv::new().await;
+
+    // Create a local pack.
+    let pack_dir = env.project_dir.path().join("evict-pack");
+    std::fs::create_dir_all(pack_dir.join("prompts")).unwrap();
+    std::fs::write(
+        pack_dir.join("pack.toml"),
+        "[pack]\nname = \"evict-pack\"\nversion = \"0.1.0\"\ndescription = \"test\"\nauthors = [\"tester\"]\n",
+    )
+    .unwrap();
+    std::fs::write(pack_dir.join("prompts/system.md"), "original").unwrap();
+
+    // First install — populates the store cache.
+    env.weave_cmd()
+        .args(["install", "./evict-pack"])
+        .assert()
+        .success();
+
+    // Poison the cached directory so remove_dir_all fails.
+    // The cached pack lives at <store>/packs/evict-pack/0.1.0/.
+    let cached_pack_dir = env.store_dir.path().join("packs/evict-pack/0.1.0");
+    assert!(
+        cached_pack_dir.exists(),
+        "cached pack dir should exist after install"
+    );
+
+    let poison_dir = cached_pack_dir.join("poison");
+    std::fs::create_dir_all(&poison_dir).unwrap();
+    std::fs::write(poison_dir.join("file.txt"), "trapped").unwrap();
+    std::fs::set_permissions(&poison_dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+    // Attempt a refresh — this should fail because eviction cannot remove the
+    // poisoned subdirectory.
+    let output = env
+        .weave_cmd()
+        .args(["install", "./evict-pack"])
+        .output()
+        .expect("failed to run weave");
+
+    // Restore permissions so cleanup can delete the temp directory. Best-effort
+    // to avoid panicking here and obscuring the real assertion failure below.
+    if poison_dir.exists() {
+        let _ = std::fs::set_permissions(&poison_dir, std::fs::Permissions::from_mode(0o755));
+    }
+
+    assert!(
+        !output.status.success(),
+        "install should fail when eviction fails, but got exit code {:?}",
+        output.status.code()
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("evicting cached"),
+        "stderr should mention eviction failure, got: {stderr}"
+    );
+}
