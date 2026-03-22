@@ -511,11 +511,89 @@ impl ClaudeCodeAdapter {
     /// This is used by `remove()` to clean up project-scope state regardless of
     /// the current working directory (the user may run `weave remove` from a
     /// different directory than where they originally ran `weave install`).
-    fn remove_from_project_root(&self, pack_name: &str, project_root: &Path) -> Result<()> {
+    /// Check whether a project root has orphaned pack entries in `.mcp.json`
+    /// or `CLAUDE.md` that would be left behind if the root were dropped from
+    /// `project_dirs`. This is used when the project manifest is missing —
+    /// without ownership records we fall back to heuristics.
+    fn project_root_has_orphaned_entries(
+        &self,
+        pack_name: &str,
+        project_root: &Path,
+        known_server_names: &[String],
+    ) -> bool {
+        // Check .mcp.json for servers that match user-scope names for this pack.
+        // Fail closed: if the file exists but can't be read or parsed, treat
+        // the root as having orphans so we don't drop it prematurely.
+        let mcp_path = project_root.join(".mcp.json");
+        if mcp_path.exists() {
+            let content = match util::read_file(&mcp_path) {
+                Ok(c) => c,
+                Err(_) => return true,
+            };
+            let parsed: serde_json::Value = match serde_json::from_str(&content) {
+                Ok(v) => v,
+                Err(_) => return true,
+            };
+            if let Some(mcp_servers_value) = parsed.get("mcpServers") {
+                if let Some(servers) = mcp_servers_value.as_object() {
+                    for name in known_server_names {
+                        if servers.contains_key(name) {
+                            return true;
+                        }
+                    }
+                } else {
+                    // mcpServers exists but is not an object — be conservative.
+                    return true;
+                }
+            }
+        }
+
+        // Check project CLAUDE.md for packweave prompt block markers.
+        // Same fail-closed principle: if the file exists but can't be read,
+        // assume it may contain packweave blocks.
+        let claude_md = project_root.join("CLAUDE.md");
+        if claude_md.exists() {
+            match util::read_file(&claude_md) {
+                Ok(content) => {
+                    let begin_tag = format!("<!-- packweave:begin:{pack_name} -->");
+                    if content.contains(&begin_tag) {
+                        return true;
+                    }
+                }
+                Err(_) => return true,
+            }
+        }
+
+        false
+    }
+
+    fn remove_from_project_root(
+        &self,
+        pack_name: &str,
+        project_root: &Path,
+        known_server_names: &[String],
+    ) -> Result<()> {
         let project_manifest_path = project_root
             .join(".claude")
             .join(".packweave_manifest.json");
         if !project_manifest_path.exists() {
+            // The project manifest is missing — we cannot surgically remove
+            // pack contributions. Check whether the project root still has
+            // entries that appear to belong to this pack. If so, return an
+            // error so the root is retained in project_dirs for manual
+            // inspection rather than silently dropped.
+            if self.project_root_has_orphaned_entries(pack_name, project_root, known_server_names) {
+                return Err(WeaveError::RemoveFailed {
+                    pack: pack_name.to_string(),
+                    cli: "Claude Code".into(),
+                    reason: format!(
+                        "project manifest missing at {} but project config files still contain \
+                         entries from pack '{}'; inspect and clean up manually, then re-run remove",
+                        project_manifest_path.display(),
+                        pack_name
+                    ),
+                });
+            }
             return Ok(());
         }
 
@@ -893,6 +971,18 @@ impl CliAdapter for ClaudeCodeAdapter {
         let manifest_path = self.manifest_path()?;
         if manifest_path.exists() {
             let mut manifest = self.load_manifest()?;
+
+            // Snapshot server names owned by this pack *before* removing them
+            // from the user-scope manifest. We need these to detect orphaned
+            // entries in project-scope .mcp.json when the project manifest is
+            // missing (see #119).
+            let known_server_names: Vec<String> = manifest
+                .servers
+                .iter()
+                .filter(|(_, pn)| *pn == pack_name)
+                .map(|(sn, _)| sn.clone())
+                .collect();
+
             self.remove_servers(pack_name, &mut manifest)?;
             self.remove_commands(pack_name, &mut manifest)?;
             self.remove_prompts(pack_name, &mut manifest)?;
@@ -914,7 +1004,8 @@ impl CliAdapter for ClaudeCodeAdapter {
             // Clean up project-scope state in every affected project root.
             let mut failed_roots: Vec<String> = Vec::new();
             for root in &roots_to_clean {
-                if let Err(e) = self.remove_from_project_root(pack_name, root) {
+                if let Err(e) = self.remove_from_project_root(pack_name, root, &known_server_names)
+                {
                     // Non-fatal: the project dir may have been deleted or moved.
                     // Warn so the user can investigate if needed.
                     eprintln!(
@@ -1573,6 +1664,130 @@ mod tests {
             result.matches(begin_tag).count(),
             1,
             "should have exactly one begin tag"
+        );
+    }
+
+    #[test]
+    fn remove_retains_root_when_project_manifest_missing_but_mcp_json_has_orphans() {
+        // Simulate the scenario from issue #119: apply_project_servers wrote to
+        // .mcp.json but the project manifest was never saved (or was deleted).
+        // remove() should retain the root in project_dirs rather than silently
+        // dropping it.
+        let dir = TempDir::new().unwrap();
+        let home = dir.path().join("home");
+        let project = dir.path().join("project");
+        std::fs::create_dir_all(home.join(".claude")).unwrap();
+        std::fs::create_dir_all(project.join(".claude")).unwrap();
+
+        let adapter = ClaudeCodeAdapter::with_home_project_scope(home.clone(), project.clone());
+
+        // Install a pack at project scope so both manifests get written.
+        let pack = test_pack("orphan-pack");
+        adapter.apply(&pack).unwrap();
+
+        // Verify .mcp.json was written at project root.
+        let mcp_path = project.join(".mcp.json");
+        assert!(mcp_path.exists(), ".mcp.json should exist after apply");
+
+        // Now delete only the *project* manifest to simulate the failure
+        // scenario described in #119.
+        let project_manifest = project.join(".claude").join(".packweave_manifest.json");
+        assert!(project_manifest.exists());
+        std::fs::remove_file(&project_manifest).unwrap();
+
+        // remove() should warn about the orphaned root but not drop it.
+        adapter.remove("orphan-pack").unwrap();
+
+        // The user-scope manifest should still list this project root in
+        // project_dirs because the orphaned .mcp.json entries prevent cleanup.
+        let user_manifest_path = home.join(".claude").join(".packweave_manifest.json");
+        let content = std::fs::read_to_string(&user_manifest_path).unwrap();
+        let manifest: PackweaveManifest = serde_json::from_str(&content).unwrap();
+        assert!(
+            manifest.project_dirs.contains_key("orphan-pack"),
+            "project root should be retained in project_dirs when orphaned entries exist"
+        );
+    }
+
+    #[test]
+    fn remove_drops_root_when_project_manifest_missing_and_no_orphans() {
+        // When the project manifest is missing AND .mcp.json has no entries
+        // from this pack, the root should be dropped as before.
+        let dir = TempDir::new().unwrap();
+        let home = dir.path().join("home");
+        let project = dir.path().join("project");
+        std::fs::create_dir_all(home.join(".claude")).unwrap();
+        std::fs::create_dir_all(project.join(".claude")).unwrap();
+
+        let adapter = ClaudeCodeAdapter::with_home_project_scope(home.clone(), project.clone());
+
+        // Install a pack at project scope.
+        let pack = test_pack("clean-pack");
+        adapter.apply(&pack).unwrap();
+
+        // Delete BOTH the project manifest AND .mcp.json — clean removal.
+        let project_manifest = project.join(".claude").join(".packweave_manifest.json");
+        std::fs::remove_file(&project_manifest).unwrap();
+        let mcp_path = project.join(".mcp.json");
+        if mcp_path.exists() {
+            std::fs::remove_file(&mcp_path).unwrap();
+        }
+
+        adapter.remove("clean-pack").unwrap();
+
+        // The root should be dropped from project_dirs since there are no orphans.
+        let user_manifest_path = home.join(".claude").join(".packweave_manifest.json");
+        let content = std::fs::read_to_string(&user_manifest_path).unwrap();
+        let manifest: PackweaveManifest = serde_json::from_str(&content).unwrap();
+        assert!(
+            !manifest.project_dirs.contains_key("clean-pack"),
+            "project root should be dropped when no orphaned entries exist"
+        );
+    }
+
+    #[test]
+    fn remove_retains_root_when_project_manifest_missing_but_claude_md_has_orphans() {
+        // Even without .mcp.json, if CLAUDE.md at the project root has
+        // packweave prompt blocks for this pack, the root should be retained.
+        let dir = TempDir::new().unwrap();
+        let home = dir.path().join("home");
+        let project = dir.path().join("project");
+        std::fs::create_dir_all(home.join(".claude")).unwrap();
+        std::fs::create_dir_all(project.join(".claude")).unwrap();
+
+        let adapter = ClaudeCodeAdapter::with_home_project_scope(home.clone(), project.clone());
+
+        // Manually set up a user-scope manifest with project_dirs tracking,
+        // simulating a previous install.
+        let mut manifest = PackweaveManifest::default();
+        let root_str = project.to_string_lossy().to_string();
+        manifest
+            .project_dirs
+            .insert("prompt-pack".to_string(), vec![root_str]);
+        let manifest_dir = home.join(".claude");
+        std::fs::create_dir_all(&manifest_dir).unwrap();
+        let manifest_path = manifest_dir.join(".packweave_manifest.json");
+        std::fs::write(
+            &manifest_path,
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+
+        // Write an orphaned packweave prompt block in project CLAUDE.md.
+        std::fs::write(
+            project.join("CLAUDE.md"),
+            "# Project\n<!-- packweave:begin:prompt-pack -->\nSome prompt\n<!-- packweave:end:prompt-pack -->\n",
+        )
+        .unwrap();
+
+        // No project manifest exists — this is the orphan scenario.
+        adapter.remove("prompt-pack").unwrap();
+
+        let content = std::fs::read_to_string(&manifest_path).unwrap();
+        let manifest: PackweaveManifest = serde_json::from_str(&content).unwrap();
+        assert!(
+            manifest.project_dirs.contains_key("prompt-pack"),
+            "project root should be retained when CLAUDE.md has orphaned prompt blocks"
         );
     }
 }
