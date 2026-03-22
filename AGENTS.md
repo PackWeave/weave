@@ -105,6 +105,8 @@ gh pr list --head <branch-name> --state merged
 
 If the PR is merged, do not commit to that branch. Create a fresh branch from `main` instead. Committing to a merged branch creates orphaned history that must be untangled with cherry-picks.
 
+**Always commit and push changes immediately.** After editing a file, commit it to the appropriate branch and push before moving on to the next task. Never leave changes uncommitted in the working tree — they get lost on branch switches or session ends.
+
 -----
 
 ## What to do when asked to implement a feature
