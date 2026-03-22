@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::adapters::{CliAdapter, DiagnosticIssue, Severity};
+use crate::adapters::{ApplyOptions, CliAdapter, DiagnosticIssue, Severity};
 use crate::core::pack::{McpServer, ResolvedPack, Transport};
 use crate::core::store::Store;
 use crate::error::{Result, WeaveError};
@@ -30,6 +30,9 @@ struct PackweaveManifest {
     prompt_blocks: Vec<String>, // pack names with prompt content
     #[serde(default)]
     settings: HashMap<String, SettingsRecord>, // pack_name -> settings record
+    /// Pack names that have had hooks applied to settings.json.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    hooks: Vec<String>, // pack names with hooks applied
     /// Absolute paths of project roots where this manifest's packs have
     /// project-scope installations (keyed by pack name). Stored in the
     /// *user-scope* manifest so `weave remove` can clean up project-scope
@@ -411,13 +414,37 @@ impl ClaudeCodeAdapter {
         let output = serde_json::to_string_pretty(&config).expect("JSON serialization cannot fail");
         util::write_file(path, &output)?;
 
-        settings_map.insert(
-            pack.pack.name.clone(),
-            SettingsRecord {
-                applied: fragment.clone(),
-                original,
-            },
-        );
+        // Merge into existing record if present (e.g. a pack with both
+        // settings/claude.json AND extensions.claude_code.hooks calls this
+        // twice). Replacing would lose the first call's snapshot.
+        if let Some(existing) = settings_map.get_mut(&pack.pack.name) {
+            if let (Some(existing_applied), Some(new_applied)) =
+                (existing.applied.as_object_mut(), fragment.as_object())
+            {
+                for (k, v) in new_applied {
+                    existing_applied.insert(k.clone(), v.clone());
+                }
+            }
+            if let (Some(existing_original), Some(new_original)) =
+                (existing.original.as_object_mut(), original.as_object())
+            {
+                for (k, v) in new_original {
+                    // Only record the first snapshot — don't overwrite with
+                    // a value that was already modified by a prior fragment.
+                    existing_original
+                        .entry(k.clone())
+                        .or_insert_with(|| v.clone());
+                }
+            }
+        } else {
+            settings_map.insert(
+                pack.pack.name.clone(),
+                SettingsRecord {
+                    applied: fragment.clone(),
+                    original,
+                },
+            );
+        }
 
         Ok(())
     }
@@ -883,6 +910,73 @@ impl ClaudeCodeAdapter {
         self.remove_settings_from_file(&path, pack_name, &mut manifest.settings)
     }
 
+    /// Apply hooks from pack extensions to `~/.claude/settings.json` (user scope).
+    ///
+    /// Hooks are deep-merged into the `hooks` key of settings.json. Each hook
+    /// event (e.g. PreToolUse) becomes a top-level key under `hooks`, containing
+    /// an array of matcher+hooks entries.
+    fn apply_hooks(&self, pack: &ResolvedPack, manifest: &mut PackweaveManifest) -> Result<()> {
+        let hooks_map = match pack.pack.hooks_for_cli("claude_code") {
+            Some(h) if !h.is_empty() => h,
+            _ => return Ok(()),
+        };
+
+        // Build the hooks fragment in Claude Code format:
+        // { "hooks": { "PreToolUse": [ { "matcher": "...", "hooks": [{ "type": "command", "command": "..." }] } ] } }
+        let mut hooks_obj = serde_json::Map::new();
+        for (event_name, entries) in &hooks_map {
+            let mut event_entries = Vec::new();
+            for entry in entries {
+                let mut hook_item = serde_json::Map::new();
+                hook_item.insert(
+                    "type".into(),
+                    serde_json::Value::String(entry.hook_type.clone()),
+                );
+                hook_item.insert(
+                    "command".into(),
+                    serde_json::Value::String(entry.command.clone()),
+                );
+
+                let mut matcher_entry = serde_json::Map::new();
+                if let Some(ref matcher) = entry.matcher {
+                    matcher_entry
+                        .insert("matcher".into(), serde_json::Value::String(matcher.clone()));
+                }
+                matcher_entry.insert(
+                    "hooks".into(),
+                    serde_json::Value::Array(vec![serde_json::Value::Object(hook_item)]),
+                );
+                event_entries.push(serde_json::Value::Object(matcher_entry));
+            }
+            hooks_obj.insert(event_name.clone(), serde_json::Value::Array(event_entries));
+        }
+
+        let fragment = serde_json::json!({ "hooks": serde_json::Value::Object(hooks_obj) });
+
+        let path = self.settings_path()?;
+        self.apply_settings_to_file(&path, pack, &fragment, &mut manifest.settings)?;
+
+        if !manifest.hooks.contains(&pack.pack.name) {
+            manifest.hooks.push(pack.pack.name.clone());
+        }
+
+        Ok(())
+    }
+
+    /// Remove hooks written by a pack from `~/.claude/settings.json` (user scope).
+    fn remove_hooks(&self, pack_name: &str, manifest: &mut PackweaveManifest) -> Result<()> {
+        if !manifest.hooks.contains(&pack_name.to_string()) {
+            return Ok(());
+        }
+
+        // The hooks were applied as a settings fragment under the "hooks" key,
+        // so removing the settings record will also remove the hooks contribution.
+        // The settings removal is already handled by remove_settings(), but we
+        // need to clean up the hooks tracking in the manifest.
+        manifest.hooks.retain(|n| n != pack_name);
+        Ok(())
+    }
+
     /// Deep-merge settings fragment into `.claude/settings.json` (project scope).
     fn apply_project_settings(
         &self,
@@ -932,7 +1026,7 @@ impl CliAdapter for ClaudeCodeAdapter {
             .unwrap_or_else(|_| PathBuf::from(".claude"))
     }
 
-    fn apply(&self, pack: &ResolvedPack) -> Result<()> {
+    fn apply(&self, pack: &ResolvedPack, options: &ApplyOptions) -> Result<()> {
         if !pack.pack.targets.claude_code {
             return Ok(());
         }
@@ -950,6 +1044,17 @@ impl CliAdapter for ClaudeCodeAdapter {
         self.save_manifest(&manifest)?;
         self.apply_settings(pack, &mut manifest)?;
         self.save_manifest(&manifest)?;
+
+        // Hooks require explicit opt-in because they execute arbitrary commands.
+        if options.allow_hooks {
+            self.apply_hooks(pack, &mut manifest)?;
+            self.save_manifest(&manifest)?;
+        } else if pack.pack.hooks_for_cli("claude_code").is_some() {
+            log::info!(
+                "pack '{}' declares hooks for Claude Code; skipping (pass --allow-hooks to apply)",
+                pack.pack.name
+            );
+        }
 
         // Project-scope — only if the user passed `--project` (opt-in).
         if self.has_project_scope() {
@@ -1010,6 +1115,7 @@ impl CliAdapter for ClaudeCodeAdapter {
             self.remove_servers(pack_name, &mut manifest)?;
             self.remove_commands(pack_name, &mut manifest)?;
             self.remove_prompts(pack_name, &mut manifest)?;
+            self.remove_hooks(pack_name, &mut manifest)?;
             self.remove_settings(pack_name, &mut manifest)?;
 
             // Clone the tracked project roots — we only remove entries that are
@@ -1163,6 +1269,9 @@ impl CliAdapter for ClaudeCodeAdapter {
             packs.insert(pack_name.clone());
         }
         for pack_name in user_manifest.settings.keys() {
+            packs.insert(pack_name.clone());
+        }
+        for pack_name in &user_manifest.hooks {
             packs.insert(pack_name.clone());
         }
 
@@ -1706,7 +1815,7 @@ mod tests {
 
         // Install a pack at project scope so both manifests get written.
         let pack = test_pack("orphan-pack");
-        adapter.apply(&pack).unwrap();
+        adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
         // Verify .mcp.json was written at project root.
         let mcp_path = project.join(".mcp.json");
@@ -1746,7 +1855,7 @@ mod tests {
 
         // Install a pack at project scope.
         let pack = test_pack("clean-pack");
-        adapter.apply(&pack).unwrap();
+        adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
         // Delete BOTH the project manifest AND .mcp.json — clean removal.
         let project_manifest = project.join(".claude").join(".packweave_manifest.json");

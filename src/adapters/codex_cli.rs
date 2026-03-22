@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::adapters::{CliAdapter, DiagnosticIssue, Severity};
+use crate::adapters::{ApplyOptions, CliAdapter, DiagnosticIssue, Severity};
 use crate::core::pack::{McpServer, PackSource, ResolvedPack, Transport};
 use crate::core::store::Store;
 use crate::error::{Result, WeaveError};
@@ -758,9 +758,17 @@ impl CliAdapter for CodexAdapter {
         self.codex_dir().unwrap_or_else(|_| PathBuf::from(".codex"))
     }
 
-    fn apply(&self, pack: &ResolvedPack) -> Result<()> {
+    fn apply(&self, pack: &ResolvedPack, _options: &ApplyOptions) -> Result<()> {
         if !pack.pack.targets.codex_cli {
             return Ok(());
+        }
+
+        // Codex CLI does not support hooks — warn if the pack declares them.
+        if pack.pack.hooks_for_cli("codex_cli").is_some() {
+            log::warn!(
+                "pack '{}' declares hooks for Codex CLI, but Codex CLI does not support hooks; skipping hooks",
+                pack.pack.name
+            );
         }
 
         util::ensure_dir(&self.codex_dir()?)?;

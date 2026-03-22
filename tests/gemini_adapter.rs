@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use packweave::adapters::gemini_cli::GeminiCliAdapter;
+use packweave::adapters::ApplyOptions;
 use packweave::adapters::CliAdapter;
 use packweave::core::pack::{
     EnvVar, McpServer, Pack, PackSource, PackTargets, ResolvedPack, Transport,
@@ -223,7 +224,7 @@ fn apply_writes_server_to_settings_json() {
     let adapter = make_adapter(&home);
 
     let pack = pack_with_servers("mcp-pack", vec![simple_server("my-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let settings_path = home.path().join(".gemini/settings.json");
     assert!(settings_path.exists(), "settings.json should be created");
@@ -257,7 +258,7 @@ fn apply_writes_server_args() {
         env: HashMap::new(),
     };
     let pack = pack_with_servers("arg-pack", vec![server]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let settings_path = home.path().join(".gemini/settings.json");
     let config = read_json(&settings_path);
@@ -277,7 +278,7 @@ fn apply_writes_env_vars_as_references() {
         "env-pack",
         vec![server_with_env("env-server", &["API_KEY", "TOKEN"])],
     );
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let settings_path = home.path().join(".gemini/settings.json");
     let config = read_json(&settings_path);
@@ -300,7 +301,7 @@ fn apply_omits_env_key_when_server_has_no_env_vars() {
     let adapter = make_adapter(&home);
 
     let pack = pack_with_servers("no-env-pack", vec![simple_server("no-env-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let settings_path = home.path().join(".gemini/settings.json");
     let config = read_json(&settings_path);
@@ -330,7 +331,7 @@ fn apply_preserves_existing_user_servers() {
     .unwrap();
 
     let pack = pack_with_servers("new-pack", vec![simple_server("new-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let config = read_json(&settings_path);
     assert!(
@@ -358,7 +359,7 @@ fn apply_rejects_collision_with_user_server() {
     .unwrap();
 
     let pack = pack_with_servers("clash-pack", vec![simple_server("clash-server")]);
-    let result = adapter.apply(&pack);
+    let result = adapter.apply(&pack, &ApplyOptions::default());
     assert!(result.is_err(), "should fail when a user server collides");
     let msg = result.unwrap_err().to_string();
     assert!(
@@ -377,7 +378,7 @@ fn apply_rejects_malformed_settings_json() {
     std::fs::write(&settings_path, "[1, 2, 3]").unwrap();
 
     let pack = pack_with_servers("bad-pack", vec![simple_server("any-server")]);
-    let result = adapter.apply(&pack);
+    let result = adapter.apply(&pack, &ApplyOptions::default());
     assert!(result.is_err(), "should fail on non-object settings.json");
 }
 
@@ -391,7 +392,7 @@ fn apply_rejects_non_object_mcp_servers() {
     std::fs::write(&settings_path, r#"{"mcpServers": "not-an-object"}"#).unwrap();
 
     let pack = pack_with_servers("bad-pack", vec![simple_server("any-server")]);
-    let result = adapter.apply(&pack);
+    let result = adapter.apply(&pack, &ApplyOptions::default());
     assert!(
         result.is_err(),
         "should fail when mcpServers is not an object"
@@ -405,7 +406,7 @@ fn apply_skips_pack_not_targeting_gemini() {
     let adapter = make_adapter(&home);
 
     let pack = pack_not_targeting_gemini("other-cli-pack");
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     // settings.json should not be created since pack doesn't target gemini.
     let settings_path = home.path().join(".gemini/settings.json");
@@ -427,7 +428,7 @@ fn apply_writes_multiple_servers() {
         "multi-pack",
         vec![simple_server("server-a"), simple_server("server-b")],
     );
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let settings_path = home.path().join(".gemini/settings.json");
     let config = read_json(&settings_path);
@@ -444,7 +445,7 @@ fn apply_writes_manifest() {
     let adapter = make_adapter(&home);
 
     let pack = pack_with_servers("tracked-pack", vec![simple_server("tracked-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let manifest_path = home.path().join(".gemini/.packweave_manifest.json");
     assert!(manifest_path.exists(), "manifest file should be created");
@@ -464,7 +465,7 @@ fn remove_deletes_server_from_settings_json() {
     let adapter = make_adapter(&home);
 
     let pack = pack_with_servers("rm-pack", vec![simple_server("rm-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
     adapter.remove("rm-pack").unwrap();
 
     let settings_path = home.path().join(".gemini/settings.json");
@@ -481,8 +482,8 @@ fn remove_is_surgical_leaves_other_servers() {
 
     let pack_a = pack_with_servers("pack-a", vec![simple_server("server-a")]);
     let pack_b = pack_with_servers("pack-b", vec![simple_server("server-b")]);
-    adapter.apply(&pack_a).unwrap();
-    adapter.apply(&pack_b).unwrap();
+    adapter.apply(&pack_a, &ApplyOptions::default()).unwrap();
+    adapter.apply(&pack_b, &ApplyOptions::default()).unwrap();
 
     adapter.remove("pack-a").unwrap();
 
@@ -510,7 +511,7 @@ fn remove_preserves_user_managed_keys_in_settings_json() {
     std::fs::write(&settings_path, r#"{"theme": "dark"}"#).unwrap();
 
     let pack = pack_with_servers("my-pack", vec![simple_server("my-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
     adapter.remove("my-pack").unwrap();
 
     let config = read_json(&settings_path);
@@ -534,7 +535,7 @@ fn remove_clears_manifest_entry() {
     let adapter = make_adapter(&home);
 
     let pack = pack_with_servers("clear-pack", vec![simple_server("clear-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
     adapter.remove("clear-pack").unwrap();
 
     let manifest_path = home.path().join(".gemini/.packweave_manifest.json");
@@ -557,8 +558,8 @@ fn apply_twice_is_idempotent_for_servers() {
     let adapter = make_adapter(&home);
 
     let pack = pack_with_servers("idem-pack", vec![simple_server("idem-server")]);
-    adapter.apply(&pack).unwrap();
-    adapter.apply(&pack).unwrap(); // second apply must not error
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap(); // second apply must not error
 
     let settings_path = home.path().join(".gemini/settings.json");
     let config = read_json(&settings_path);
@@ -581,14 +582,14 @@ fn apply_twice_same_manifest_state() {
     let adapter = make_adapter(&home);
 
     let pack = pack_with_servers("idem2-pack", vec![simple_server("idem2-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let manifest_after_first = {
         let manifest_path = home.path().join(".gemini/.packweave_manifest.json");
         std::fs::read_to_string(&manifest_path).unwrap()
     };
 
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let manifest_after_second = {
         let manifest_path = home.path().join(".gemini/.packweave_manifest.json");
@@ -616,7 +617,7 @@ fn apply_writes_prompt_block_to_gemini_md() {
     );
 
     let pack = pack_with_servers("prompt-pack", vec![]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let gemini_md = home.path().join(".gemini/GEMINI.md");
     assert!(gemini_md.exists(), "GEMINI.md should be created");
@@ -635,8 +636,8 @@ fn apply_prompt_is_idempotent() {
     let _fixture = StoreFixture::create("idem-prompt", Some("Idempotent content."), None);
 
     let pack = pack_with_servers("idem-prompt", vec![]);
-    adapter.apply(&pack).unwrap();
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let gemini_md = home.path().join(".gemini/GEMINI.md");
     let content = std::fs::read_to_string(&gemini_md).unwrap();
@@ -657,7 +658,7 @@ fn apply_prompt_appends_to_existing_gemini_md() {
 
     let _fixture = StoreFixture::create("append-pack", Some("Pack content here."), None);
     let pack = pack_with_servers("append-pack", vec![]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let content = std::fs::read_to_string(&gemini_md_path).unwrap();
     assert!(
@@ -681,7 +682,7 @@ fn remove_strips_prompt_block_from_gemini_md() {
     let _fixture = StoreFixture::create("rm-prompt-pack", Some("Remove me."), None);
 
     let pack = pack_with_servers("rm-prompt-pack", vec![]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
     adapter.remove("rm-prompt-pack").unwrap();
 
     let gemini_md = home.path().join(".gemini/GEMINI.md");
@@ -706,10 +707,16 @@ fn remove_prompt_is_surgical_multiple_packs() {
     let _fx_b = StoreFixture::create("prune-b", Some("Content B."), None);
 
     adapter
-        .apply(&pack_with_servers("prune-a", vec![]))
+        .apply(
+            &pack_with_servers("prune-a", vec![]),
+            &ApplyOptions::default(),
+        )
         .unwrap();
     adapter
-        .apply(&pack_with_servers("prune-b", vec![]))
+        .apply(
+            &pack_with_servers("prune-b", vec![]),
+            &ApplyOptions::default(),
+        )
         .unwrap();
     adapter.remove("prune-a").unwrap();
 
@@ -740,7 +747,7 @@ fn apply_merges_settings_fragment_into_settings_json() {
     );
 
     let pack = pack_with_servers("settings-pack", vec![]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let settings_path = home.path().join(".gemini/settings.json");
     let config = read_json(&settings_path);
@@ -759,7 +766,7 @@ fn apply_settings_preserves_existing_keys() {
     let _fixture = StoreFixture::create("settings-merge", None, Some(r#"{"model": "gemini-pro"}"#));
 
     let pack = pack_with_servers("settings-merge", vec![]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let config = read_json(&settings_path);
     assert_eq!(config["theme"], "dark", "pre-existing key must survive");
@@ -775,8 +782,8 @@ fn apply_settings_is_idempotent() {
     let _fixture = StoreFixture::create("settings-idem", None, Some(r#"{"theme": "monokai"}"#));
 
     let pack = pack_with_servers("settings-idem", vec![]);
-    adapter.apply(&pack).unwrap();
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let settings_path = home.path().join(".gemini/settings.json");
     let config = read_json(&settings_path);
@@ -797,7 +804,7 @@ fn remove_restores_settings_key_to_original_value() {
     let _fixture = StoreFixture::create("settings-restore", None, Some(r#"{"theme": "monokai"}"#));
 
     let pack = pack_with_servers("settings-restore", vec![]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let config = read_json(&settings_path);
     assert_eq!(config["theme"], "monokai", "theme should be changed");
@@ -817,7 +824,7 @@ fn remove_deletes_settings_key_added_by_pack() {
     let _fixture = StoreFixture::create("settings-delete", None, Some(r#"{"newKey": "newVal"}"#));
 
     let pack = pack_with_servers("settings-delete", vec![]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
     adapter.remove("settings-delete").unwrap();
 
     let settings_path = home.path().join(".gemini/settings.json");
@@ -839,7 +846,7 @@ fn apply_writes_server_to_project_settings_json_when_project_dir_exists() {
     let adapter = make_adapter_with_project(&home, &project);
 
     let pack = pack_with_servers("proj-pack", vec![simple_server("proj-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     // Should write to project .gemini/settings.json.
     let proj_settings = project.path().join(".gemini/settings.json");
@@ -867,7 +874,7 @@ fn apply_does_not_write_project_scope_when_dir_absent() {
     let adapter = make_adapter_with_project(&home, &project);
 
     let pack = pack_with_servers("no-proj-pack", vec![simple_server("no-proj-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let proj_settings = project.path().join(".gemini/settings.json");
     assert!(
@@ -885,7 +892,7 @@ fn remove_cleans_up_project_scope_servers() {
     let adapter = make_adapter_with_project(&home, &project);
 
     let pack = pack_with_servers("rm-proj-pack", vec![simple_server("rm-proj-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
     adapter.remove("rm-proj-pack").unwrap();
 
     let proj_settings = project.path().join(".gemini/settings.json");
@@ -908,8 +915,8 @@ fn apply_project_scope_is_idempotent() {
     let adapter = make_adapter_with_project(&home, &project);
 
     let pack = pack_with_servers("proj-idem", vec![simple_server("proj-idem-server")]);
-    adapter.apply(&pack).unwrap();
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let proj_settings = project.path().join(".gemini/settings.json");
     let config = read_json(&proj_settings);
@@ -930,7 +937,7 @@ fn diagnose_returns_no_issues_for_clean_state() {
     let adapter = make_adapter(&home);
 
     let pack = pack_with_servers("diag-pack", vec![simple_server("diag-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let issues = adapter.diagnose().unwrap();
     assert!(
@@ -946,7 +953,7 @@ fn diagnose_reports_server_missing_from_settings_json() {
     let adapter = make_adapter(&home);
 
     let pack = pack_with_servers("diag-missing", vec![simple_server("missing-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     // Manually remove the server from settings.json without updating the manifest.
     let settings_path = home.path().join(".gemini/settings.json");
@@ -973,7 +980,7 @@ fn diagnose_reports_prompt_block_missing_from_gemini_md() {
     let _fixture = StoreFixture::create("diag-prompt", Some("Diagnose me."), None);
 
     let pack = pack_with_servers("diag-prompt", vec![]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     // Wipe GEMINI.md so the tracked block is missing.
     let gemini_md = home.path().join(".gemini/GEMINI.md");
@@ -999,8 +1006,8 @@ fn apply_two_packs_conflict_on_same_server_name() {
     let pack_a = pack_with_servers("conflict-a", vec![simple_server("shared-server")]);
     let pack_b = pack_with_servers("conflict-b", vec![simple_server("shared-server")]);
 
-    adapter.apply(&pack_a).unwrap();
-    let result = adapter.apply(&pack_b);
+    adapter.apply(&pack_a, &ApplyOptions::default()).unwrap();
+    let result = adapter.apply(&pack_b, &ApplyOptions::default());
     assert!(
         result.is_err(),
         "second pack should fail on conflicting server"
@@ -1023,7 +1030,7 @@ fn remove_after_missing_settings_file_is_graceful() {
     let adapter = make_adapter(&home);
 
     let pack = pack_with_servers("ghost-pack", vec![simple_server("ghost-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     // Delete settings.json to simulate it being deleted externally.
     std::fs::remove_file(home.path().join(".gemini/settings.json")).unwrap();
@@ -1055,7 +1062,7 @@ fn apply_http_server_writes_url() {
         env: HashMap::new(),
     };
     let pack = pack_with_servers("http-pack", vec![server]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let settings_path = home.path().join(".gemini/settings.json");
     let config = read_json(&settings_path);
@@ -1098,7 +1105,7 @@ fn apply_http_server_without_url_returns_error() {
         env: HashMap::new(),
     };
     let pack = pack_with_servers("bad-http-pack", vec![server]);
-    let result = adapter.apply(&pack);
+    let result = adapter.apply(&pack, &ApplyOptions::default());
     assert!(result.is_err(), "should fail when HTTP server has no url");
     let msg = result.unwrap_err().to_string();
     assert!(
@@ -1130,7 +1137,7 @@ fn remove_http_server_cleans_up() {
         env: HashMap::new(),
     };
     let pack = pack_with_servers("http-remove-pack", vec![server]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     // Verify it was written
     let settings_path = home.path().join(".gemini/settings.json");
@@ -1163,7 +1170,7 @@ fn apply_persists_manifest_after_each_step_even_if_later_step_fails() {
     let _fixture = StoreFixture::create("mid-fail-pack", None, Some("NOT VALID JSON {{{"));
 
     let pack = pack_with_servers("mid-fail-pack", vec![simple_server("my-server")]);
-    let result = adapter.apply(&pack);
+    let result = adapter.apply(&pack, &ApplyOptions::default());
 
     // apply() should fail because of the invalid settings JSON.
     assert!(result.is_err(), "apply should fail on invalid settings");

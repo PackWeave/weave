@@ -3,7 +3,7 @@
 //! All business logic lives here; the CLI handler is a thin wrapper that
 //! parses arguments, calls these functions, and formats output.
 
-use crate::adapters::CliAdapter;
+use crate::adapters::{ApplyOptions, CliAdapter};
 use crate::core::config::Config;
 use crate::core::install::{apply_to_adapters, check_missing_env_vars, MissingEnvVar};
 use crate::core::lockfile::LockFile;
@@ -195,7 +195,11 @@ pub fn update_packs(
                 },
             };
 
-            let (applied_adapters, adapter_errors) = apply_to_adapters(&resolved, adapters);
+            // Update does not apply hooks by default — the user must pass
+            // --allow-hooks on a fresh install or sync to opt in.
+            let apply_options = ApplyOptions::default();
+            let (applied_adapters, adapter_errors) =
+                apply_to_adapters(&resolved, adapters, &apply_options);
 
             let missing_env_vars = check_missing_env_vars(&pack);
 

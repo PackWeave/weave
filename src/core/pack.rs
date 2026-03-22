@@ -77,6 +77,24 @@ pub struct EnvVar {
     pub description: Option<String>,
 }
 
+/// A single hook action within a hook event.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HookEntry {
+    /// Pattern to match against (e.g. tool name like "Bash").
+    /// If omitted, the hook matches all events.
+    #[serde(default)]
+    pub matcher: Option<String>,
+    /// Hook type. Currently only "command" is supported.
+    #[serde(rename = "type", default = "default_hook_type")]
+    pub hook_type: String,
+    /// Shell command to execute.
+    pub command: String,
+}
+
+fn default_hook_type() -> String {
+    "command".to_string()
+}
+
 /// CLI-specific extension configuration.
 /// Adapters ignore keys they don't understand (forward compatibility).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -193,6 +211,42 @@ impl Pack {
         let manifest_path = dir.join("pack.toml");
         let content = crate::util::read_file(&manifest_path)?;
         Self::from_toml(&content, &manifest_path)
+    }
+
+    /// Returns true if any CLI extension declares hooks.
+    pub fn has_hooks(&self) -> bool {
+        self.hooks_for_cli("claude_code").is_some()
+            || self.hooks_for_cli("gemini_cli").is_some()
+            || self.hooks_for_cli("codex_cli").is_some()
+    }
+
+    /// Extract hooks from a CLI extension value, if present.
+    ///
+    /// Looks for `extensions.<cli>.hooks` in the pack manifest. Returns a
+    /// map of event name to list of hook entries, or `None` if no hooks are declared.
+    pub fn hooks_for_cli(
+        &self,
+        cli: &str,
+    ) -> Option<std::collections::BTreeMap<String, Vec<HookEntry>>> {
+        let ext_value = match cli {
+            "claude_code" => self.extensions.claude_code.as_ref()?,
+            "gemini_cli" => self.extensions.gemini_cli.as_ref()?,
+            "codex_cli" => self.extensions.codex_cli.as_ref()?,
+            _ => return None,
+        };
+        let hooks_value = ext_value.get("hooks")?;
+        match serde_json::from_value(hooks_value.clone()) {
+            Ok(hooks) => Some(hooks),
+            Err(e) => {
+                log::warn!(
+                    "pack '{}': malformed extensions.{}.hooks — {}",
+                    self.name,
+                    cli,
+                    e
+                );
+                None
+            }
+        }
     }
 
     fn validate(&self, path: &Path) -> Result<()> {
@@ -423,6 +477,77 @@ url = "https://example.com/mcp"
 "#;
         let result = Pack::from_toml(toml, &PathBuf::from("test.toml"));
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn has_hooks_returns_false_without_hooks() {
+        let toml = r#"
+[pack]
+name = "test"
+version = "1.0.0"
+description = "Test"
+"#;
+        let pack = Pack::from_toml(toml, &PathBuf::from("test.toml")).unwrap();
+        assert!(!pack.has_hooks());
+    }
+
+    #[test]
+    fn has_hooks_returns_true_with_claude_code_hooks() {
+        let toml = r#"
+[pack]
+name = "test"
+version = "1.0.0"
+description = "Test"
+
+[extensions.claude_code]
+hooks = { PreToolUse = [{ matcher = "Bash", command = "echo hello" }] }
+"#;
+        let pack = Pack::from_toml(toml, &PathBuf::from("test.toml")).unwrap();
+        assert!(pack.has_hooks());
+    }
+
+    #[test]
+    fn hooks_for_cli_parses_entries() {
+        let toml = r#"
+[pack]
+name = "test"
+version = "1.0.0"
+description = "Test"
+
+[extensions.claude_code.hooks]
+PreToolUse = [
+    { matcher = "Bash", command = "echo pre" },
+    { command = "echo all" },
+]
+PostToolUse = [
+    { matcher = "Write", command = "echo post" },
+]
+"#;
+        let pack = Pack::from_toml(toml, &PathBuf::from("test.toml")).unwrap();
+        let hooks = pack.hooks_for_cli("claude_code").unwrap();
+        assert_eq!(hooks.len(), 2);
+        assert_eq!(hooks["PreToolUse"].len(), 2);
+        assert_eq!(hooks["PreToolUse"][0].matcher.as_deref(), Some("Bash"));
+        assert_eq!(hooks["PreToolUse"][0].command, "echo pre");
+        assert_eq!(hooks["PreToolUse"][0].hook_type, "command");
+        assert!(hooks["PreToolUse"][1].matcher.is_none());
+        assert_eq!(hooks["PostToolUse"].len(), 1);
+    }
+
+    #[test]
+    fn hooks_for_cli_returns_none_for_unsupported_cli() {
+        let toml = r#"
+[pack]
+name = "test"
+version = "1.0.0"
+description = "Test"
+
+[extensions.claude_code.hooks]
+PreToolUse = [{ command = "echo hello" }]
+"#;
+        let pack = Pack::from_toml(toml, &PathBuf::from("test.toml")).unwrap();
+        assert!(pack.hooks_for_cli("gemini_cli").is_none());
+        assert!(pack.hooks_for_cli("codex_cli").is_none());
     }
 
     #[test]

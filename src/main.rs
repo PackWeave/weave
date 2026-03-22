@@ -38,6 +38,10 @@ enum Commands {
         /// Also install to .mcp.json in the current directory (project scope)
         #[arg(long)]
         project: bool,
+
+        /// Apply hooks declared by the pack (shell commands that run at lifecycle events)
+        #[arg(long)]
+        allow_hooks: bool,
     },
 
     /// List installed packs
@@ -76,7 +80,11 @@ enum Commands {
     },
 
     /// Reapply the active profile's lock file to all adapters
-    Sync,
+    Sync {
+        /// Apply hooks declared by packs (shell commands that run at lifecycle events)
+        #[arg(long)]
+        allow_hooks: bool,
+    },
 
     /// Check for config drift and project-scope staleness across all adapters
     Diagnose {
@@ -101,6 +109,10 @@ enum Commands {
     Use {
         /// Profile name to switch to. Omit to print the current profile.
         profile: Option<String>,
+
+        /// Apply hooks declared by packs (shell commands that run at lifecycle events)
+        #[arg(long)]
+        allow_hooks: bool,
     },
 }
 
@@ -162,12 +174,13 @@ fn main() {
             version,
             force,
             project,
-        } => cli::install::run(&name, version.as_deref(), force, project),
+            allow_hooks,
+        } => cli::install::run(&name, version.as_deref(), force, project, allow_hooks),
         Commands::List => cli::list::run(),
         Commands::Remove { name } => cli::remove::run(&name),
         Commands::Search { query, target, mcp } => cli::search::run(&query, target.as_deref(), mcp),
         Commands::Update { name } => cli::update::run(name.as_deref()),
-        Commands::Sync => cli::sync::run(),
+        Commands::Sync { allow_hooks } => cli::sync::run(allow_hooks),
         Commands::Diagnose { json } => cli::diagnose::run(json),
         Commands::Tap { action } => match action {
             TapAction::Add { name } => cli::tap::add(&name),
@@ -180,7 +193,10 @@ fn main() {
             ProfileAction::List => cli::profile::list(),
             ProfileAction::Add { pack, profile } => cli::profile::add_pack(&pack, &profile),
         },
-        Commands::Use { profile } => cli::use_profile::run(profile.as_deref()),
+        Commands::Use {
+            profile,
+            allow_hooks,
+        } => cli::use_profile::run(profile.as_deref(), allow_hooks),
     };
 
     if let Err(err) = result {

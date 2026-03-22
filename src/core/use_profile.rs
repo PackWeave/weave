@@ -3,7 +3,7 @@
 //! All business logic lives here; the CLI handler is a thin wrapper that
 //! parses arguments, calls these functions, and formats output.
 
-use crate::adapters::CliAdapter;
+use crate::adapters::{ApplyOptions, CliAdapter};
 use crate::core::config::Config;
 use crate::core::pack::{Pack, PackSource, ResolvedPack};
 use crate::core::profile::{InstalledPack, Profile};
@@ -126,6 +126,7 @@ pub fn switch(
     current_profile: &Profile,
     target_profile: &Profile,
     adapters: &[Box<dyn CliAdapter>],
+    options: &ApplyOptions,
 ) -> std::result::Result<SwitchResult, anyhow::Error> {
     use anyhow::Context;
 
@@ -211,7 +212,7 @@ pub fn switch(
         };
 
         for adapter in adapters {
-            match adapter.apply(&resolved) {
+            match adapter.apply(&resolved, options) {
                 Ok(()) => {
                     apply_result
                         .applied_adapters

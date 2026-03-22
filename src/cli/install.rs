@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 
-use crate::adapters;
+use crate::adapters::{self, ApplyOptions};
 use crate::core::config::Config;
 use crate::core::install;
 use crate::core::lockfile::LockFile;
@@ -10,7 +10,14 @@ use crate::core::registry::registry_from_config;
 /// Install a pack by name (or local path), optionally with a version requirement.
 /// When `force` is true, tool-conflict warnings are suppressed.
 /// When `project` is true, also installs to `.mcp.json` in the current directory.
-pub fn run(pack_name: &str, version: Option<&str>, force: bool, project: bool) -> Result<()> {
+/// When `allow_hooks` is true, hooks declared in the pack manifest are applied.
+pub fn run(
+    pack_name: &str,
+    version: Option<&str>,
+    force: bool,
+    project: bool,
+    allow_hooks: bool,
+) -> Result<()> {
     // Guard: --project from the home directory would write to ~/.mcp.json, which
     // Claude Code reads globally. Refuse early with a clear error.
     if project {
@@ -30,7 +37,7 @@ pub fn run(pack_name: &str, version: Option<&str>, force: bool, project: bool) -
 
     // Local path install — bypasses the registry entirely.
     if install::is_local_path(pack_name) {
-        return run_local(pack_name, force, project);
+        return run_local(pack_name, force, project, allow_hooks);
     }
 
     // Normalise name: strip a leading '@' so `weave install @webdev` works like
@@ -51,6 +58,7 @@ pub fn run(pack_name: &str, version: Option<&str>, force: bool, project: bool) -
     let mut profile = Profile::load(&config.active_profile).context("loading active profile")?;
     let mut lockfile = LockFile::load(&config.active_profile).context("loading lock file")?;
     let adapters = adapters::installed_adapters_with_scope(project);
+    let apply_options = ApplyOptions { allow_hooks };
 
     let mut ctx = install::InstallContext {
         config: &config,
@@ -60,7 +68,13 @@ pub fn run(pack_name: &str, version: Option<&str>, force: bool, project: bool) -
         adapters: &adapters,
     };
 
-    let result = install::install_from_registry(pack_name, version_req.as_ref(), force, &mut ctx)?;
+    let result = install::install_from_registry(
+        pack_name,
+        version_req.as_ref(),
+        force,
+        &apply_options,
+        &mut ctx,
+    )?;
 
     // Format output
     for name in &result.already_satisfied {
@@ -74,6 +88,13 @@ pub fn run(pack_name: &str, version: Option<&str>, force: bool, project: bool) -
         );
         for conflict in &pack_result.tool_conflicts {
             eprintln!("  warning: {conflict}");
+        }
+        if pack_result.has_hooks && !allow_hooks {
+            eprintln!(
+                "  note: pack '{}' declares hooks (shell commands that run at lifecycle events)",
+                pack_result.name
+            );
+            eprintln!("  pass --allow-hooks to apply them");
         }
         for adapter in &pack_result.applied_adapters {
             println!("    Applied to {adapter}");
@@ -101,7 +122,7 @@ pub fn run(pack_name: &str, version: Option<&str>, force: bool, project: bool) -
 }
 
 /// Install a pack from a local directory path (bypasses the registry).
-fn run_local(raw_path: &str, force: bool, project: bool) -> Result<()> {
+fn run_local(raw_path: &str, force: bool, project: bool, allow_hooks: bool) -> Result<()> {
     let path = install::expand_home(raw_path);
     let path = path
         .canonicalize()
@@ -119,6 +140,7 @@ fn run_local(raw_path: &str, force: bool, project: bool) -> Result<()> {
 
     // No registry needed for local installs, but InstallContext requires one.
     let registry = registry_from_config(&config);
+    let apply_options = ApplyOptions { allow_hooks };
     let mut ctx = install::InstallContext {
         config: &config,
         registry: &registry,
@@ -127,7 +149,7 @@ fn run_local(raw_path: &str, force: bool, project: bool) -> Result<()> {
         adapters: &adapters,
     };
 
-    let result = install::install_local(&path, force, &mut ctx)?;
+    let result = install::install_local(&path, force, &apply_options, &mut ctx)?;
 
     println!("  Installing {}@{} (local)...", result.name, result.version);
 
@@ -143,6 +165,15 @@ fn run_local(raw_path: &str, force: bool, project: bool) -> Result<()> {
 
     for conflict in &result.tool_conflicts {
         eprintln!("  warning: {conflict}");
+    }
+
+    // Warn about hooks that require opt-in.
+    if result.has_hooks && !allow_hooks {
+        eprintln!(
+            "  note: pack '{}' declares hooks (shell commands that run at lifecycle events)",
+            result.name
+        );
+        eprintln!("  pass --allow-hooks to apply them");
     }
 
     for adapter in &result.applied_adapters {

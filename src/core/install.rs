@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::adapters::CliAdapter;
+use crate::adapters::{ApplyOptions, CliAdapter};
 use crate::core::config::Config;
 use crate::core::conflict;
 use crate::core::lockfile::LockFile;
@@ -29,6 +29,8 @@ pub struct PackInstallResult {
     pub tool_conflicts: Vec<String>,
     /// Required env vars that are not set.
     pub missing_env_vars: Vec<MissingEnvVar>,
+    /// Whether the pack declares hooks.
+    pub has_hooks: bool,
 }
 
 /// A required env var that is not set.
@@ -66,6 +68,7 @@ pub fn install_from_registry(
     pack_name: &str,
     version_req: Option<&semver::VersionReq>,
     force: bool,
+    options: &ApplyOptions,
     ctx: &mut InstallContext<'_>,
 ) -> std::result::Result<InstallResult, anyhow::Error> {
     use anyhow::Context;
@@ -139,7 +142,9 @@ pub fn install_from_registry(
         };
 
         // Apply to each installed adapter.
-        let (applied_adapters, adapter_errors) = apply_to_adapters(&resolved, ctx.adapters);
+        let has_hooks = pack.has_hooks();
+        let (applied_adapters, adapter_errors) =
+            apply_to_adapters(&resolved, ctx.adapters, options);
 
         // Check for missing required env vars.
         let missing_env_vars = check_missing_env_vars(&pack);
@@ -169,6 +174,7 @@ pub fn install_from_registry(
             adapter_errors,
             tool_conflicts,
             missing_env_vars,
+            has_hooks,
         });
     }
 
@@ -199,6 +205,8 @@ pub struct LocalInstallResult {
     pub missing_env_vars: Vec<MissingEnvVar>,
     /// Dependency names declared but not auto-resolved.
     pub unresolved_dependencies: Vec<String>,
+    /// Whether the pack declares hooks.
+    pub has_hooks: bool,
 }
 
 /// Install a pack from a local directory path (bypasses the registry).
@@ -208,6 +216,7 @@ pub struct LocalInstallResult {
 pub fn install_local(
     path: &Path,
     force: bool,
+    options: &ApplyOptions,
     ctx: &mut InstallContext<'_>,
 ) -> std::result::Result<LocalInstallResult, anyhow::Error> {
     use anyhow::Context;
@@ -279,7 +288,8 @@ pub fn install_local(
         vec![]
     };
 
-    let (applied_adapters, adapter_errors) = apply_to_adapters(&resolved, ctx.adapters);
+    let has_hooks = pack.has_hooks();
+    let (applied_adapters, adapter_errors) = apply_to_adapters(&resolved, ctx.adapters, options);
 
     let missing_env_vars = check_missing_env_vars(&pack);
 
@@ -309,6 +319,7 @@ pub fn install_local(
         tool_conflicts,
         missing_env_vars,
         unresolved_dependencies,
+        has_hooks,
     })
 }
 
@@ -316,11 +327,12 @@ pub fn install_local(
 pub fn apply_to_adapters(
     resolved: &ResolvedPack,
     adapters: &[Box<dyn CliAdapter>],
+    options: &ApplyOptions,
 ) -> (Vec<String>, Vec<String>) {
     let mut applied = Vec::new();
     let mut errors = Vec::new();
     for adapter in adapters {
-        match adapter.apply(resolved) {
+        match adapter.apply(resolved, options) {
             Ok(()) => applied.push(adapter.name().to_string()),
             Err(e) => errors.push(format!("{}: {e}", adapter.name())),
         }

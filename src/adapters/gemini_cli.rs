@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::adapters::{CliAdapter, DiagnosticIssue, Severity};
+use crate::adapters::{ApplyOptions, CliAdapter, DiagnosticIssue, Severity};
 use crate::core::pack::{McpServer, ResolvedPack, Transport};
 use crate::core::store::Store;
 use crate::error::{Result, WeaveError};
@@ -689,9 +689,17 @@ impl CliAdapter for GeminiCliAdapter {
             .unwrap_or_else(|_| PathBuf::from(".gemini"))
     }
 
-    fn apply(&self, pack: &ResolvedPack) -> Result<()> {
+    fn apply(&self, pack: &ResolvedPack, _options: &ApplyOptions) -> Result<()> {
         if !pack.pack.targets.gemini_cli {
             return Ok(());
+        }
+
+        // Gemini CLI does not support hooks — warn if the pack declares them.
+        if pack.pack.hooks_for_cli("gemini_cli").is_some() {
+            log::warn!(
+                "pack '{}' declares hooks for Gemini CLI, but Gemini CLI does not support hooks; skipping hooks",
+                pack.pack.name
+            );
         }
 
         util::ensure_dir(&self.gemini_dir()?)?;
