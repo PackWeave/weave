@@ -3,7 +3,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
-use crate::adapters;
+use crate::adapters::{self, ApplyOptions};
 use crate::core::config::Config;
 use crate::core::conflict;
 use crate::core::lockfile::LockFile;
@@ -16,7 +16,14 @@ use crate::core::store::Store;
 /// Install a pack by name (or local path), optionally with a version requirement.
 /// When `force` is true, tool-conflict warnings are suppressed.
 /// When `project` is true, also installs to `.mcp.json` in the current directory.
-pub fn run(pack_name: &str, version: Option<&str>, force: bool, project: bool) -> Result<()> {
+/// When `allow_hooks` is true, hooks declared in the pack manifest are applied.
+pub fn run(
+    pack_name: &str,
+    version: Option<&str>,
+    force: bool,
+    project: bool,
+    allow_hooks: bool,
+) -> Result<()> {
     // Guard: --project from the home directory would write to ~/.mcp.json, which
     // Claude Code reads globally. Refuse early with a clear error.
     if project {
@@ -36,7 +43,7 @@ pub fn run(pack_name: &str, version: Option<&str>, force: bool, project: bool) -
 
     // Local path install — bypasses the registry entirely.
     if is_local_path(pack_name) {
-        return install_local(pack_name, force, project);
+        return install_local(pack_name, force, project, allow_hooks);
     }
 
     // Normalise name: strip a leading '@' so `weave install @webdev` works like
@@ -71,6 +78,7 @@ pub fn run(pack_name: &str, version: Option<&str>, force: bool, project: bool) -
     let mut lockfile = LockFile::load(&config.active_profile).context("loading lock file")?;
 
     let adapters = adapters::installed_adapters_with_scope(project);
+    let apply_options = ApplyOptions { allow_hooks };
 
     // Load installed pack manifests once before the loop rather than on each
     // iteration — avoids redundant I/O when installing multiple packs.
@@ -132,9 +140,18 @@ pub fn run(pack_name: &str, version: Option<&str>, force: bool, project: bool) -
         // Apply to each installed adapter. Continue even if one fails so that the
         // pack is still recorded in the profile/lockfile and partial state is
         // surfaced as warnings rather than leaving the install untracked.
+        // Warn about hooks that require opt-in.
+        if pack.has_hooks() && !allow_hooks {
+            eprintln!(
+                "  note: pack '{}' declares hooks (shell commands that run at lifecycle events)",
+                pack.name
+            );
+            eprintln!("  pass --allow-hooks to apply them");
+        }
+
         let mut adapter_errors: Vec<String> = Vec::new();
         for adapter in &adapters {
-            match adapter.apply(&resolved) {
+            match adapter.apply(&resolved, &apply_options) {
                 Ok(()) => println!("    Applied to {}", adapter.name()),
                 Err(e) => adapter_errors.push(format!("{}: {e}", adapter.name())),
             }
@@ -193,7 +210,7 @@ pub fn run(pack_name: &str, version: Option<&str>, force: bool, project: bool) -
 /// Reads `pack.toml` and all files from the directory, writes them to the
 /// store, and applies the pack to all installed CLI adapters — the same steps
 /// as a registry install but without a network fetch.
-fn install_local(raw_path: &str, force: bool, project: bool) -> Result<()> {
+fn install_local(raw_path: &str, force: bool, project: bool, allow_hooks: bool) -> Result<()> {
     let path = expand_home(raw_path);
     let path = path
         .canonicalize()
@@ -285,9 +302,18 @@ fn install_local(raw_path: &str, force: bool, project: bool) -> Result<()> {
         }
     }
 
+    // Warn about hooks that require opt-in.
+    if pack.has_hooks() && !allow_hooks {
+        eprintln!(
+            "  note: pack '{name}' declares hooks (shell commands that run at lifecycle events)"
+        );
+        eprintln!("  pass --allow-hooks to apply them");
+    }
+
+    let apply_options = ApplyOptions { allow_hooks };
     let adapters = adapters::installed_adapters_with_scope(project);
     for adapter in &adapters {
-        match adapter.apply(&resolved) {
+        match adapter.apply(&resolved, &apply_options) {
             Ok(()) => println!("    Applied to {}", adapter.name()),
             Err(e) => eprintln!("  warning: failed to apply to {}: {e}", adapter.name()),
         }

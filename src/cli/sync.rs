@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 
-use crate::adapters;
+use crate::adapters::{self, ApplyOptions};
 use crate::core::config::Config;
 use crate::core::lockfile::LockFile;
 use crate::core::pack::{PackSource, ResolvedPack};
@@ -9,7 +9,8 @@ use crate::core::store::Store;
 /// Reapply the active profile's lock file to all adapters.
 /// This is the recovery command after config drift — it ensures that every
 /// adapter's config matches what the lock file says should be installed.
-pub fn run() -> Result<()> {
+/// When `allow_hooks` is true, hooks declared in pack manifests are applied.
+pub fn run(allow_hooks: bool) -> Result<()> {
     let config = Config::load().context("loading weave config")?;
     let profile_name = &config.active_profile;
 
@@ -27,6 +28,7 @@ pub fn run() -> Result<()> {
         return Ok(());
     }
 
+    let apply_options = ApplyOptions { allow_hooks };
     let mut synced_count: usize = 0;
     let mut error_count: usize = 0;
 
@@ -57,7 +59,7 @@ pub fn run() -> Result<()> {
 
         // Apply to each installed adapter.
         for adapter in &adapters {
-            match adapter.apply(&resolved) {
+            match adapter.apply(&resolved, &apply_options) {
                 Ok(()) => {
                     println!("  {pack_name}@{} -> {}", locked.version, adapter.name());
                     synced_count += 1;

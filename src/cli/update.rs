@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
 
-use crate::adapters;
+use crate::adapters::{self, ApplyOptions};
 use crate::core::config::Config;
 use crate::core::lockfile::LockFile;
 use crate::core::pack::PackSource;
@@ -124,9 +124,12 @@ pub fn run(pack_spec: Option<&str>) -> Result<()> {
             // apply() is idempotent — it overwrites existing entries for the same
             // server/prompt/command names, so an explicit remove() is unnecessary.
             // Applying first means the old config stays intact if apply() fails.
+            // Update does not apply hooks by default — the user must pass
+            // --allow-hooks on a fresh install or sync to opt in.
+            let apply_options = ApplyOptions::default();
             let mut adapter_errors: Vec<String> = Vec::new();
             for adapter in &adapters {
-                match adapter.apply(&resolved) {
+                match adapter.apply(&resolved, &apply_options) {
                     Ok(()) => println!("    Applied to {}", adapter.name()),
                     Err(e) => adapter_errors.push(format!("{}: {e}", adapter.name())),
                 }

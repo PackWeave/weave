@@ -316,7 +316,11 @@ mod tests {
         fn config_dir(&self) -> std::path::PathBuf {
             std::path::PathBuf::from("/mock")
         }
-        fn apply(&self, _pack: &crate::core::pack::ResolvedPack) -> crate::error::Result<()> {
+        fn apply(
+            &self,
+            _pack: &crate::core::pack::ResolvedPack,
+            _options: &crate::adapters::ApplyOptions,
+        ) -> crate::error::Result<()> {
             Ok(())
         }
         fn remove(&self, _pack_name: &str) -> crate::error::Result<Vec<String>> {

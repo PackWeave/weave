@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use packweave::adapters::claude_code::ClaudeCodeAdapter;
-use packweave::adapters::CliAdapter;
+use packweave::adapters::{ApplyOptions, CliAdapter};
 use packweave::core::pack::{McpServer, Pack, PackSource, PackTargets, ResolvedPack, Transport};
 use packweave::core::store::Store;
 use tempfile::TempDir;
@@ -208,7 +208,7 @@ fn apply_servers_adds_to_claude_json() {
     let adapter = make_adapter(&home);
 
     let pack = pack_with_servers("mcp-pack", vec![simple_server("my-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let claude_json = home.path().join(".claude.json");
     assert!(claude_json.exists(), ".claude.json should be created");
@@ -242,7 +242,7 @@ fn apply_servers_writes_args() {
         env: HashMap::new(),
     };
     let pack = pack_with_servers("arg-pack", vec![server]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let config = read_json(&home.path().join(".claude.json"));
     assert_eq!(
@@ -258,8 +258,8 @@ fn apply_servers_idempotent() {
     let adapter = make_adapter(&home);
 
     let pack = pack_with_servers("idem-pack", vec![simple_server("idem-server")]);
-    adapter.apply(&pack).unwrap();
-    adapter.apply(&pack).unwrap(); // second apply must not error
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap(); // second apply must not error
 
     let config = read_json(&home.path().join(".claude.json"));
     let mcp = config["mcpServers"].as_object().unwrap();
@@ -287,7 +287,7 @@ fn apply_preserves_existing_user_servers() {
     .unwrap();
 
     let pack = pack_with_servers("new-pack", vec![simple_server("new-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let config = read_json(&claude_json);
     assert!(
@@ -314,7 +314,7 @@ fn apply_rejects_collision_with_user_server() {
     .unwrap();
 
     let pack = pack_with_servers("clash-pack", vec![simple_server("clash-server")]);
-    let result = adapter.apply(&pack);
+    let result = adapter.apply(&pack, &ApplyOptions::default());
     assert!(result.is_err(), "should fail when a user server collides");
     let msg = result.unwrap_err().to_string();
     assert!(
@@ -330,7 +330,7 @@ fn apply_skips_pack_not_targeting_claude() {
     let adapter = make_adapter(&home);
 
     let pack = pack_not_targeting_claude("other-cli-pack");
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     // .claude.json should not be created since pack doesn't target claude.
     let claude_json = home.path().join(".claude.json");
@@ -349,7 +349,7 @@ fn remove_servers_cleans_up_claude_json() {
     let adapter = make_adapter(&home);
 
     let pack = pack_with_servers("rm-pack", vec![simple_server("rm-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
     adapter.remove("rm-pack").unwrap();
 
     let config = read_json(&home.path().join(".claude.json"));
@@ -365,8 +365,8 @@ fn remove_is_surgical_leaves_other_servers() {
 
     let pack_a = pack_with_servers("pack-a", vec![simple_server("server-a")]);
     let pack_b = pack_with_servers("pack-b", vec![simple_server("server-b")]);
-    adapter.apply(&pack_a).unwrap();
-    adapter.apply(&pack_b).unwrap();
+    adapter.apply(&pack_a, &ApplyOptions::default()).unwrap();
+    adapter.apply(&pack_b, &ApplyOptions::default()).unwrap();
 
     adapter.remove("pack-a").unwrap();
 
@@ -401,7 +401,7 @@ fn apply_writes_manifest() {
     let adapter = make_adapter(&home);
 
     let pack = pack_with_servers("tracked-pack", vec![simple_server("tracked-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let manifest_path = home.path().join(".claude/.packweave_manifest.json");
     assert!(manifest_path.exists(), "manifest file should be created");
@@ -422,7 +422,7 @@ fn apply_servers_project_scope() {
     let adapter = make_adapter_with_project(&home, &project);
 
     let pack = pack_with_servers("proj-pack", vec![simple_server("proj-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     // Should write to project .mcp.json.
     let proj_mcp = project.path().join(".mcp.json");
@@ -455,7 +455,7 @@ fn apply_does_not_write_project_scope_without_flag() {
     );
 
     let pack = pack_with_servers("no-proj-pack", vec![simple_server("no-proj-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let proj_mcp = project.path().join(".mcp.json");
     assert!(
@@ -474,7 +474,7 @@ fn remove_servers_project_scope() {
     let adapter = make_adapter_with_project(&home, &project);
 
     let pack = pack_with_servers("rm-proj-pack", vec![simple_server("rm-proj-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
     adapter.remove("rm-proj-pack").unwrap();
 
     // When the last project-scope server is removed, the .mcp.json file
@@ -494,8 +494,8 @@ fn apply_project_scope_is_idempotent() {
     let adapter = make_adapter_with_project(&home, &project);
 
     let pack = pack_with_servers("proj-idem", vec![simple_server("proj-idem-server")]);
-    adapter.apply(&pack).unwrap();
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let proj_mcp = project.path().join(".mcp.json");
     let config = read_json(&proj_mcp);
@@ -523,7 +523,7 @@ fn apply_commands_writes_files() {
     );
 
     let pack = pack_with_servers("cmd-pack", vec![]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let commands_dir = home.path().join(".claude/commands");
     assert!(
@@ -558,7 +558,7 @@ fn apply_commands_multiple_files() {
     );
 
     let pack = pack_with_servers("multi-cmd-pack", vec![]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let commands_dir = home.path().join(".claude/commands");
     assert!(commands_dir.join("multi-cmd-pack__build.md").exists());
@@ -581,7 +581,7 @@ fn remove_commands_cleans_up() {
     );
 
     let pack = pack_with_servers("rm-cmd-pack", vec![]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let cmd_file = home.path().join(".claude/commands/rm-cmd-pack__action.md");
     assert!(cmd_file.exists(), "command file should exist after apply");
@@ -602,8 +602,18 @@ fn remove_commands_is_surgical() {
     let _fx_a = StoreFixture::create("cmd-a", None, None, Some(&[("alpha.md", "# Alpha")]));
     let _fx_b = StoreFixture::create("cmd-b", None, None, Some(&[("beta.md", "# Beta")]));
 
-    adapter.apply(&pack_with_servers("cmd-a", vec![])).unwrap();
-    adapter.apply(&pack_with_servers("cmd-b", vec![])).unwrap();
+    adapter
+        .apply(
+            &pack_with_servers("cmd-a", vec![]),
+            &ApplyOptions::default(),
+        )
+        .unwrap();
+    adapter
+        .apply(
+            &pack_with_servers("cmd-b", vec![]),
+            &ApplyOptions::default(),
+        )
+        .unwrap();
     adapter.remove("cmd-a").unwrap();
 
     let commands_dir = home.path().join(".claude/commands");
@@ -633,7 +643,7 @@ fn apply_prompts_appends_to_claude_md() {
     );
 
     let pack = pack_with_servers("prompt-pack", vec![]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let claude_md = home.path().join(".claude/CLAUDE.md");
     assert!(claude_md.exists(), "CLAUDE.md should be created");
@@ -652,8 +662,8 @@ fn apply_prompts_idempotent() {
     let _fixture = StoreFixture::create("idem-prompt", Some("Idempotent content."), None, None);
 
     let pack = pack_with_servers("idem-prompt", vec![]);
-    adapter.apply(&pack).unwrap();
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let claude_md = home.path().join(".claude/CLAUDE.md");
     let content = std::fs::read_to_string(&claude_md).unwrap();
@@ -674,7 +684,7 @@ fn apply_prompt_appends_to_existing_claude_md() {
 
     let _fixture = StoreFixture::create("append-pack", Some("Pack content here."), None, None);
     let pack = pack_with_servers("append-pack", vec![]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let content = std::fs::read_to_string(&claude_md_path).unwrap();
     assert!(
@@ -698,7 +708,7 @@ fn remove_prompts_cleans_section() {
     let _fixture = StoreFixture::create("rm-prompt-pack", Some("Remove me."), None, None);
 
     let pack = pack_with_servers("rm-prompt-pack", vec![]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
     adapter.remove("rm-prompt-pack").unwrap();
 
     let claude_md = home.path().join(".claude/CLAUDE.md");
@@ -723,10 +733,16 @@ fn remove_prompt_is_surgical_multiple_packs() {
     let _fx_b = StoreFixture::create("prune-b", Some("Content B."), None, None);
 
     adapter
-        .apply(&pack_with_servers("prune-a", vec![]))
+        .apply(
+            &pack_with_servers("prune-a", vec![]),
+            &ApplyOptions::default(),
+        )
         .unwrap();
     adapter
-        .apply(&pack_with_servers("prune-b", vec![]))
+        .apply(
+            &pack_with_servers("prune-b", vec![]),
+            &ApplyOptions::default(),
+        )
         .unwrap();
     adapter.remove("prune-a").unwrap();
 
@@ -754,7 +770,7 @@ fn apply_settings_merges_keys() {
         StoreFixture::create("settings-pack", None, Some(r#"{"theme": "monokai"}"#), None);
 
     let pack = pack_with_servers("settings-pack", vec![]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let settings_path = home.path().join(".claude/settings.json");
     assert!(settings_path.exists(), "settings.json should be created");
@@ -779,7 +795,7 @@ fn apply_settings_preserves_existing_keys() {
     );
 
     let pack = pack_with_servers("settings-merge", vec![]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let config = read_json(&settings_path);
     assert_eq!(config["verbose"], true, "pre-existing key must survive");
@@ -800,8 +816,8 @@ fn apply_settings_is_idempotent() {
     );
 
     let pack = pack_with_servers("settings-idem", vec![]);
-    adapter.apply(&pack).unwrap();
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let config = read_json(&home.path().join(".claude/settings.json"));
     assert_eq!(config["model"], "claude-3-5-sonnet");
@@ -826,7 +842,7 @@ fn remove_settings_restores_original() {
     );
 
     let pack = pack_with_servers("settings-restore", vec![]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let config = read_json(&settings_path);
     assert_eq!(config["theme"], "monokai", "theme should be changed");
@@ -851,7 +867,7 @@ fn remove_deletes_settings_key_added_by_pack() {
     );
 
     let pack = pack_with_servers("settings-delete", vec![]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
     adapter.remove("settings-delete").unwrap();
 
     let settings_path = home.path().join(".claude/settings.json");
@@ -871,7 +887,7 @@ fn diagnose_returns_no_issues_on_clean_state() {
     let adapter = make_adapter(&home);
 
     let pack = pack_with_servers("diag-pack", vec![simple_server("diag-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let issues = adapter.diagnose().unwrap();
     assert!(
@@ -887,7 +903,7 @@ fn diagnose_reports_server_missing_from_claude_json() {
     let adapter = make_adapter(&home);
 
     let pack = pack_with_servers("diag-missing", vec![simple_server("missing-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     // Manually wipe .claude.json without updating the manifest.
     std::fs::write(home.path().join(".claude.json"), "{}").unwrap();
@@ -913,7 +929,7 @@ fn diagnose_reports_prompt_block_missing_from_claude_md() {
     let _fixture = StoreFixture::create("diag-prompt", Some("Diagnose me."), None, None);
 
     let pack = pack_with_servers("diag-prompt", vec![]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     // Wipe CLAUDE.md so the tracked block is missing.
     let claude_md = home.path().join(".claude/CLAUDE.md");
@@ -937,7 +953,7 @@ fn diagnose_reports_command_file_missing() {
     let _fixture = StoreFixture::create("diag-cmd", None, None, Some(&[("check.md", "# Check")]));
 
     let pack = pack_with_servers("diag-cmd", vec![]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     // Manually delete the command file without updating the manifest.
     let cmd_file = home.path().join(".claude/commands/diag-cmd__check.md");
@@ -965,8 +981,8 @@ fn apply_two_packs_conflict_on_same_server_name() {
     let pack_a = pack_with_servers("conflict-a", vec![simple_server("shared-server")]);
     let pack_b = pack_with_servers("conflict-b", vec![simple_server("shared-server")]);
 
-    adapter.apply(&pack_a).unwrap();
-    let result = adapter.apply(&pack_b);
+    adapter.apply(&pack_a, &ApplyOptions::default()).unwrap();
+    let result = adapter.apply(&pack_b, &ApplyOptions::default());
     assert!(
         result.is_err(),
         "second pack should fail on conflicting server name"
@@ -987,7 +1003,7 @@ fn apply_rejects_malformed_claude_json() {
     std::fs::write(home.path().join(".claude.json"), "[1, 2, 3]").unwrap();
 
     let pack = pack_with_servers("bad-pack", vec![simple_server("any-server")]);
-    let result = adapter.apply(&pack);
+    let result = adapter.apply(&pack, &ApplyOptions::default());
     assert!(result.is_err(), "should fail on non-object .claude.json");
 }
 
@@ -1004,7 +1020,7 @@ fn apply_rejects_non_object_mcp_servers() {
     .unwrap();
 
     let pack = pack_with_servers("bad-pack", vec![simple_server("any-server")]);
-    let result = adapter.apply(&pack);
+    let result = adapter.apply(&pack, &ApplyOptions::default());
     assert!(
         result.is_err(),
         "should fail when mcpServers is not an object"
@@ -1034,7 +1050,7 @@ fn apply_http_server_writes_url() {
         env: std::collections::HashMap::new(),
     };
     let pack = pack_with_servers("http-pack", vec![server]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let config = read_json(&home.path().join(".claude.json"));
     let entry = &config["mcpServers"]["http-server"];
@@ -1072,7 +1088,7 @@ fn apply_http_server_without_url_returns_error() {
         env: std::collections::HashMap::new(),
     };
     let pack = pack_with_servers("bad-http-pack", vec![server]);
-    let result = adapter.apply(&pack);
+    let result = adapter.apply(&pack, &ApplyOptions::default());
     assert!(result.is_err(), "should fail when HTTP server has no url");
     let msg = result.unwrap_err().to_string();
     assert!(
@@ -1091,7 +1107,7 @@ fn apply_persists_manifest_after_each_step_even_if_later_step_fails() {
     let _fixture = StoreFixture::create("mid-fail-pack", None, Some("NOT VALID JSON {{{"), None);
 
     let pack = pack_with_servers("mid-fail-pack", vec![simple_server("my-server")]);
-    let result = adapter.apply(&pack);
+    let result = adapter.apply(&pack, &ApplyOptions::default());
 
     // apply() should fail because of the invalid settings JSON.
     assert!(result.is_err(), "apply should fail on invalid settings");
@@ -1145,7 +1161,7 @@ fn mid_apply_failure_records_project_root_and_remove_cleans_up() {
     let adapter = make_adapter_with_project(&home, &project);
     let pack = pack_with_servers("mid-proj-fail", vec![simple_server("mid-proj-srv")]);
 
-    let result = adapter.apply(&pack);
+    let result = adapter.apply(&pack, &ApplyOptions::default());
     assert!(
         result.is_err(),
         "apply should fail due to malformed project-scope settings.json"
@@ -1212,5 +1228,137 @@ fn mid_apply_failure_records_project_root_and_remove_cleans_up() {
             .and_then(|d| d.get("mid-proj-fail"))
             .is_none(),
         "project_dirs entry should be removed after successful cleanup"
+    );
+}
+
+// ── Hooks tests ──────────────────────────────────────────────────────────────
+
+use packweave::core::pack::PackExtensions;
+
+fn pack_with_hooks(name: &str) -> ResolvedPack {
+    let hooks_json = serde_json::json!({
+        "hooks": {
+            "PreToolUse": [
+                { "matcher": "Bash", "command": "echo pre-bash" }
+            ],
+            "PostToolUse": [
+                { "command": "echo post-all" }
+            ]
+        }
+    });
+    ResolvedPack {
+        pack: Pack {
+            name: name.to_string(),
+            version: semver::Version::new(1, 0, 0),
+            description: "Pack with hooks".into(),
+            authors: vec![],
+            license: None,
+            repository: None,
+            keywords: vec![],
+            min_tool_version: None,
+            servers: vec![],
+            dependencies: HashMap::new(),
+            extensions: PackExtensions {
+                claude_code: Some(hooks_json),
+                gemini_cli: None,
+                codex_cli: None,
+            },
+            targets: PackTargets::default(),
+        },
+        source: PackSource::Registry {
+            registry_url: "https://example.com".into(),
+        },
+    }
+}
+
+#[test]
+fn apply_hooks_when_allowed() {
+    let home = TempDir::new().unwrap();
+    let adapter = make_adapter(&home);
+    setup_claude_home(&home);
+
+    let pack = pack_with_hooks("hooks-pack");
+    let options = ApplyOptions { allow_hooks: true };
+    adapter.apply(&pack, &options).unwrap();
+
+    // Verify hooks were written to settings.json
+    let settings_path = home.path().join(".claude").join("settings.json");
+    let settings = read_json(&settings_path);
+    let hooks = settings.get("hooks").expect("hooks key should exist");
+    let pre = hooks
+        .get("PreToolUse")
+        .expect("PreToolUse should exist")
+        .as_array()
+        .unwrap();
+    assert_eq!(pre.len(), 1);
+    assert_eq!(pre[0]["matcher"], "Bash");
+    assert_eq!(pre[0]["hooks"][0]["command"], "echo pre-bash");
+    assert_eq!(pre[0]["hooks"][0]["type"], "command");
+
+    let post = hooks
+        .get("PostToolUse")
+        .expect("PostToolUse should exist")
+        .as_array()
+        .unwrap();
+    assert_eq!(post.len(), 1);
+    assert_eq!(post[0]["hooks"][0]["command"], "echo post-all");
+}
+
+#[test]
+fn apply_skips_hooks_when_not_allowed() {
+    let home = TempDir::new().unwrap();
+    let adapter = make_adapter(&home);
+    setup_claude_home(&home);
+
+    let pack = pack_with_hooks("hooks-pack");
+    let options = ApplyOptions { allow_hooks: false };
+    adapter.apply(&pack, &options).unwrap();
+
+    // settings.json should not exist (no servers/settings/hooks were written)
+    let settings_path = home.path().join(".claude").join("settings.json");
+    assert!(
+        !settings_path.exists(),
+        "settings.json should not be created when hooks are not allowed and there are no other settings"
+    );
+}
+
+#[test]
+fn remove_cleans_up_hooks() {
+    let home = TempDir::new().unwrap();
+    let adapter = make_adapter(&home);
+    setup_claude_home(&home);
+
+    let pack = pack_with_hooks("hooks-pack");
+    let options = ApplyOptions { allow_hooks: true };
+    adapter.apply(&pack, &options).unwrap();
+
+    // Verify hooks were written
+    let settings_path = home.path().join(".claude").join("settings.json");
+    assert!(settings_path.exists());
+    let settings = read_json(&settings_path);
+    assert!(settings.get("hooks").is_some());
+
+    // Remove the pack
+    adapter.remove("hooks-pack").unwrap();
+
+    // settings.json should have hooks removed
+    if settings_path.exists() {
+        let settings_after = read_json(&settings_path);
+        assert!(
+            settings_after.get("hooks").is_none(),
+            "hooks key should be removed after pack removal"
+        );
+    }
+}
+
+#[test]
+fn has_hooks_detects_extension_hooks() {
+    let pack = pack_with_hooks("hooks-pack");
+    assert!(pack.pack.has_hooks(), "pack with hooks should return true");
+
+    let no_hooks = pack_with_servers("no-hooks", vec![simple_server("srv")]);
+    assert!(
+        !no_hooks.pack.has_hooks(),
+        "pack without hooks should return false"
     );
 }

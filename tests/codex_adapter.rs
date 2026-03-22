@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use packweave::adapters::codex_cli::CodexAdapter;
-use packweave::adapters::CliAdapter;
+use packweave::adapters::{ApplyOptions, CliAdapter};
 use packweave::core::pack::{
     EnvVar, McpServer, Pack, PackSource, PackTargets, ResolvedPack, Transport,
 };
@@ -263,7 +263,7 @@ fn apply_writes_server_to_config_toml() {
     let adapter = make_adapter(&home);
 
     let pack = pack_with_servers("mcp-pack", vec![simple_server("my-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let config_path = home.path().join(".codex/config.toml");
     assert!(config_path.exists(), "config.toml should be created");
@@ -300,7 +300,7 @@ fn apply_writes_server_args() {
         env: HashMap::new(),
     };
     let pack = pack_with_servers("arg-pack", vec![server]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let config_path = home.path().join(".codex/config.toml");
     let config = read_toml(&config_path);
@@ -318,7 +318,7 @@ fn apply_sets_enabled_true() {
     let adapter = make_adapter(&home);
 
     let pack = pack_with_servers("enabled-pack", vec![simple_server("enabled-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let config_path = home.path().join(".codex/config.toml");
     let config = read_toml(&config_path);
@@ -341,7 +341,7 @@ fn apply_writes_env_vars_as_references() {
         "env-pack",
         vec![server_with_env("env-server", &["API_KEY", "TOKEN"])],
     );
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let config_path = home.path().join(".codex/config.toml");
     let config = read_toml(&config_path);
@@ -366,7 +366,7 @@ fn apply_omits_env_when_server_has_no_env_vars() {
     let adapter = make_adapter(&home);
 
     let pack = pack_with_servers("no-env-pack", vec![simple_server("no-env-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let config_path = home.path().join(".codex/config.toml");
     let config = read_toml(&config_path);
@@ -403,7 +403,7 @@ fn apply_writes_url_for_http_transport() {
         env: HashMap::new(),
     };
     let pack = pack_with_servers("http-pack", vec![server]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let config_path = home.path().join(".codex/config.toml");
     let config = read_toml(&config_path);
@@ -440,7 +440,7 @@ fn apply_preserves_existing_user_servers() {
     .unwrap();
 
     let pack = pack_with_servers("new-pack", vec![simple_server("new-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let config = read_toml(&config_path);
     assert!(
@@ -467,7 +467,7 @@ fn apply_rejects_collision_with_user_server() {
     .unwrap();
 
     let pack = pack_with_servers("clash-pack", vec![simple_server("clash-server")]);
-    let result = adapter.apply(&pack);
+    let result = adapter.apply(&pack, &ApplyOptions::default());
     assert!(result.is_err(), "should fail when a user server collides");
     let msg = result.unwrap_err().to_string();
     assert!(
@@ -483,7 +483,7 @@ fn apply_skips_pack_not_targeting_codex() {
     let adapter = make_adapter(&home);
 
     let pack = pack_not_targeting_codex("other-cli-pack");
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let config_path = home.path().join(".codex/config.toml");
     assert!(
@@ -502,7 +502,7 @@ fn apply_writes_multiple_servers() {
         "multi-pack",
         vec![simple_server("server-a"), simple_server("server-b")],
     );
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let config_path = home.path().join(".codex/config.toml");
     let config = read_toml(&config_path);
@@ -519,7 +519,7 @@ fn apply_writes_manifest() {
     let adapter = make_adapter(&home);
 
     let pack = pack_with_servers("tracked-pack", vec![simple_server("tracked-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let manifest_path = home.path().join(".codex/.packweave_manifest.json");
     assert!(manifest_path.exists(), "manifest file should be created");
@@ -539,7 +539,7 @@ fn remove_deletes_server_from_config_toml() {
     let adapter = make_adapter(&home);
 
     let pack = pack_with_servers("rm-pack", vec![simple_server("rm-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
     adapter.remove("rm-pack").unwrap();
 
     let config_path = home.path().join(".codex/config.toml");
@@ -561,8 +561,8 @@ fn remove_is_surgical_leaves_other_servers() {
 
     let pack_a = pack_with_servers("pack-a", vec![simple_server("server-a")]);
     let pack_b = pack_with_servers("pack-b", vec![simple_server("server-b")]);
-    adapter.apply(&pack_a).unwrap();
-    adapter.apply(&pack_b).unwrap();
+    adapter.apply(&pack_a, &ApplyOptions::default()).unwrap();
+    adapter.apply(&pack_b, &ApplyOptions::default()).unwrap();
 
     adapter.remove("pack-a").unwrap();
 
@@ -598,7 +598,7 @@ fn remove_clears_manifest_entry() {
     let adapter = make_adapter(&home);
 
     let pack = pack_with_servers("clear-pack", vec![simple_server("clear-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
     adapter.remove("clear-pack").unwrap();
 
     let manifest_path = home.path().join(".codex/.packweave_manifest.json");
@@ -621,8 +621,8 @@ fn apply_twice_is_idempotent_for_servers() {
     let adapter = make_adapter(&home);
 
     let pack = pack_with_servers("idem-pack", vec![simple_server("idem-server")]);
-    adapter.apply(&pack).unwrap();
-    adapter.apply(&pack).unwrap(); // second apply must not error
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap(); // second apply must not error
 
     let config_path = home.path().join(".codex/config.toml");
     let config = read_toml(&config_path);
@@ -653,7 +653,7 @@ fn apply_writes_server_to_project_config_toml_when_project_scope_active() {
     let adapter = make_adapter_with_project(&home, &project);
 
     let pack = pack_with_servers("proj-pack", vec![simple_server("proj-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     // User-scope config.toml should have the server
     let user_config = home.path().join(".codex/config.toml");
@@ -675,7 +675,7 @@ fn apply_does_not_create_project_config_when_no_project_scope() {
     let adapter = make_adapter(&home);
 
     let pack = pack_with_servers("noproj-pack", vec![simple_server("noproj-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     // project root has no .codex/ dir so project config.toml should not be created
     let project_no_codex = home.path().join("no-project/.codex/config.toml");
@@ -695,7 +695,7 @@ fn remove_removes_from_project_config_toml() {
     let adapter = make_adapter_with_project(&home, &project);
 
     let pack = pack_with_servers("rm-proj-pack", vec![simple_server("rm-proj-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
     adapter.remove("rm-proj-pack").unwrap();
 
     let proj_config = project.path().join(".codex/config.toml");
@@ -728,7 +728,7 @@ fn apply_installs_skill_files() {
     );
 
     let pack = pack_for_fixture("skill-pack");
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let skills_dir = home.path().join(".codex/skills");
     assert!(skills_dir.exists(), "skills dir should be created");
@@ -754,7 +754,7 @@ fn apply_skill_content_is_preserved() {
     );
 
     let pack = pack_for_fixture("content-pack");
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let skill_path = home.path().join(".codex/skills/content-pack__tool.md");
     let content = std::fs::read_to_string(&skill_path).unwrap();
@@ -774,7 +774,7 @@ fn remove_deletes_skill_files() {
         StoreFixture::create_with_skills("del-skill-pack", &[("task.md", "# Task\nDo this.")]);
 
     let pack = pack_for_fixture("del-skill-pack");
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let skill_path = home.path().join(".codex/skills/del-skill-pack__task.md");
     assert!(skill_path.exists(), "skill file should exist after apply");
@@ -795,7 +795,7 @@ fn apply_skills_tracks_manifest() {
     let _fixture = StoreFixture::create_with_skills("track-skill-pack", &[("task.md", "# Task")]);
 
     let pack = pack_for_fixture("track-skill-pack");
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let manifest_path = home.path().join(".codex/.packweave_manifest.json");
     let manifest = read_json(&manifest_path);
@@ -816,7 +816,7 @@ fn apply_appends_prompt_to_agents_md() {
     let _fixture = StoreFixture::create("prompt-pack", Some("Be helpful and concise."), None);
 
     let pack = pack_for_fixture("prompt-pack");
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let agents_md = home.path().join(".codex/AGENTS.md");
     assert!(agents_md.exists(), "AGENTS.md should be created");
@@ -835,8 +835,8 @@ fn apply_prompt_is_idempotent() {
     let _fixture = StoreFixture::create("idem-prompt-pack", Some("Idempotent prompt."), None);
     let pack = pack_for_fixture("idem-prompt-pack");
 
-    adapter.apply(&pack).unwrap();
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let agents_md = home.path().join(".codex/AGENTS.md");
     let content = std::fs::read_to_string(&agents_md).unwrap();
@@ -855,7 +855,7 @@ fn remove_deletes_prompt_block_from_agents_md() {
     let _fixture = StoreFixture::create("rm-prompt-pack", Some("Remove me."), None);
     let pack = pack_for_fixture("rm-prompt-pack");
 
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
     adapter.remove("rm-prompt-pack").unwrap();
 
     let agents_md = home.path().join(".codex/AGENTS.md");
@@ -877,8 +877,12 @@ fn remove_prompt_leaves_other_blocks() {
     let _fix_a = StoreFixture::create("prompt-a", Some("Prompt A content."), None);
     let _fix_b = StoreFixture::create("prompt-b", Some("Prompt B content."), None);
 
-    adapter.apply(&pack_for_fixture("prompt-a")).unwrap();
-    adapter.apply(&pack_for_fixture("prompt-b")).unwrap();
+    adapter
+        .apply(&pack_for_fixture("prompt-a"), &ApplyOptions::default())
+        .unwrap();
+    adapter
+        .apply(&pack_for_fixture("prompt-b"), &ApplyOptions::default())
+        .unwrap();
     adapter.remove("prompt-a").unwrap();
 
     let agents_md = home.path().join(".codex/AGENTS.md");
@@ -902,7 +906,7 @@ fn apply_merges_settings_into_config_toml() {
     );
 
     let pack = pack_for_fixture("settings-pack");
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let config_path = home.path().join(".codex/config.toml");
     let config = read_toml(&config_path);
@@ -927,7 +931,7 @@ fn remove_restores_settings_from_config_toml() {
     let _fixture = StoreFixture::create("rm-settings-pack", None, Some("model = \"o3\"\n"));
 
     let pack = pack_for_fixture("rm-settings-pack");
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
     adapter.remove("rm-settings-pack").unwrap();
 
     let config_path = home.path().join(".codex/config.toml");
@@ -958,7 +962,7 @@ fn settings_mcp_servers_key_is_ignored() {
     );
 
     let pack = pack_for_fixture("bad-settings-pack");
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let config_path = home.path().join(".codex/config.toml");
     let config = read_toml(&config_path);
@@ -983,7 +987,7 @@ fn diagnose_returns_no_issues_for_clean_state() {
     let adapter = make_adapter(&home);
 
     let pack = pack_with_servers("clean-pack", vec![simple_server("clean-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     let issues = adapter.diagnose().unwrap();
     assert!(issues.is_empty(), "should be no issues for a clean state");
@@ -996,7 +1000,7 @@ fn diagnose_reports_missing_server() {
     let adapter = make_adapter(&home);
 
     let pack = pack_with_servers("diag-pack", vec![simple_server("diag-server")]);
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     // Manually remove the server from config.toml to simulate drift.
     let config_path = home.path().join(".codex/config.toml");
@@ -1019,7 +1023,7 @@ fn diagnose_reports_missing_skill_file() {
     let _fixture = StoreFixture::create_with_skills("diag-skill-pack", &[("check.md", "# Check")]);
 
     let pack = pack_for_fixture("diag-skill-pack");
-    adapter.apply(&pack).unwrap();
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
 
     // Manually remove the skill file to simulate drift.
     let skill_path = home.path().join(".codex/skills/diag-skill-pack__check.md");

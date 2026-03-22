@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
 
-use crate::adapters;
+use crate::adapters::{self, ApplyOptions};
 use crate::core::config::Config;
 use crate::core::lockfile::LockFile;
 use crate::core::pack::{PackSource, ResolvedPack};
@@ -136,8 +136,10 @@ pub fn add_pack(pack_name: &str, profile_name: &str) -> Result<()> {
                 pack,
                 source: source.clone(),
             };
+            // Profile add does not apply hooks by default.
+            let apply_options = ApplyOptions::default();
             for adapter in &installed_adapters {
-                match adapter.apply(&resolved) {
+                match adapter.apply(&resolved, &apply_options) {
                     Ok(()) => println!("    Applied to {}", adapter.name()),
                     Err(e) => eprintln!("  warning: {}: {e}", adapter.name()),
                 }

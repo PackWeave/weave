@@ -10,6 +10,15 @@ use serde::Serialize;
 use crate::core::pack::ResolvedPack;
 use crate::error::Result;
 
+/// Options passed to [`CliAdapter::apply`] controlling optional behaviours.
+#[derive(Debug, Clone, Default)]
+pub struct ApplyOptions {
+    /// When true, hooks declared in the pack manifest are written to the
+    /// CLI config. Hooks execute arbitrary shell commands, so they require
+    /// explicit user consent via the `--allow-hooks` flag.
+    pub allow_hooks: bool,
+}
+
 /// Stable identifier for each supported CLI adapter.
 ///
 /// Use this for all internal logic (target mapping, diagnose attribution).
@@ -57,7 +66,7 @@ pub trait CliAdapter: Send + Sync {
 
     /// Apply a pack's contributions to this CLI's config.
     /// Must be idempotent — calling twice has the same effect as calling once.
-    fn apply(&self, pack: &ResolvedPack) -> Result<()>;
+    fn apply(&self, pack: &ResolvedPack, options: &ApplyOptions) -> Result<()>;
 
     /// Remove all contributions made by a pack.
     /// Must leave user's manual edits untouched.

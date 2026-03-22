@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
 
-use crate::adapters;
+use crate::adapters::{self, ApplyOptions};
 use crate::core::config::Config;
 use crate::core::pack::{Pack, PackSource, ResolvedPack};
 use crate::core::profile::Profile;
@@ -9,7 +9,8 @@ use crate::core::store::Store;
 use crate::error::WeaveError;
 
 /// Switch to a named profile, or print the active profile if no name is given.
-pub fn run(profile_name: Option<&str>) -> Result<()> {
+/// When `allow_hooks` is true, hooks declared in pack manifests are applied.
+pub fn run(profile_name: Option<&str>, allow_hooks: bool) -> Result<()> {
     let mut config = Config::load().context("loading weave config")?;
 
     // If no profile name given, just print the current active profile.
@@ -58,6 +59,7 @@ pub fn run(profile_name: Option<&str>) -> Result<()> {
     }
 
     let installed_adapters = adapters::installed_adapters();
+    let apply_options = ApplyOptions { allow_hooks };
 
     // Remove packs that are in current but not in target
     for pack_name in &to_remove {
@@ -97,7 +99,7 @@ pub fn run(profile_name: Option<&str>) -> Result<()> {
         };
 
         for adapter in &installed_adapters {
-            match adapter.apply(&resolved) {
+            match adapter.apply(&resolved, &apply_options) {
                 Ok(()) => println!("    Applied to {}", adapter.name()),
                 Err(e) => eprintln!("  warning: {}: {e}", adapter.name()),
             }

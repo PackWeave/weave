@@ -29,7 +29,8 @@ pub fn run() -> Result<()> {
         // Try to load the full manifest from the store for rich details.
         match Store::load_pack(&installed.name, &installed.version, Some(&installed.source)) {
             Ok(pack) => {
-                println!("  {} v{}", installed.name, installed.version);
+                let hooks_badge = if pack.has_hooks() { " [hooks]" } else { "" };
+                println!("  {} v{}{}", installed.name, installed.version, hooks_badge);
                 println!("    {}", pack.description);
                 println!("    Targets: {}", format_targets(&pack.targets));
                 if !pack.servers.is_empty() {
