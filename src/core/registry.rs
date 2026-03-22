@@ -307,7 +307,7 @@ impl Registry for CompositeRegistry {
         let mut seen = std::collections::HashSet::new();
         let mut results = Vec::new();
 
-        for registry in &self.registries {
+        for (idx, registry) in self.registries.iter().enumerate() {
             match registry.search(query) {
                 Ok(packs) => {
                     for pack in packs {
@@ -317,7 +317,11 @@ impl Registry for CompositeRegistry {
                     }
                 }
                 Err(e) => {
-                    // Log tap failures as warnings but don't abort the search.
+                    if idx == 0 {
+                        // Official registry failure is fatal — don't silently return empty results.
+                        return Err(e);
+                    }
+                    // Tap failures are logged but don't abort the search.
                     log::warn!("tap search failed: {e}");
                 }
             }
@@ -328,31 +332,47 @@ impl Registry for CompositeRegistry {
     }
 
     fn fetch_metadata(&self, name: &str) -> Result<PackMetadata> {
-        let mut last_err = None;
-        for registry in &self.registries {
+        let mut last_not_found: Option<WeaveError> = None;
+        for (idx, registry) in self.registries.iter().enumerate() {
             match registry.fetch_metadata(name) {
                 Ok(meta) => return Ok(meta),
-                Err(e) => {
-                    last_err = Some(e);
-                }
+                Err(e) => match &e {
+                    WeaveError::PackNotFound { .. } => {
+                        last_not_found = Some(e);
+                    }
+                    _ => {
+                        if idx == 0 {
+                            return Err(e);
+                        }
+                        log::warn!("tap metadata fetch failed: {e}");
+                    }
+                },
             }
         }
-        Err(last_err.unwrap_or_else(|| WeaveError::PackNotFound {
+        Err(last_not_found.unwrap_or_else(|| WeaveError::PackNotFound {
             name: name.to_string(),
         }))
     }
 
     fn fetch_version(&self, name: &str, version: &semver::Version) -> Result<PackRelease> {
-        let mut last_err = None;
-        for registry in &self.registries {
+        let mut last_not_found: Option<WeaveError> = None;
+        for (idx, registry) in self.registries.iter().enumerate() {
             match registry.fetch_version(name, version) {
                 Ok(release) => return Ok(release),
-                Err(e) => {
-                    last_err = Some(e);
-                }
+                Err(e) => match &e {
+                    WeaveError::PackNotFound { .. } | WeaveError::VersionNotFound { .. } => {
+                        last_not_found = Some(e);
+                    }
+                    _ => {
+                        if idx == 0 {
+                            return Err(e);
+                        }
+                        log::warn!("tap version fetch failed: {e}");
+                    }
+                },
             }
         }
-        Err(last_err.unwrap_or_else(|| WeaveError::PackNotFound {
+        Err(last_not_found.unwrap_or_else(|| WeaveError::PackNotFound {
             name: name.to_string(),
         }))
     }
