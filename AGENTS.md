@@ -69,14 +69,14 @@ Read docs/ARCHITECTURE.md before writing any code. It defines the module structu
 ## Module map (quick reference)
 
 ```
-src/cli/          Command handlers — parse args, call core, print output
-src/core/         Business logic — no I/O to CLI config files here
-  core/mcp_registry.rs   Upstream MCP registry integration
-  core/conflict.rs       Tool-level conflict detection across installed packs
-src/adapters/     CLI-specific config read/write — no business logic here
-src/error.rs      All error types
-src/core/config.rs    Global weave config
-src/util.rs       Shared helpers (file ops, path resolution, etc.)
+src/cli/              Command handlers — parse args, call core, print output
+src/core/             Business logic — no I/O to CLI config files here
+  core/config.rs        Global weave config (~/.packweave/config.toml)
+  core/mcp_registry.rs  MCP Registry client (weave search --mcp)
+  core/conflict.rs      Tool-level conflict detection
+src/adapters/         CLI-specific config read/write — no business logic here
+src/error.rs          All error types
+src/util.rs           Shared helpers (path resolution, file ops)
 ```
 
 The CLI handlers are thin. They parse arguments, call into `core/` or `adapters/`, and format output. Business logic does not live in `cli/`.
@@ -138,6 +138,17 @@ git config core.hooksPath .githooks
 ```
 
 After activation, every `git commit` runs `cargo fmt --check` and `cargo clippy` locally. This catches formatting and lint failures before push rather than in CI.
+
+-----
+
+## Updating documentation
+
+The project has two documents with module maps — they have different contracts:
+
+- **`docs/ARCHITECTURE.md`** — aspirational design document. It explicitly lists modules that do not exist yet. **Never remove entries** just because the code has not been written. Only add new modules or update descriptions.
+- **`AGENTS.md`** (this file) — quick reference for the current codebase. The module map here should match what actually exists in `src/`.
+
+When your changes add new modules, CLI commands, or env vars, update both documents accordingly.
 
 -----
 
