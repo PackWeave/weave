@@ -16,7 +16,7 @@ weave remove web-dev     # clean undo — your manual edits stay untouched
 
 ---
 
-## The problem
+## 🔥 The problem
 
 Every AI CLI has its own configuration format. Setting up MCP servers, slash commands, and system prompts means hand-editing JSON and Markdown files scattered across different directories with different schemas.
 
@@ -214,7 +214,7 @@ See [pack.schema.toml](https://github.com/PackWeave/weave/blob/main/pack.schema.
 
 ---
 
-## Project-scope config
+## 🗂️ Project-scope config
 
 Some CLIs read both a user-level config (`~/.claude/`) and a project-level config (`.claude/` in your repo). Weave applies packs to every scope that **exists at install time**.
 
@@ -269,6 +269,6 @@ See [docs/CONTRIBUTING.md](https://github.com/PackWeave/weave/blob/main/docs/CON
 
 ---
 
-## License
+## 📄 License
 
 Apache 2.0 — Copyright 2026 Brenno Rangel Ferrari. See [LICENSE](./LICENSE).

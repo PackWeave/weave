@@ -6,9 +6,9 @@ weave accepts two kinds of contributions: **code** and **packs**.
 
 -----
 
-## Contributing code
+## 💻 Contributing code
 
-### Prerequisites
+### 🛠️ Prerequisites
 
 - Rust stable (latest)
 - `cargo`, `clippy`, `rustfmt`
@@ -24,13 +24,13 @@ cargo test
 > **Branches:** Always work on a feature branch — never commit directly to `main`.
 > Use `feat/`, `fix/`, or `docs/` prefixes: `feat/my-feature`, `fix/bug-description`.
 
-## Running tests
+## 🧪 Running tests
 
 ```sh
 cargo test
 ```
 
-### Test structure
+### 🏗️ Test structure
 
 - **Unit tests** — `#[cfg(test)]` blocks in source files
 - **Integration tests** — `tests/` directory (adapter tests, init tests)
@@ -38,7 +38,7 @@ cargo test
 
 E2E tests use `wiremock` for mock HTTP, `assert_cmd` for subprocess assertions, and full isolation via environment variables (`HOME`, `WEAVE_TEST_STORE_DIR`, `WEAVE_REGISTRY_URL`).
 
-### Before opening a PR
+### ✅ Before opening a PR
 
 - `cargo fmt --all` — code must be formatted
 - `cargo clippy -- -D warnings` — no clippy warnings
@@ -48,7 +48,7 @@ E2E tests use `wiremock` for mock HTTP, `assert_cmd` for subprocess assertions, 
 
 Once open, a maintainer will review within a few days. PRs addressing open issues are prioritised.
 
-### Commit style
+### 📝 Commit style
 
 Use conventional commits:
 
@@ -59,17 +59,17 @@ docs: update adapter trait documentation
 chore: bump clap to 4.5
 ```
 
-### Opening issues
+### 🐛 Opening issues
 
 Use the issue templates in `.github/ISSUE_TEMPLATE/`. For bugs, include your OS, `weave --version`, and the exact command you ran.
 
 -----
 
-## Contributing packs
+## 📦 Contributing packs
 
 Packs are published to the `PackWeave/registry` repo via pull request.
 
-### Pack creation quickstart (5 minutes)
+### ⚡ Pack creation quickstart (5 minutes)
 
 1. Create a new folder and add a `pack.toml` with basic metadata and `[[servers]]` entries.
 2. Add optional files under `prompts/`, `commands/`, or `settings/` as needed.
@@ -77,7 +77,7 @@ Packs are published to the `PackWeave/registry` repo via pull request.
 
 If you are not ready to build a pack, open a **Pack request** issue using the template in `.github/ISSUE_TEMPLATE/pack_request.md`.
 
-### Pack quality bar
+### ✨ Pack quality bar
 
 - Include a clear description and at least one keyword.
 - Never include secrets or credential values.
@@ -85,7 +85,7 @@ If you are not ready to build a pack, open a **Pack request** issue using the te
 - Declare tool lists when possible to enable conflict checks.
 - Use CLI-specific prompts if behavior differs by CLI.
 
-### Requirements for a pack to be accepted
+### ☑️ Requirements for a pack to be accepted
 
 - `pack.toml` is valid and passes schema validation
 - All MCP servers referenced are publicly available
@@ -93,13 +93,13 @@ If you are not ready to build a pack, open a **Pack request** issue using the te
 - At least one tag
 - No duplicate of an existing pack with the same purpose
 
-### Process
+### 🔄 Process
 
 1. Build your pack locally and test it with `weave install ./my-pack`
 2. Open a pull request against [PackWeave/registry](https://github.com/PackWeave/registry) — add your pack source under `src/`
 3. A maintainer reviews and merges; CI auto-generates `packs/{name}.json` from your `src/` entry
 
-### Pack naming
+### 🏷️ Pack naming
 
 - Use lowercase and hyphens: `web-dev`, not `WebDev` or `web_dev`
 - Be specific: `rust-embedded` not just `rust`
@@ -107,13 +107,13 @@ If you are not ready to build a pack, open a **Pack request** issue using the te
 
 -----
 
-## Questions
+## 💬 Questions
 
 Open a GitHub Discussion, not an issue, for general questions.
 
 -----
 
-## AI assistant instructions
+## 🤖 AI assistant instructions
 
 If you use AI assistants for contributions, read `AGENTS.md` at the repo root — it is the single source of truth for codebase conventions. `CLAUDE.md`, `GEMINI.md`, and `CODEX.md` are thin pointers to it.
 
