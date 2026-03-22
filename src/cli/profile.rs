@@ -116,6 +116,22 @@ pub fn add_pack(pack_name: &str, profile_name: &str) -> Result<()> {
         // If this is the active profile, apply to adapters immediately
         if is_active {
             let pack = crate::core::pack::Pack::load(&pack_dir)?;
+
+            // Validate that the manifest matches what was resolved, matching
+            // the tamper check in install.rs.
+            anyhow::ensure!(
+                pack.name == *name,
+                "pack manifest name '{}' does not match resolved name '{name}'; \
+                 the archive may be corrupt or tampered",
+                pack.name
+            );
+            anyhow::ensure!(
+                pack.version == *version,
+                "pack manifest version '{}' does not match resolved version '{version}'; \
+                 the archive may be corrupt or tampered",
+                pack.version
+            );
+
             let resolved = ResolvedPack {
                 pack,
                 source: source.clone(),
@@ -128,19 +144,13 @@ pub fn add_pack(pack_name: &str, profile_name: &str) -> Result<()> {
             }
         }
 
+        lockfile.lock_pack(name, version.clone(), source.clone());
+
         profile.add_pack(InstalledPack {
             name: name.clone(),
             version: version.clone(),
             source,
         });
-
-        lockfile.lock_pack(
-            name,
-            version.clone(),
-            PackSource::Registry {
-                registry_url: config.registry_url.clone(),
-            },
-        );
 
         println!("  Added {name}@{version} to profile '{profile_name}'");
     }
