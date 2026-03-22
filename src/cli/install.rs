@@ -206,12 +206,12 @@ fn install_local(raw_path: &str, force: bool) -> Result<()> {
     let mut profile = Profile::load(&config.active_profile).context("loading active profile")?;
     let mut lockfile = LockFile::load(&config.active_profile).context("loading lock file")?;
 
-    // Already installed at the same version — nothing to do.
-    if let Some(installed) = profile.packs.iter().find(|p| p.name == *name) {
-        if installed.version == *version {
-            println!("  '{name}@{version}' is already installed");
-            return Ok(());
-        }
+    // Local installs always re-install, even at the same version, so that
+    // file changes made during pack development are picked up without
+    // requiring a version bump.  Evict the store cache first so Store::fetch
+    // writes the updated files rather than returning the cached directory.
+    if let Err(e) = Store::evict(name, version) {
+        log::warn!("could not evict cached '{name}@{version}' before local refresh: {e}");
     }
 
     println!("  Installing {name}@{version} (local)...");
@@ -300,9 +300,10 @@ fn install_local(raw_path: &str, force: bool) -> Result<()> {
 }
 
 /// Return true if `s` looks like a filesystem path rather than a pack name.
-/// Pack names are `[a-z0-9-]+`; paths start with `.`, `/`, or `~`.
+/// Pack names are `[a-z0-9-]+`; paths start with `.`, `/`, `~`, or are
+/// absolute paths (e.g. `C:\dev\pack` on Windows).
 fn is_local_path(s: &str) -> bool {
-    s.starts_with('.') || s.starts_with('/') || s.starts_with('~')
+    s.starts_with('.') || s.starts_with('/') || s.starts_with('~') || Path::new(s).is_absolute()
 }
 
 /// Expand a leading `~` to the user's home directory.
@@ -319,8 +320,15 @@ fn expand_home(s: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(s)
 }
 
-/// Walk `dir` recursively and return a flat map of `relative-path → file content`.
-/// Skips hidden entries (names starting with `.`).
+/// Top-level directories that may contain pack content.
+/// Files outside these paths (e.g. `target/`, `node_modules/`) are ignored.
+const PACK_CONTENT_DIRS: &[&str] = &["prompts", "commands", "skills", "settings"];
+
+/// Walk `dir` and return a flat map of `relative-path → file content`.
+///
+/// Only includes `pack.toml` at the root and files under the known pack
+/// content directories (`prompts/`, `commands/`, `skills/`, `settings/`).
+/// Hidden entries and symlinks are skipped.
 fn files_from_dir(dir: &Path) -> Result<HashMap<String, String>> {
     let mut files = HashMap::new();
     visit_dir(dir, dir, &mut files)?;
@@ -334,13 +342,29 @@ fn visit_dir(root: &Path, current: &Path, files: &mut HashMap<String, String>) -
     for entry in entries {
         let entry = entry.with_context(|| format!("reading entry in {}", current.display()))?;
         let path = entry.path();
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
 
-        // Skip hidden files and directories (e.g. .git, .DS_Store).
-        if entry.file_name().to_string_lossy().starts_with('.') {
+        // Skip hidden entries (e.g. .git, .DS_Store).
+        if name_str.starts_with('.') {
             continue;
         }
 
-        if path.is_dir() {
+        // Use symlink_metadata so we never follow symlinks — a symlink to a
+        // directory could escape the pack root or loop indefinitely.
+        let meta = entry
+            .metadata()
+            .with_context(|| format!("reading metadata for {}", path.display()))?;
+        if meta.file_type().is_symlink() {
+            continue;
+        }
+
+        if meta.is_dir() {
+            // At the root level, only recurse into known pack content directories.
+            // This prevents accidentally ingesting large trees (target/, node_modules/).
+            if current == root && !PACK_CONTENT_DIRS.contains(&name_str.as_ref()) {
+                continue;
+            }
             visit_dir(root, &path, files)?;
         } else {
             let rel = path
@@ -348,6 +372,12 @@ fn visit_dir(root: &Path, current: &Path, files: &mut HashMap<String, String>) -
                 .expect("path is always under root")
                 .to_string_lossy()
                 .replace('\\', "/");
+
+            // At the root level, only include pack.toml.
+            if current == root && rel != "pack.toml" {
+                continue;
+            }
+
             let content = std::fs::read_to_string(&path)
                 .with_context(|| format!("reading {}", path.display()))?;
             files.insert(rel, content);

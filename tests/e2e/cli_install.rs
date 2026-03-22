@@ -79,28 +79,40 @@ async fn install_local_pack_prompt_applied() {
 
 #[cfg(not(target_os = "windows"))]
 #[tokio::test]
-async fn install_local_pack_already_installed() {
+async fn install_local_pack_refresh() {
     let env = TestEnv::new().await;
 
     let pack_dir = env.project_dir.path().join("my-pack");
-    std::fs::create_dir_all(&pack_dir).unwrap();
+    std::fs::create_dir_all(pack_dir.join("prompts")).unwrap();
     std::fs::write(
         pack_dir.join("pack.toml"),
         "[pack]\nname = \"my-pack\"\nversion = \"0.1.0\"\ndescription = \"test\"\nauthors = [\"tester\"]\n",
     )
     .unwrap();
+    std::fs::write(pack_dir.join("prompts/system.md"), "v1 content").unwrap();
 
     env.weave_cmd()
         .args(["install", "./my-pack"])
         .assert()
         .success();
 
-    // Second install at the same version should report already installed.
+    // Update the prompt content without bumping the version.
+    std::fs::write(pack_dir.join("prompts/system.md"), "v2 content").unwrap();
+
+    // Second install at the same version should re-install (refresh), not skip.
     env.weave_cmd()
         .args(["install", "./my-pack"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("already installed").from_utf8());
+        .stdout(predicate::str::contains("Installing my-pack@0.1.0 (local)").from_utf8());
+
+    // The refreshed content should be present in CLAUDE.md.
+    let claude_md = env.claude_dir().join("CLAUDE.md");
+    let content = std::fs::read_to_string(&claude_md).unwrap_or_default();
+    assert!(
+        content.contains("v2 content"),
+        "CLAUDE.md should contain the refreshed prompt content"
+    );
 }
 
 #[tokio::test]

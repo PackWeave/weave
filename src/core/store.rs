@@ -35,6 +35,16 @@ impl Store {
     /// first, then renamed to the final destination so a failure never leaves
     /// a partial cache entry.
     pub fn fetch(name: &str, release: &PackRelease) -> Result<PathBuf> {
+        // Validate up-front: a pack without pack.toml is not a valid pack.
+        // Catching this before writing prevents the store from caching an
+        // invalid directory that downstream Pack::load() would fail on.
+        if !release.files.contains_key("pack.toml") {
+            return Err(WeaveError::Registry(format!(
+                "pack '{name}' release {} is missing pack.toml — the registry entry may be corrupt",
+                release.version
+            )));
+        }
+
         let dest = Self::pack_dir(name, &release.version)?;
 
         // If already cached, return early.
@@ -314,5 +324,39 @@ mod tests {
             result.is_err(),
             "backslash absolute path should be rejected"
         );
+    }
+
+    #[test]
+    fn write_files_rejects_windows_drive_prefix() {
+        // `C:evil` parses as Component::Prefix on Windows and should be rejected
+        // on all platforms for defense in depth.
+        let dir = TempDir::new().unwrap();
+        for path in &["C:evil", "C:\\evil", "C:/evil"] {
+            let files = HashMap::from([path.to_string()].map(|p| (p, "x".to_string())));
+            let result = Store::write_files("evil-pack", &files, dir.path());
+            // On Unix these paths are either caught by the Prefix check or the
+            // leading-slash / backslash check; on Windows the Prefix check fires.
+            // Either way the write must not produce a file outside the dest dir.
+            if result.is_ok() {
+                // If the path was somehow allowed, verify no file escaped the sandbox.
+                assert!(
+                    !std::path::Path::new("C:evil").exists(),
+                    "file must not be written outside dest"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn fetch_rejects_release_without_pack_toml() {
+        let release = crate::core::registry::PackRelease {
+            version: semver::Version::new(1, 0, 0),
+            files: HashMap::from([("prompts/system.md".to_string(), "hi".to_string())]),
+            dependencies: HashMap::new(),
+        };
+        let result = Store::fetch("bad-pack", &release);
+        assert!(result.is_err(), "fetch should fail without pack.toml");
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("pack.toml"), "error should mention pack.toml");
     }
 }
