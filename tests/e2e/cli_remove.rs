@@ -106,14 +106,10 @@ async fn remove_cleans_project_scope_from_different_directory() {
 
     mount_registry(&env.mock_server, &[&pack]).await;
 
-    // Create `.claude/` in the project dir so project-scope install is triggered.
-    std::fs::create_dir_all(env.project_dir.path().join(".claude"))
-        .expect("failed to create .claude dir");
-
-    // Install from the project dir — this writes to both ~/.claude.json (user scope)
-    // and <project>/.mcp.json (project scope).
+    // Install with --project from the project dir — this writes to both ~/.claude.json
+    // (user scope) and <project>/.mcp.json (project scope).
     env.weave_cmd()
-        .args(["install", "test-pack"])
+        .args(["install", "test-pack", "--project"])
         .assert()
         .success();
 

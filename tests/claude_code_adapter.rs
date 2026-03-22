@@ -25,8 +25,9 @@ fn make_adapter(home: &TempDir) -> ClaudeCodeAdapter {
     ClaudeCodeAdapter::with_home_and_project(home.path().to_path_buf(), no_project)
 }
 
+/// Create an adapter with project-scope enabled (opt-in via `project_install: true`).
 fn make_adapter_with_project(home: &TempDir, project: &TempDir) -> ClaudeCodeAdapter {
-    ClaudeCodeAdapter::with_home_and_project(
+    ClaudeCodeAdapter::with_home_project_scope(
         home.path().to_path_buf(),
         project.path().to_path_buf(),
     )
@@ -35,11 +36,6 @@ fn make_adapter_with_project(home: &TempDir, project: &TempDir) -> ClaudeCodeAda
 /// Create `~/.claude/` inside the temp home so user-scope writes succeed.
 fn setup_claude_home(home: &TempDir) {
     std::fs::create_dir_all(home.path().join(".claude")).unwrap();
-}
-
-/// Create `.claude/` inside the temp project root to activate project-scope.
-fn setup_project_claude_dir(project: &TempDir) {
-    std::fs::create_dir_all(project.path().join(".claude")).unwrap();
 }
 
 fn read_json(path: &std::path::Path) -> serde_json::Value {
@@ -422,7 +418,6 @@ fn apply_servers_project_scope() {
     let home = TempDir::new().unwrap();
     let project = TempDir::new().unwrap();
     setup_claude_home(&home);
-    setup_project_claude_dir(&project);
     let adapter = make_adapter_with_project(&home, &project);
 
     let pack = pack_with_servers("proj-pack", vec![simple_server("proj-server")]);
@@ -446,12 +441,17 @@ fn apply_servers_project_scope() {
 }
 
 #[test]
-fn apply_does_not_write_project_scope_when_dir_absent() {
+fn apply_does_not_write_project_scope_without_flag() {
     let home = TempDir::new().unwrap();
     let project = TempDir::new().unwrap();
-    // NOTE: we do NOT create project/.claude/
     setup_claude_home(&home);
-    let adapter = make_adapter_with_project(&home, &project);
+    // Create .claude/ so the old auto-detection would have fired — but the new
+    // code must NOT write project scope without project_install: true.
+    std::fs::create_dir_all(project.path().join(".claude")).unwrap();
+    let adapter = ClaudeCodeAdapter::with_home_and_project(
+        home.path().to_path_buf(),
+        project.path().to_path_buf(),
+    );
 
     let pack = pack_with_servers("no-proj-pack", vec![simple_server("no-proj-server")]);
     adapter.apply(&pack).unwrap();
@@ -459,7 +459,7 @@ fn apply_does_not_write_project_scope_when_dir_absent() {
     let proj_mcp = project.path().join(".mcp.json");
     assert!(
         !proj_mcp.exists(),
-        "project .mcp.json must not be created when .claude/ is absent"
+        "project .mcp.json must not be created without --project flag (project_install: false)"
     );
 }
 
@@ -470,7 +470,6 @@ fn remove_servers_project_scope() {
     let home = TempDir::new().unwrap();
     let project = TempDir::new().unwrap();
     setup_claude_home(&home);
-    setup_project_claude_dir(&project);
     let adapter = make_adapter_with_project(&home, &project);
 
     let pack = pack_with_servers("rm-proj-pack", vec![simple_server("rm-proj-server")]);
@@ -491,7 +490,6 @@ fn apply_project_scope_is_idempotent() {
     let home = TempDir::new().unwrap();
     let project = TempDir::new().unwrap();
     setup_claude_home(&home);
-    setup_project_claude_dir(&project);
     let adapter = make_adapter_with_project(&home, &project);
 
     let pack = pack_with_servers("proj-idem", vec![simple_server("proj-idem-server")]);

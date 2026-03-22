@@ -56,8 +56,15 @@ pub trait CliAdapter: Send + Sync {
 
 /// Returns all available adapters.
 pub fn all_adapters() -> Vec<Box<dyn CliAdapter>> {
+    all_adapters_with_scope(false)
+}
+
+/// Returns all available adapters, with optional project-scope install for Claude Code.
+pub fn all_adapters_with_scope(project_scope: bool) -> Vec<Box<dyn CliAdapter>> {
     vec![
-        Box::new(claude_code::ClaudeCodeAdapter::new()),
+        Box::new(claude_code::ClaudeCodeAdapter::new_with_scope(
+            project_scope,
+        )),
         Box::new(gemini_cli::GeminiCliAdapter::new()),
         Box::new(codex_cli::CodexAdapter::new()),
     ]
@@ -65,7 +72,12 @@ pub fn all_adapters() -> Vec<Box<dyn CliAdapter>> {
 
 /// Returns only adapters for CLIs that are installed.
 pub fn installed_adapters() -> Vec<Box<dyn CliAdapter>> {
-    all_adapters()
+    installed_adapters_with_scope(false)
+}
+
+/// Returns only installed adapters, with optional project-scope install for Claude Code.
+pub fn installed_adapters_with_scope(project_scope: bool) -> Vec<Box<dyn CliAdapter>> {
+    all_adapters_with_scope(project_scope)
         .into_iter()
         .filter(|a| a.is_installed())
         .collect()

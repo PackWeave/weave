@@ -40,8 +40,11 @@ struct PackweaveManifest {
 
 pub struct ClaudeCodeAdapter {
     home: Option<PathBuf>,
-    /// Current working directory, used to detect project-scope config.
+    /// Current working directory, used as the project root for project-scope config.
     project_root: PathBuf,
+    /// When true, also install/remove `.mcp.json` in `project_root` (project scope).
+    /// Replaces the old auto-detection via `.claude/` directory existence.
+    project_install: bool,
 }
 
 impl Default for ClaudeCodeAdapter {
@@ -52,9 +55,14 @@ impl Default for ClaudeCodeAdapter {
 
 impl ClaudeCodeAdapter {
     pub fn new() -> Self {
+        Self::new_with_scope(false)
+    }
+
+    pub fn new_with_scope(project_install: bool) -> Self {
         Self {
             home: dirs::home_dir(),
             project_root: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+            project_install,
         }
     }
 
@@ -62,6 +70,16 @@ impl ClaudeCodeAdapter {
         Self {
             home: Some(home),
             project_root,
+            project_install: false,
+        }
+    }
+
+    /// Test-facing constructor that enables project-scope install explicitly.
+    pub fn with_home_project_scope(home: PathBuf, project_root: PathBuf) -> Self {
+        Self {
+            home: Some(home),
+            project_root,
+            project_install: true,
         }
     }
 
@@ -123,21 +141,36 @@ impl ClaudeCodeAdapter {
         self.project_claude_dir().join("settings.json")
     }
 
-    /// Returns true if the project has a `.claude/` directory, indicating
-    /// that project-scope config should be maintained.
+    /// Returns true if project-scope install should be performed.
     ///
-    /// Explicitly excludes the home directory: `~/.claude/` is Claude Code's
-    /// user-scope global config directory, not a project indicator. Without
-    /// this guard, running `weave install` from `~` would write to `~/.mcp.json`
-    /// (a location Claude Code reads) and never clean it up via the normal
-    /// user-scope manifest path.
+    /// Project scope is now opt-in via `--project` flag rather than
+    /// auto-detected from `.claude/` directory existence. This prevents
+    /// silent writes to `~/.mcp.json` when running from the home directory.
+    ///
+    /// The home directory guard is kept as a safety net: even if `--project`
+    /// is passed from `~`, we refuse to write to `~/.mcp.json` because
+    /// that file is read globally by Claude Code.
     fn has_project_scope(&self) -> bool {
+        if !self.project_install {
+            return false;
+        }
+        // Guard: never allow project scope at home dir (~/.mcp.json would be global)
         if let Some(home) = &self.home {
             if &self.project_root == home {
                 return false;
             }
         }
-        self.project_claude_dir().exists()
+        true
+    }
+
+    /// Load the `project_dirs` map from the user manifest.
+    /// Returns `None` if Claude Code is not installed or the manifest is missing/unreadable.
+    /// Used by `weave list` to show scope per pack.
+    pub fn load_project_dirs_public(&self) -> Option<HashMap<String, Vec<String>>> {
+        if !self.is_installed() {
+            return None;
+        }
+        self.load_manifest().ok().map(|m| m.project_dirs)
     }
 
     // ── Manifest helpers ──────────────────────────────────────────────────────
