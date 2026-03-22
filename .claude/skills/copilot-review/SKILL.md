@@ -1,7 +1,6 @@
 ---
 name: copilot-review
 description: Review all Copilot inline comments on a PR. Classifies each comment as stale, valid, deferred, or skip — fixes valid ones in the working tree, creates GitHub issues for deferred ones. Pass the PR number as the argument.
-disable-model-invocation: true
 allowed-tools: Bash, Read, Edit, Write, Grep
 ---
 

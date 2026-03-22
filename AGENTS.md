@@ -93,6 +93,18 @@ The adapters are opaque. They expose only the `CliAdapter` trait. The core does 
 
 -----
 
+## Workflow skills
+
+This project has three Claude Code skills that encode the standard development workflow. Use them instead of doing these steps manually:
+
+- **`/weave-ship <commit message>`** — full PR workflow: runs quality gates, commits, pushes, and opens a PR with the correct assignee. Use this whenever you are ready to ship a change.
+- **`/rust-pre-commit`** — runs `cargo fmt --all`, `cargo clippy -- -D warnings`, and `cargo test` in order. Use this to verify the working tree is CI-ready before committing.
+- **`/copilot-review <PR number>`** — fetches all Copilot inline comments on a PR, classifies each as stale/valid/deferred/skip, fixes valid ones in-place, and creates GitHub issues for deferred ones.
+
+A `PreToolUse` hook also runs the quality gate automatically whenever Claude executes a `git commit` command.
+
+-----
+
 ## Git branch hygiene
 
 **Never commit directly to `main`.** All changes must go through a pull request, even docs-only changes. Create a feature branch, push it, and open a PR via `gh pr create`.
