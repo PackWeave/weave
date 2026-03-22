@@ -72,8 +72,6 @@ pub fn run(profile_name: Option<&str>) -> Result<()> {
             "  Applying {}@{}...",
             apply_result.name, apply_result.version
         );
-        // Print fetch message if this was fetched (indicated by the core layer
-        // having loaded the pack successfully after fetching).
         for adapter in &apply_result.applied_adapters {
             println!("    Applied to {adapter}");
         }

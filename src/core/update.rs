@@ -217,9 +217,9 @@ pub fn update_packs(
                 },
             );
 
-            if adapter_errors.is_empty() {
-                result.any_updated = true;
-            }
+            // Mark updated regardless of adapter errors — profile/lockfile state
+            // has already been mutated and the store has the new version.
+            result.any_updated = true;
 
             result.updated.push(PackUpdateResult {
                 name: resolved_name.clone(),
