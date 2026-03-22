@@ -458,3 +458,125 @@ async fn install_local_pack_refresh_eviction_failure() {
         "stderr should mention eviction failure, got: {stderr}"
     );
 }
+
+// ── HTTP transport install ────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn install_http_server_writes_url() {
+    let env = TestEnv::new().await;
+    let pack = FixturePack::new("http-pack", "1.0.0").with_http_server(
+        "remote-api",
+        "https://api.example.com/mcp",
+        None,
+    );
+
+    mount_registry(&env.mock_server, &[&pack]).await;
+
+    env.weave_cmd()
+        .args(["install", "http-pack"])
+        .assert()
+        .success();
+
+    let claude_json = env.claude_json();
+    assert!(
+        claude_json.exists(),
+        "~/.claude.json should exist after installing HTTP server pack"
+    );
+    let content: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&claude_json).unwrap()).unwrap();
+    let server = &content["mcpServers"]["remote-api"];
+    assert!(server.is_object(), "remote-api should be in mcpServers");
+    assert_eq!(
+        server["type"].as_str(),
+        Some("http"),
+        "server type should be http"
+    );
+    assert_eq!(
+        server["url"].as_str(),
+        Some("https://api.example.com/mcp"),
+        "server url should match"
+    );
+    assert!(
+        server.get("command").is_none(),
+        "HTTP server should not have a command field"
+    );
+}
+
+#[tokio::test]
+async fn install_http_server_preserves_headers() {
+    let env = TestEnv::new().await;
+    let pack = FixturePack::new("http-headers-pack", "1.0.0").with_http_server(
+        "remote-api",
+        "https://api.example.com/mcp",
+        Some(&[("Authorization", "${API_KEY}"), ("X-Custom", "static")]),
+    );
+
+    mount_registry(&env.mock_server, &[&pack]).await;
+
+    env.weave_cmd()
+        .args(["install", "http-headers-pack"])
+        .assert()
+        .success();
+
+    let claude_json = env.claude_json();
+    let content: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&claude_json).unwrap()).unwrap();
+    let server = &content["mcpServers"]["remote-api"];
+    let headers = server
+        .get("headers")
+        .expect("headers should be present in HTTP server config");
+    assert_eq!(
+        headers["Authorization"].as_str(),
+        Some("${API_KEY}"),
+        "Authorization header should be preserved"
+    );
+    assert_eq!(
+        headers["X-Custom"].as_str(),
+        Some("static"),
+        "X-Custom header should be preserved"
+    );
+}
+
+#[tokio::test]
+async fn remove_http_server_cleans_up() {
+    let env = TestEnv::new().await;
+    let pack = FixturePack::new("http-rm-pack", "1.0.0").with_http_server(
+        "remote-api",
+        "https://api.example.com/mcp",
+        None,
+    );
+
+    mount_registry(&env.mock_server, &[&pack]).await;
+
+    env.weave_cmd()
+        .args(["install", "http-rm-pack"])
+        .assert()
+        .success();
+
+    // Verify the server is present
+    let claude_json = env.claude_json();
+    let content: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&claude_json).unwrap()).unwrap();
+    assert!(
+        content["mcpServers"]["remote-api"].is_object(),
+        "remote-api should be present after install"
+    );
+
+    // Remove
+    env.weave_cmd()
+        .args(["remove", "http-rm-pack"])
+        .assert()
+        .success();
+
+    // Verify cleanup
+    let content: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&claude_json).unwrap()).unwrap();
+    let servers = content
+        .get("mcpServers")
+        .and_then(|v| v.as_object())
+        .expect("mcpServers should be a JSON object in ~/.claude.json");
+    assert!(
+        !servers.contains_key("remote-api"),
+        "remote-api should be removed from ~/.claude.json after pack removal"
+    );
+}

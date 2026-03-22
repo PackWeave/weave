@@ -77,6 +77,16 @@ impl TestEnv {
     pub fn claude_json(&self) -> PathBuf {
         self.home_dir.path().join(".claude.json")
     }
+
+    /// Path to `~/.claude/settings.json` (Claude Code user-scope settings).
+    pub fn claude_settings_json(&self) -> PathBuf {
+        self.home_dir.path().join(".claude").join("settings.json")
+    }
+
+    /// Path to `config.toml` in the store directory.
+    pub fn config_toml(&self) -> PathBuf {
+        self.store_dir.path().join("config.toml")
+    }
 }
 
 // ── FixturePack ──────────────────────────────────────────────────────────────
@@ -87,6 +97,8 @@ pub struct FixturePack {
     pub version: String,
     pub description: String,
     pub servers: Vec<(String, String, Vec<String>)>,
+    pub http_servers: Vec<(String, String, Option<Vec<(String, String)>>)>,
+    pub hooks: Vec<(String, Vec<(String, String)>)>,
     pub prompt: Option<String>,
     pub commands: Vec<(String, String)>,
     pub dependencies: Vec<(String, String)>,
@@ -100,6 +112,8 @@ impl FixturePack {
             version: version.to_string(),
             description: format!("A test pack: {name}"),
             servers: Vec::new(),
+            http_servers: Vec::new(),
+            hooks: Vec::new(),
             prompt: None,
             commands: Vec::new(),
             dependencies: Vec::new(),
@@ -125,6 +139,37 @@ impl FixturePack {
     /// Add a slash command.
     pub fn with_command(mut self, name: &str, content: &str) -> Self {
         self.commands.push((name.to_string(), content.to_string()));
+        self
+    }
+
+    /// Add an HTTP MCP server definition.
+    pub fn with_http_server(
+        mut self,
+        name: &str,
+        url: &str,
+        headers: Option<&[(&str, &str)]>,
+    ) -> Self {
+        self.http_servers.push((
+            name.to_string(),
+            url.to_string(),
+            headers.map(|h| {
+                h.iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect()
+            }),
+        ));
+        self
+    }
+
+    /// Add a hook event with matcher/command entries.
+    pub fn with_hook(mut self, event: &str, entries: &[(&str, &str)]) -> Self {
+        self.hooks.push((
+            event.to_string(),
+            entries
+                .iter()
+                .map(|(m, c)| (m.to_string(), c.to_string()))
+                .collect(),
+        ));
         self
     }
 
@@ -166,6 +211,32 @@ impl FixturePack {
                 toml.push_str(&format!("command = \"{command}\"\n"));
                 let args_str: Vec<String> = args.iter().map(|a| format!("\"{a}\"")).collect();
                 toml.push_str(&format!("args = [{}]\n", args_str.join(", ")));
+            }
+        }
+
+        for (name, url, headers) in &self.http_servers {
+            toml.push_str("\n[[servers]]\n");
+            toml.push_str(&format!("name = \"{name}\"\n"));
+            toml.push_str("transport = \"http\"\n");
+            toml.push_str(&format!("url = \"{url}\"\n"));
+            if let Some(hdrs) = headers {
+                toml.push_str("\n[servers.headers]\n");
+                for (k, v) in hdrs {
+                    toml.push_str(&format!("{k} = \"{v}\"\n"));
+                }
+            }
+        }
+
+        if !self.hooks.is_empty() {
+            toml.push_str("\n[extensions.claude_code.hooks]\n");
+            for (event, entries) in &self.hooks {
+                let inline: Vec<String> = entries
+                    .iter()
+                    .map(|(matcher, command)| {
+                        format!("{{ matcher = \"{matcher}\", command = \"{command}\" }}")
+                    })
+                    .collect();
+                toml.push_str(&format!("{event} = [{}]\n", inline.join(", ")));
             }
         }
 
