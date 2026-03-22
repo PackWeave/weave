@@ -7,7 +7,7 @@ mod error;
 #[allow(dead_code)]
 mod util;
 
-use clap::{builder::styling, Parser, Subcommand};
+use clap::{builder::styling, ColorChoice, CommandFactory, FromArgMatches, Parser, Subcommand};
 
 /// weave — a pack manager for AI CLI tools.
 ///
@@ -176,11 +176,44 @@ enum ProfileAction {
     },
 }
 
+/// Pre-parse `--color` from raw args so we can set the color mode before clap
+/// renders help text or parse errors (which happen during `Cli::parse()`).
+fn pre_parse_color_mode() -> cli::style::ColorMode {
+    let args: Vec<String> = std::env::args().collect();
+    for (i, arg) in args.iter().enumerate() {
+        // --color=value
+        if let Some(val) = arg.strip_prefix("--color=") {
+            if let Ok(mode) = val.parse() {
+                return mode;
+            }
+        }
+        // --color value
+        if arg == "--color" {
+            if let Some(val) = args.get(i + 1) {
+                if let Ok(mode) = val.parse() {
+                    return mode;
+                }
+            }
+        }
+    }
+    cli::style::ColorMode::Auto
+}
+
 fn main() {
     env_logger::init();
 
-    let cli = Cli::parse();
-    cli::style::set_color_mode(cli.color);
+    // Set color mode before parse() so clap's help/error output respects it.
+    let color_mode = pre_parse_color_mode();
+    cli::style::set_color_mode(color_mode);
+
+    let clap_color = match color_mode {
+        cli::style::ColorMode::Auto => ColorChoice::Auto,
+        cli::style::ColorMode::Always => ColorChoice::Always,
+        cli::style::ColorMode::Never => ColorChoice::Never,
+    };
+
+    let cli = Cli::command().color(clap_color).get_matches();
+    let cli = Cli::from_arg_matches(&cli).expect("clap arg mismatch");
 
     let result = match cli.command {
         Commands::Init { name } => cli::init::run(name.as_deref()),
