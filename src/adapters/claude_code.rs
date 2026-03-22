@@ -832,15 +832,11 @@ impl CliAdapter for ClaudeCodeAdapter {
 
         // Project-scope — only if the user passed `--project` (opt-in).
         if self.has_project_scope() {
-            let mut project_manifest = self.load_project_manifest()?;
-            self.apply_project_servers(pack, &mut project_manifest)?;
-            self.save_project_manifest(&project_manifest)?;
-            self.apply_project_settings(pack, &mut project_manifest)?;
-            self.save_project_manifest(&project_manifest)?;
-
             // Record this project root in the user-scope manifest so `remove`
             // can clean up project-scope state regardless of the working directory
-            // when `weave remove` is later invoked.
+            // when `weave remove` is later invoked. We do this BEFORE the
+            // project-scope writes so that even if a mid-apply failure occurs,
+            // the root is already tracked and `weave remove` can clean it up.
             let root_str = self
                 .project_root
                 .canonicalize()
@@ -855,6 +851,12 @@ impl CliAdapter for ClaudeCodeAdapter {
                 roots.push(root_str);
             }
             self.save_manifest(&manifest)?;
+
+            let mut project_manifest = self.load_project_manifest()?;
+            self.apply_project_servers(pack, &mut project_manifest)?;
+            self.save_project_manifest(&project_manifest)?;
+            self.apply_project_settings(pack, &mut project_manifest)?;
+            self.save_project_manifest(&project_manifest)?;
         }
 
         Ok(())
