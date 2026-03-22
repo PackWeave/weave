@@ -9,7 +9,7 @@ use crate::core::conflict;
 use crate::core::lockfile::LockFile;
 use crate::core::pack::{Pack, PackSource, ResolvedPack};
 use crate::core::profile::{InstalledPack, Profile};
-use crate::core::registry::{GitHubRegistry, PackRelease, Registry};
+use crate::core::registry::{registry_from_config, PackRelease, Registry};
 use crate::core::resolver::Resolver;
 use crate::core::store::Store;
 
@@ -44,7 +44,7 @@ pub fn run(pack_name: &str, version: Option<&str>, force: bool, project: bool) -
     let pack_name = pack_name.strip_prefix('@').unwrap_or(pack_name);
 
     let config = Config::load().context("loading weave config")?;
-    let registry = GitHubRegistry::new(&config.registry_url);
+    let registry = registry_from_config(&config);
 
     let version_req = match version {
         Some(v) => Some(
