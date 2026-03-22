@@ -1,7 +1,7 @@
 # Weave
 
 [![Build](https://github.com/PackWeave/weave/actions/workflows/ci.yml/badge.svg)](https://github.com/PackWeave/weave/actions/workflows/ci.yml)
-![Status](https://img.shields.io/badge/status-v0.2-green)
+![Status](https://img.shields.io/badge/status-milestone%203%20complete-green)
 [![Homebrew](https://img.shields.io/badge/homebrew-PackWeave%2Ftap-FBB040)](https://github.com/PackWeave/homebrew-tap)
 [![Registry](https://img.shields.io/badge/registry-browse%20packs-8B5CF6)](https://github.com/PackWeave/registry)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
@@ -11,7 +11,7 @@
 
 ```bash
 weave install @webdev    # install a web dev MCP stack
-weave list               # see what's installed and where
+weave use work           # switch to a named profile
 weave diagnose           # verify config health across all your CLIs
 ```
 
@@ -31,7 +31,7 @@ There's no way to share your setup with a teammate, version it, or switch betwee
 
 Think of packs like Homebrew formulas for your AI CLI setup — community-maintained, versioned, one-line install.
 
-A **pack** is a `pack.toml` manifest bundled with MCP server definitions, slash commands, system prompt fragments, and settings. Packs install into the active **profile** — a named set of packs for a specific context (`work`, `oss`, `personal`). Named profiles and quick switching via `weave use` are coming in v0.3; today all packs install into a single `default` profile.
+A **pack** is a `pack.toml` manifest bundled with MCP server definitions, slash commands, system prompt fragments, and settings. Packs install into the active **profile** — a named set of packs for a specific context (`work`, `oss`, `personal`). Switch between profiles with `weave use work` and recover from config drift with `weave sync`.
 
 ```
 weave install @webdev
@@ -125,7 +125,13 @@ That's it. Weave has written the pack's MCP servers, system prompt, settings, an
 | `weave search --mcp <query>` | Search the official MCP Registry for servers instead of weave packs |
 | `weave update [pack]` | Update one or all installed packs to the latest compatible version |
 | `weave init [name]` | Scaffold a new pack directory (omit name to initialize the current directory) |
-| `weave diagnose` | Check for config drift and health issues across all installed CLIs and packs |
+| `weave diagnose [--json]` | Check for config drift and health issues across all installed CLIs and packs |
+| `weave profile create <name>` | Create a new named profile |
+| `weave profile list` | List all profiles (marks the active one) |
+| `weave profile delete <name>` | Delete a profile (refuses if active or default) |
+| `weave profile add <pack> -p <name>` | Add a pack reference to a named profile |
+| `weave use [profile]` | Switch to a named profile, or print the active profile |
+| `weave sync` | Reapply the active profile's lock file to all adapters |
 
 **Examples:**
 
@@ -156,6 +162,17 @@ weave init my-pack
 
 # Check for config issues (e.g. project-scope directories added after install)
 weave diagnose
+
+# JSON output for scripting
+weave diagnose --json
+
+# Create and switch to a named profile
+weave profile create work
+weave profile add @webdev -p work
+weave use work
+
+# Reapply the active profile after manual config changes
+weave sync
 ```
 
 ---
@@ -206,9 +223,9 @@ See [pack.schema.toml](https://github.com/PackWeave/weave/blob/main/pack.schema.
 
 | CLI | Status | What Weave manages |
 |-----|--------|--------------------|
-| **Claude Code** | ✅ v0.1 | MCP servers · slash commands · system prompt · settings |
-| **Gemini CLI** | ✅ v0.1 | MCP servers · system prompt · settings |
-| **Codex CLI** | ✅ v0.2 | MCP servers · skills · system prompt · settings |
+| **Claude Code** | ✅ Supported | MCP servers · slash commands · system prompt · settings |
+| **Gemini CLI** | ✅ Supported | MCP servers · system prompt · settings |
+| **Codex CLI** | ✅ Supported | MCP servers · skills · system prompt · settings |
 
 ---
 
@@ -222,30 +239,28 @@ Some CLIs read both a user-level config (`~/.claude/`) and a project-level confi
 Run `weave diagnose` to detect this condition automatically:
 
 ```
-Running diagnostics (profile 'default')...
+Profile: default
+Packs: 1 installed
 
-  Claude Code — 1 issue(s) found:
-    [warning] pack 'webdev' has no project-scope entries for Claude Code but .claude/ now exists
-             run `weave install webdev` to apply project-scope config
+  webdev v1.0.0
+    Claude Code: drifted (pack 'webdev' has no project-scope entries but .claude/ now exists)
+    Gemini CLI: ok
+    Codex CLI: ok
 
-  Gemini CLI — OK
-  Codex CLI — OK
-
-1 issue(s) found. See suggestions above to fix them.
+1 issue(s) found. Run `weave sync` to fix.
 ```
 
 ---
 
-## 🚀 Coming in v0.3+
+## 🚀 Coming next
 
 See [docs/ROADMAP.md](https://github.com/PackWeave/weave/blob/main/docs/ROADMAP.md) for full milestones.
 
-**v0.3 — Profiles, hooks, and community taps:**
+**Hooks and community taps:**
 
 ```bash
-weave use work           # switch to a named profile (work, oss, personal)
 weave tap add user/repo  # add a community pack source
-weave sync               # reapply the active profile after manual config changes
+# Hooks: pack-defined lifecycle hooks with explicit opt-in (--allow-hooks)
 ```
 
 ---
