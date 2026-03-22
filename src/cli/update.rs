@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 
 use crate::adapters;
+use crate::cli::style;
 use crate::core::config::Config;
 use crate::core::lockfile::LockFile;
 use crate::core::profile::Profile;
@@ -36,46 +37,58 @@ pub fn run(pack_spec: Option<&str>) -> Result<()> {
 
     // Format output
     for skipped in &result.skipped {
-        println!("  skipping '{}' — {}", skipped.name, skipped.reason);
+        println!(
+            "  {} '{}' — {}",
+            style::dim("skipping"),
+            style::pack_name(&skipped.name),
+            style::subtext(&skipped.reason)
+        );
     }
 
     for name in &result.already_up_to_date {
-        println!("  {name} is already up to date");
+        println!("  {} is already up to date", style::pack_name(name));
     }
 
     for pack_result in &result.updated {
         if pack_result.is_upgrade {
             println!(
                 "  Updating {} to {}...",
-                pack_result.name, pack_result.version
+                style::pack_name(&pack_result.name),
+                style::version(pack_result.version.to_string())
             );
         } else {
             println!(
                 "  Installing dependency {}@{}...",
-                pack_result.name, pack_result.version
+                style::pack_name(&pack_result.name),
+                style::version(pack_result.version.to_string())
             );
         }
 
         for adapter in &pack_result.applied_adapters {
-            println!("    Applied to {adapter}");
+            println!(
+                "    {} to {}",
+                style::success("Applied"),
+                style::target(adapter)
+            );
         }
         for err in &pack_result.adapter_errors {
-            eprintln!("  warning: {err}");
+            eprintln!("  {}: {err}", style::dim("warning"));
         }
         for env_var in &pack_result.missing_env_vars {
             eprintln!(
                 "  warning: pack '{}' requires {} to be set",
-                env_var.pack_name, env_var.key
+                style::pack_name(&env_var.pack_name),
+                style::emphasis(&env_var.key)
             );
             if let Some(desc) = &env_var.description {
-                eprintln!("  {}: {desc}", env_var.key);
+                eprintln!("  {}: {desc}", style::dim(&env_var.key));
             }
             eprintln!("  set it with: export {}=<value>", env_var.key);
         }
     }
 
     if result.any_updated {
-        println!("Done.");
+        println!("{}", style::success("Done."));
     }
 
     Ok(())

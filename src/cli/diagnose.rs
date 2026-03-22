@@ -4,6 +4,7 @@ use serde::Serialize;
 
 use crate::adapters;
 use crate::adapters::{AdapterId, CliAdapter, DiagnosticIssue};
+use crate::cli::style;
 use crate::core::config::Config;
 use crate::core::pack::{PackSource, PackTargets};
 use crate::core::profile::Profile;
@@ -230,6 +231,69 @@ pub fn format_human(report: &DiagnoseReport) -> String {
     out
 }
 
+fn format_human_styled(report: &DiagnoseReport) -> String {
+    let mut out = String::new();
+
+    out.push_str(&format!(
+        "{}: {}\n",
+        style::header("Profile"),
+        style::emphasis(&report.profile)
+    ));
+    out.push_str(&format!(
+        "{}: {} installed\n",
+        style::header("Packs"),
+        style::success(report.pack_count.to_string())
+    ));
+
+    if report.packs.is_empty() {
+        out.push_str(&format!("\n  {}\n", style::subtext("(no packs installed)")));
+    }
+
+    for pack in &report.packs {
+        out.push_str(&format!(
+            "\n  {} v{}\n",
+            style::pack_name(&pack.name),
+            style::version(&pack.version)
+        ));
+        for adapter_status in &pack.adapters {
+            let status_str = match &adapter_status.status {
+                PackHealth::Ok => format!("{}", style::success("ok")),
+                PackHealth::Skipped => format!("{}", style::dim("skipped (not installed)")),
+                PackHealth::Missing => {
+                    format!("{}", style::subtext("missing (not tracked by adapter)"))
+                }
+                PackHealth::NotTargeted => format!("{}", style::dim("skipped (not targeted)")),
+                PackHealth::Drifted => {
+                    let details: Vec<&str> = adapter_status
+                        .issues
+                        .iter()
+                        .map(|i| i.message.as_str())
+                        .collect();
+                    style::subtext(format!("drifted ({})", details.join("; "))).to_string()
+                }
+            };
+            out.push_str(&format!(
+                "    {}: {}\n",
+                style::target(&adapter_status.adapter),
+                status_str
+            ));
+        }
+    }
+
+    out.push('\n');
+
+    if report.issue_count == 0 {
+        out.push_str(&format!("{}\n", style::success("No issues found.")));
+    } else {
+        out.push_str(&format!(
+            "{} issue(s) found. Run `weave sync` to fix.\n",
+            style::subtext(report.issue_count.to_string())
+        ));
+    }
+
+    out
+}
+
 /// Render the report as JSON.
 pub fn format_json(report: &DiagnoseReport) -> Result<String> {
     serde_json::to_string_pretty(report).context("serializing diagnose report to JSON")
@@ -262,7 +326,11 @@ pub fn run(json: bool) -> Result<()> {
         let output = format_json(&report)?;
         println!("{output}");
     } else {
-        let output = format_human(&report);
+        let output = if style::colors_enabled() {
+            format_human_styled(&report)
+        } else {
+            format_human(&report)
+        };
         print!("{output}");
     }
 

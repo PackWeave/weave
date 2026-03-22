@@ -1,5 +1,6 @@
 use anyhow::{bail, Context, Result};
 
+use crate::cli::style;
 use crate::core::config::Config;
 use crate::core::mcp_registry::McpRegistryClient;
 use crate::core::registry::{registry_from_config, Registry};
@@ -38,29 +39,49 @@ pub fn run(query: &str, target: Option<&str>, mcp: bool) -> Result<()> {
     let results = registry.search(query).context("searching registry")?;
 
     if results.is_empty() {
-        println!("No packs found matching '{query}'.");
+        println!(
+            "{}",
+            style::subtext(format!("No packs found matching '{query}'."))
+        );
         println!();
-        println!("Browse available packs at https://github.com/PackWeave/registry");
+        println!(
+            "{}",
+            style::subtext("Browse available packs at https://github.com/PackWeave/registry")
+        );
         return Ok(());
     }
 
     // TODO: filter by `target` once the registry index includes per-pack target data.
 
-    println!("Search results for '{query}':");
+    println!(
+        "{}",
+        style::header(format!("Search results for '{query}':"))
+    );
     println!();
 
     for pack in &results {
-        println!("  {} v{}", pack.name, pack.latest_version);
+        println!(
+            "  {} v{}",
+            style::pack_name(&pack.name),
+            style::version(pack.latest_version.to_string())
+        );
         if !pack.description.is_empty() {
-            println!("    {}", pack.description);
+            println!("    {}", style::subtext(&pack.description));
         }
         if !pack.keywords.is_empty() {
-            println!("    Keywords: {}", pack.keywords.join(", "));
+            println!(
+                "    {}: {}",
+                style::dim("Keywords"),
+                style::subtext(pack.keywords.join(", "))
+            );
         }
         println!();
     }
 
-    println!("{} pack(s) found.", results.len());
+    println!(
+        "{} pack(s) found.",
+        style::success(results.len().to_string())
+    );
 
     Ok(())
 }
@@ -71,11 +92,17 @@ fn run_mcp_search(query: &str) -> Result<()> {
     let results = client.search(query).context("searching MCP Registry")?;
 
     if results.is_empty() {
-        println!("No MCP servers found matching '{query}'.");
+        println!(
+            "{}",
+            style::subtext(format!("No MCP servers found matching '{query}'."))
+        );
         return Ok(());
     }
 
-    println!("MCP Registry results for '{query}':");
+    println!(
+        "{}",
+        style::header(format!("MCP Registry results for '{query}':"))
+    );
     println!();
 
     for server in &results {
@@ -85,20 +112,28 @@ fn run_mcp_search(query: &str) -> Result<()> {
             .as_deref()
             .unwrap_or_else(|| server.name.rsplit('/').next().unwrap_or(&server.name));
 
-        println!("  {display_name}");
+        println!("  {}", style::pack_name(display_name));
 
         if !server.description.is_empty() {
-            println!("    {}", server.description);
+            println!("    {}", style::subtext(&server.description));
         }
 
         for pkg in &server.packages {
             if let Some(ver) = &pkg.version {
                 println!(
-                    "    Package: {} ({}) v{}",
-                    pkg.identifier, pkg.registry_type, ver
+                    "    {}: {} ({}) v{}",
+                    style::dim("Package"),
+                    style::pack_name(&pkg.identifier),
+                    style::target(&pkg.registry_type),
+                    style::version(ver)
                 );
             } else {
-                println!("    Package: {} ({})", pkg.identifier, pkg.registry_type);
+                println!(
+                    "    {}: {} ({})",
+                    style::dim("Package"),
+                    style::pack_name(&pkg.identifier),
+                    style::target(&pkg.registry_type)
+                );
             }
         }
 
@@ -111,9 +146,15 @@ fn run_mcp_search(query: &str) -> Result<()> {
         println!();
     }
 
-    println!("{} server(s) found.", results.len());
+    println!(
+        "{} server(s) found.",
+        style::success(results.len().to_string())
+    );
     println!();
-    println!("Note: these are MCP servers, not weave packs.");
+    println!(
+        "{}",
+        style::subtext("Note: these are MCP servers, not weave packs.")
+    );
 
     Ok(())
 }
