@@ -294,11 +294,16 @@ Packs: 1 installed
 
 See [docs/ROADMAP.md](https://github.com/PackWeave/weave/blob/main/docs/ROADMAP.md) for full milestones.
 
-- **Templates** — manage CLI prompt files (`CLAUDE.md`, `AGENTS.md`, etc.) as reusable templates
-- **Auto-update** — keep weave itself up to date automatically
-- **Plugin system** — extend weave with custom commands
-- **Org config sharing** — team-wide profiles and pack sets
-- **First public release** — crates.io publish, Homebrew formula, `v0.4.0`
+**v0.4 — first public release:**
+- `weave publish` + `weave auth` — publish and share packs from the CLI
+- Additive hook merge for multi-pack profiles
+- Colorized CLI output, structured error types
+- crates.io publish, Homebrew formula
+
+**v0.5 — ecosystem depth:**
+- `weave export` — reverse-engineer your existing CLI setup into a shareable pack
+- Skill directories, template placeholders, `--dry-run`
+- Adapter modernization — Claude Code skills format, rules directory
 
 ---
 
