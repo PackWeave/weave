@@ -133,4 +133,15 @@ mod tests {
         let target = "invalid_cli";
         assert!(!VALID_TARGETS.contains(&target));
     }
+
+    #[test]
+    fn mcp_and_target_are_mutually_exclusive() {
+        let result = run("query", Some("claude_code"), true);
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("--mcp and --target cannot be used together"),
+            "expected mutual exclusion error, got: {err}"
+        );
+    }
 }

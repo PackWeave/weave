@@ -74,6 +74,13 @@ impl McpRegistryClient {
         }
     }
 
+    #[cfg(test)]
+    pub fn with_base_url(base_url: &str) -> Self {
+        Self {
+            base_url: base_url.to_string(),
+        }
+    }
+
     /// Search the MCP Registry for servers matching the given query.
     pub fn search(&self, query: &str) -> crate::error::Result<Vec<McpRegistryServer>> {
         let url = format!("{}/v0.1/servers", self.base_url);
@@ -83,15 +90,24 @@ impl McpRegistryClient {
             .query(&[("search", query), ("version", "latest"), ("limit", "20")])
             .header("User-Agent", format!("weave/{}", env!("CARGO_PKG_VERSION")))
             .send()
-            .map_err(|e| WeaveError::McpRegistry(format!("request failed: {e}")))?;
+            .map_err(|e| {
+                WeaveError::McpRegistry(format!(
+                    "request failed: {e} — check your network connection"
+                ))
+            })?;
 
         if !resp.status().is_success() {
-            return Err(WeaveError::McpRegistry(format!("HTTP {}", resp.status())));
+            return Err(WeaveError::McpRegistry(format!(
+                "HTTP {} from MCP Registry — this may be temporary, try again in a moment",
+                resp.status()
+            )));
         }
 
-        let body: McpRegistryResponse = resp
-            .json()
-            .map_err(|e| WeaveError::McpRegistry(format!("failed to parse response: {e}")))?;
+        let body: McpRegistryResponse = resp.json().map_err(|e| {
+            WeaveError::McpRegistry(format!(
+                "failed to parse response: {e} — try again later or report this issue"
+            ))
+        })?;
 
         Ok(body.servers.into_iter().map(|e| e.server).collect())
     }
