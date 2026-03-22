@@ -7,7 +7,7 @@ mod error;
 #[allow(dead_code)]
 mod util;
 
-use clap::{builder::styling, ColorChoice, CommandFactory, FromArgMatches, Parser, Subcommand};
+use clap::{ColorChoice, CommandFactory, FromArgMatches, Parser, Subcommand, builder::styling};
 
 /// weave — a pack manager for AI CLI tools.
 ///
@@ -182,18 +182,17 @@ fn pre_parse_color_mode() -> cli::style::ColorMode {
     let args: Vec<String> = std::env::args().collect();
     for (i, arg) in args.iter().enumerate() {
         // --color=value
-        if let Some(val) = arg.strip_prefix("--color=") {
-            if let Ok(mode) = val.parse() {
-                return mode;
-            }
+        if let Some(val) = arg.strip_prefix("--color=")
+            && let Ok(mode) = val.parse()
+        {
+            return mode;
         }
         // --color value
-        if arg == "--color" {
-            if let Some(val) = args.get(i + 1) {
-                if let Ok(mode) = val.parse() {
-                    return mode;
-                }
-            }
+        if arg == "--color"
+            && let Some(val) = args.get(i + 1)
+            && let Ok(mode) = val.parse()
+        {
+            return mode;
         }
     }
     cli::style::ColorMode::Auto

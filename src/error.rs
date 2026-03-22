@@ -29,13 +29,17 @@ pub enum WeaveError {
     #[error("profile '{name}' not found — run `weave profile list` to see available profiles")]
     ProfileNotFound { name: String },
 
-    #[error("cannot delete the active profile '{name}' — switch to another profile first with `weave use <profile>`")]
+    #[error(
+        "cannot delete the active profile '{name}' — switch to another profile first with `weave use <profile>`"
+    )]
     ActiveProfileDeletion { name: String },
 
     #[error("cannot delete the 'default' profile — it is required")]
     DefaultProfileDeletion,
 
-    #[error("invalid profile name '{name}' — only letters, digits, hyphens, and underscores are allowed")]
+    #[error(
+        "invalid profile name '{name}' — only letters, digits, hyphens, and underscores are allowed"
+    )]
     InvalidProfileName { name: String },
 
     // Registry errors
@@ -52,7 +56,9 @@ pub enum WeaveError {
     #[error("registry error: {0}")]
     Registry(String),
 
-    #[error("registry HTTP {status} for {url} — check your registry_url / WEAVE_REGISTRY_URL setting, network connectivity, or whether the registry is available")]
+    #[error(
+        "registry HTTP {status} for {url} — check your registry_url / WEAVE_REGISTRY_URL setting, network connectivity, or whether the registry is available"
+    )]
     RegistryHttp { status: u16, url: String },
 
     #[error("MCP Registry error: {0}")]

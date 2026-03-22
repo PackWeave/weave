@@ -88,7 +88,7 @@ pub fn load_or_fetch_pack(
     version: &semver::Version,
     source: &PackSource,
 ) -> std::result::Result<Pack, anyhow::Error> {
-    use anyhow::{bail, Context};
+    use anyhow::{Context, bail};
 
     // Try loading from store first
     if let Ok(pack) = Store::load_pack(name, version, Some(source)) {

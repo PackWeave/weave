@@ -644,21 +644,17 @@ impl ClaudeCodeAdapter {
             // If the .mcp.json now contains only an empty mcpServers object (and
             // no other top-level keys), delete the file entirely to avoid leaving
             // empty stubs behind while preserving any unrelated config.
-            if mcp_path.exists() {
-                if let Ok(content) = util::read_file(&mcp_path) {
-                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
-                        if let Some(obj) = parsed.as_object() {
-                            if obj.len() == 1
-                                && obj
-                                    .get("mcpServers")
-                                    .and_then(|s| s.as_object())
-                                    .is_some_and(|o| o.is_empty())
-                            {
-                                std::fs::remove_file(&mcp_path).ok();
-                            }
-                        }
-                    }
-                }
+            if mcp_path.exists()
+                && let Ok(content) = util::read_file(&mcp_path)
+                && let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content)
+                && let Some(obj) = parsed.as_object()
+                && obj.len() == 1
+                && obj
+                    .get("mcpServers")
+                    .and_then(|s| s.as_object())
+                    .is_some_and(|o| o.is_empty())
+            {
+                std::fs::remove_file(&mcp_path).ok();
             }
         }
 
@@ -811,17 +807,17 @@ impl ClaudeCodeAdapter {
         // Remove existing block if present (idempotency).
         // Search for end_tag starting after begin_tag to avoid matching another
         // pack's end tag that might appear before this pack's begin tag.
-        if let Some(start) = content.find(&begin_tag) {
-            if let Some(end_offset) = content[start..].find(&end_tag) {
-                let end_pos = start + end_offset;
-                let end = end_pos + end_tag.len();
-                let end = if content[end..].starts_with('\n') {
-                    end + 1
-                } else {
-                    end
-                };
-                content.replace_range(start..end, "");
-            }
+        if let Some(start) = content.find(&begin_tag)
+            && let Some(end_offset) = content[start..].find(&end_tag)
+        {
+            let end_pos = start + end_offset;
+            let end = end_pos + end_tag.len();
+            let end = if content[end..].starts_with('\n') {
+                end + 1
+            } else {
+                end
+            };
+            content.replace_range(start..end, "");
         }
 
         // Append new block
@@ -861,18 +857,18 @@ impl ClaudeCodeAdapter {
         let begin_tag = format!("<!-- packweave:begin:{pack_name} -->");
         let end_tag = format!("<!-- packweave:end:{pack_name} -->");
 
-        if let Some(start) = content.find(&begin_tag) {
-            if let Some(end_offset) = content[start..].find(&end_tag) {
-                let end_pos = start + end_offset;
-                let end = end_pos + end_tag.len();
-                let end = if content[end..].starts_with('\n') {
-                    end + 1
-                } else {
-                    end
-                };
-                content.replace_range(start..end, "");
-                util::write_file(&claude_md, &content)?;
-            }
+        if let Some(start) = content.find(&begin_tag)
+            && let Some(end_offset) = content[start..].find(&end_tag)
+        {
+            let end_pos = start + end_offset;
+            let end = end_pos + end_tag.len();
+            let end = if content[end..].starts_with('\n') {
+                end + 1
+            } else {
+                end
+            };
+            content.replace_range(start..end, "");
+            util::write_file(&claude_md, &content)?;
         }
 
         manifest.prompt_blocks.retain(|n| n != pack_name);

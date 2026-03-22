@@ -321,15 +321,15 @@ impl GeminiCliAdapter {
         // same file, so a pack could bypass ownership tracking by including mcpServers
         // in its settings fragment. Server writes must go through apply_servers_to_file.
         let mut sanitised = fragment.clone();
-        if let Some(obj) = sanitised.as_object_mut() {
-            if obj.remove("mcpServers").is_some() {
-                log::warn!(
-                    "pack '{}' settings/gemini.json contains 'mcpServers' — \
-                     this key is managed by weave and has been ignored; \
-                     declare servers in pack.toml instead",
-                    pack.pack.name
-                );
-            }
+        if let Some(obj) = sanitised.as_object_mut()
+            && obj.remove("mcpServers").is_some()
+        {
+            log::warn!(
+                "pack '{}' settings/gemini.json contains 'mcpServers' — \
+                 this key is managed by weave and has been ignored; \
+                 declare servers in pack.toml instead",
+                pack.pack.name
+            );
         }
         let fragment = &sanitised;
         let frag_obj = fragment
@@ -531,17 +531,17 @@ impl GeminiCliAdapter {
         // Remove existing block (idempotency).
         // Search for end_tag starting after begin_tag to avoid matching another
         // pack's end tag that might appear before this pack's begin tag.
-        if let Some(start) = content.find(&begin_tag) {
-            if let Some(end_offset) = content[start..].find(&end_tag) {
-                let end_pos = start + end_offset;
-                let end = end_pos + end_tag.len();
-                let end = if content[end..].starts_with('\n') {
-                    end + 1
-                } else {
-                    end
-                };
-                content.replace_range(start..end, "");
-            }
+        if let Some(start) = content.find(&begin_tag)
+            && let Some(end_offset) = content[start..].find(&end_tag)
+        {
+            let end_pos = start + end_offset;
+            let end = end_pos + end_tag.len();
+            let end = if content[end..].starts_with('\n') {
+                end + 1
+            } else {
+                end
+            };
+            content.replace_range(start..end, "");
         }
 
         if !content.is_empty() && !content.ends_with('\n') {
@@ -582,18 +582,18 @@ impl GeminiCliAdapter {
         let begin_tag = format!("<!-- packweave:begin:{pack_name} -->");
         let end_tag = format!("<!-- packweave:end:{pack_name} -->");
 
-        if let Some(start) = content.find(&begin_tag) {
-            if let Some(end_offset) = content[start..].find(&end_tag) {
-                let end_pos = start + end_offset;
-                let end = end_pos + end_tag.len();
-                let end = if content[end..].starts_with('\n') {
-                    end + 1
-                } else {
-                    end
-                };
-                content.replace_range(start..end, "");
-                util::write_file(&gemini_md, &content)?;
-            }
+        if let Some(start) = content.find(&begin_tag)
+            && let Some(end_offset) = content[start..].find(&end_tag)
+        {
+            let end_pos = start + end_offset;
+            let end = end_pos + end_tag.len();
+            let end = if content[end..].starts_with('\n') {
+                end + 1
+            } else {
+                end
+            };
+            content.replace_range(start..end, "");
+            util::write_file(&gemini_md, &content)?;
         }
 
         manifest.prompt_blocks.retain(|n| n != pack_name);

@@ -126,7 +126,8 @@ fn shared_store_root() -> &'static TempDir {
     static STORE: OnceLock<TempDir> = OnceLock::new();
     STORE.get_or_init(|| {
         let dir = TempDir::new().expect("shared store TempDir");
-        std::env::set_var("WEAVE_TEST_STORE_DIR", dir.path());
+        // SAFETY: serial test (serial_test crate)
+        unsafe { std::env::set_var("WEAVE_TEST_STORE_DIR", dir.path()) };
         dir
     })
 }

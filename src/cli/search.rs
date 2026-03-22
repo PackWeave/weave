@@ -1,9 +1,9 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
 use crate::cli::style;
 use crate::core::config::Config;
 use crate::core::mcp_registry::McpRegistryClient;
-use crate::core::registry::{registry_from_config, Registry};
+use crate::core::registry::{Registry, registry_from_config};
 
 /// Valid target CLI names for the `--target` filter.
 const VALID_TARGETS: &[&str] = &["claude_code", "gemini_cli", "codex_cli"];
@@ -137,10 +137,10 @@ fn run_mcp_search(query: &str) -> Result<()> {
             }
         }
 
-        if let Some(repo) = &server.repository {
-            if let Some(url) = &repo.url {
-                println!("    {}: {url}", style::dim("Repository"));
-            }
+        if let Some(repo) = &server.repository
+            && let Some(url) = &repo.url
+        {
+            println!("    {}: {url}", style::dim("Repository"));
         }
 
         println!();

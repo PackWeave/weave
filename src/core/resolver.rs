@@ -106,18 +106,18 @@ impl<'a> Resolver<'a> {
         // of the same pack — that is an unresolvable conflict.
         if let Some((_, existing_version)) = ctx.to_install.iter().find(|(n, _)| n == pack_name) {
             let existing_version = existing_version.clone();
-            if let Some(req) = version_req {
-                if !req.matches(&existing_version) {
-                    ctx.visited.remove(pack_name);
-                    ctx.path.pop();
-                    return Err(WeaveError::DependencyConflict {
-                        pack: pack_name.to_string(),
-                        conflicts: format!(
-                            "requires {req} but {existing_version} was already selected \
-                             by another dependency"
-                        ),
-                    });
-                }
+            if let Some(req) = version_req
+                && !req.matches(&existing_version)
+            {
+                ctx.visited.remove(pack_name);
+                ctx.path.pop();
+                return Err(WeaveError::DependencyConflict {
+                    pack: pack_name.to_string(),
+                    conflicts: format!(
+                        "requires {req} but {existing_version} was already selected \
+                         by another dependency"
+                    ),
+                });
             }
             ctx.visited.remove(pack_name);
             ctx.path.pop();
@@ -154,16 +154,16 @@ impl<'a> Resolver<'a> {
         // just checking whether the installed version satisfies the requirement,
         // so that `weave install foo ^1.0` still upgrades from 1.0.0 → 1.1.0
         // when 1.1.0 is the latest release matching the constraint.
-        if let Some(installed) = profile.get_pack(pack_name) {
-            if installed.version == version {
-                ctx.already_satisfied.push(pack_name.to_string());
-                // Backtrack before returning: this pack is satisfied so we don't
-                // traverse its deps again, but it must not stay in `visited` as
-                // a false cycle anchor for sibling packs that depend on it.
-                ctx.visited.remove(pack_name);
-                ctx.path.pop();
-                return Ok(());
-            }
+        if let Some(installed) = profile.get_pack(pack_name)
+            && installed.version == version
+        {
+            ctx.already_satisfied.push(pack_name.to_string());
+            // Backtrack before returning: this pack is satisfied so we don't
+            // traverse its deps again, but it must not stay in `visited` as
+            // a false cycle anchor for sibling packs that depend on it.
+            ctx.visited.remove(pack_name);
+            ctx.path.pop();
+            return Ok(());
         }
 
         // Resolve this pack's dependencies before queuing itself (post-order).
