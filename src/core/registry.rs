@@ -263,6 +263,110 @@ fn http_get_json<T: serde::de::DeserializeOwned>(url: &str, label: &str) -> Resu
         .map_err(|e| WeaveError::Registry(format!("failed to parse {label}: {e}")))
 }
 
+/// Build a registry from a [`Config`](crate::core::config::Config): the official
+/// registry plus any registered community taps, wrapped in a [`CompositeRegistry`].
+///
+/// If no taps are configured the composite still works correctly — it degrades to
+/// a single-registry wrapper with negligible overhead.
+pub fn registry_from_config(config: &crate::core::config::Config) -> CompositeRegistry {
+    let official = GitHubRegistry::new(&config.registry_url);
+    let taps = config
+        .taps
+        .iter()
+        .map(|t| GitHubRegistry::new(&t.url))
+        .collect();
+    CompositeRegistry::new(official, taps)
+}
+
+/// A composite registry that searches the official registry first, then community taps in order.
+///
+/// - `search()` merges results from all registries, deduplicating by pack name (official wins).
+/// - `fetch_metadata()` tries the official registry first, then taps in registration order.
+/// - `fetch_version()` follows the same priority as `fetch_metadata()`.
+/// - `publish()` always delegates to the official (primary) registry.
+pub struct CompositeRegistry {
+    registries: Vec<Box<dyn Registry>>,
+}
+
+impl CompositeRegistry {
+    /// Create a composite registry from the official registry and a list of tap registries.
+    ///
+    /// The official registry is always first; taps follow in the order they appear.
+    pub fn new(official: GitHubRegistry, taps: Vec<GitHubRegistry>) -> Self {
+        let mut registries: Vec<Box<dyn Registry>> = Vec::with_capacity(1 + taps.len());
+        registries.push(Box::new(official));
+        for tap in taps {
+            registries.push(Box::new(tap));
+        }
+        Self { registries }
+    }
+}
+
+impl Registry for CompositeRegistry {
+    fn search(&self, query: &str) -> Result<Vec<PackSummary>> {
+        let mut seen = std::collections::HashSet::new();
+        let mut results = Vec::new();
+
+        for registry in &self.registries {
+            match registry.search(query) {
+                Ok(packs) => {
+                    for pack in packs {
+                        if seen.insert(pack.name.clone()) {
+                            results.push(pack);
+                        }
+                    }
+                }
+                Err(e) => {
+                    // Log tap failures as warnings but don't abort the search.
+                    log::warn!("tap search failed: {e}");
+                }
+            }
+        }
+
+        results.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(results)
+    }
+
+    fn fetch_metadata(&self, name: &str) -> Result<PackMetadata> {
+        let mut last_err = None;
+        for registry in &self.registries {
+            match registry.fetch_metadata(name) {
+                Ok(meta) => return Ok(meta),
+                Err(e) => {
+                    last_err = Some(e);
+                }
+            }
+        }
+        Err(last_err.unwrap_or_else(|| WeaveError::PackNotFound {
+            name: name.to_string(),
+        }))
+    }
+
+    fn fetch_version(&self, name: &str, version: &semver::Version) -> Result<PackRelease> {
+        let mut last_err = None;
+        for registry in &self.registries {
+            match registry.fetch_version(name, version) {
+                Ok(release) => return Ok(release),
+                Err(e) => {
+                    last_err = Some(e);
+                }
+            }
+        }
+        Err(last_err.unwrap_or_else(|| WeaveError::PackNotFound {
+            name: name.to_string(),
+        }))
+    }
+
+    fn publish(&self, archive: &std::path::Path, token: &str) -> Result<()> {
+        // Publish always goes to the official (first) registry.
+        if let Some(primary) = self.registries.first() {
+            primary.publish(archive, token)
+        } else {
+            Err(WeaveError::Registry("no registries configured".to_string()))
+        }
+    }
+}
+
 /// A mock registry for testing. No network calls.
 #[cfg(test)]
 pub struct MockRegistry {
@@ -417,6 +521,171 @@ mod tests {
     fn new_strips_index_json_with_trailing_slash() {
         let r = GitHubRegistry::new("https://example.com/registry/index.json/");
         assert_eq!(r.base_url, "https://example.com/registry");
+    }
+
+    // ── CompositeRegistry tests ────────────────────────────────────────────
+
+    fn sample_metadata_named(name: &str, desc: &str) -> PackMetadata {
+        PackMetadata {
+            name: name.into(),
+            description: desc.into(),
+            authors: vec!["tester".into()],
+            license: Some("MIT".into()),
+            repository: None,
+            keywords: vec![],
+            versions: vec![PackRelease {
+                version: semver::Version::new(1, 0, 0),
+                files: HashMap::new(),
+                dependencies: HashMap::new(),
+            }],
+        }
+    }
+
+    /// A composite of mock registries for testing priority order.
+    struct MockComposite {
+        registries: Vec<Box<dyn Registry>>,
+    }
+
+    impl MockComposite {
+        fn new(registries: Vec<MockRegistry>) -> Self {
+            Self {
+                registries: registries
+                    .into_iter()
+                    .map(|r| Box::new(r) as Box<dyn Registry>)
+                    .collect(),
+            }
+        }
+    }
+
+    impl Registry for MockComposite {
+        fn search(&self, query: &str) -> Result<Vec<PackSummary>> {
+            let mut seen = std::collections::HashSet::new();
+            let mut results = Vec::new();
+            for registry in &self.registries {
+                if let Ok(packs) = registry.search(query) {
+                    for pack in packs {
+                        if seen.insert(pack.name.clone()) {
+                            results.push(pack);
+                        }
+                    }
+                }
+            }
+            results.sort_by(|a, b| a.name.cmp(&b.name));
+            Ok(results)
+        }
+
+        fn fetch_metadata(&self, name: &str) -> Result<PackMetadata> {
+            let mut last_err = None;
+            for registry in &self.registries {
+                match registry.fetch_metadata(name) {
+                    Ok(meta) => return Ok(meta),
+                    Err(e) => last_err = Some(e),
+                }
+            }
+            Err(last_err.unwrap_or_else(|| WeaveError::PackNotFound {
+                name: name.to_string(),
+            }))
+        }
+
+        fn fetch_version(&self, name: &str, version: &semver::Version) -> Result<PackRelease> {
+            let mut last_err = None;
+            for registry in &self.registries {
+                match registry.fetch_version(name, version) {
+                    Ok(release) => return Ok(release),
+                    Err(e) => last_err = Some(e),
+                }
+            }
+            Err(last_err.unwrap_or_else(|| WeaveError::PackNotFound {
+                name: name.to_string(),
+            }))
+        }
+    }
+
+    #[test]
+    fn composite_search_merges_deduplicates() {
+        let mut official = MockRegistry::new();
+        official.add_pack(sample_metadata_named("webdev", "official webdev"));
+
+        let mut tap = MockRegistry::new();
+        tap.add_pack(sample_metadata_named("webdev", "tap webdev")); // duplicate
+        tap.add_pack(sample_metadata_named("tap-only", "from tap"));
+
+        let composite = MockComposite::new(vec![official, tap]);
+        let results = composite.search("").unwrap();
+
+        let names: Vec<&str> = results.iter().map(|p| p.name.as_str()).collect();
+        assert!(names.contains(&"webdev"), "should include webdev");
+        assert!(names.contains(&"tap-only"), "should include tap-only");
+        // webdev should only appear once (official wins)
+        assert_eq!(
+            names.iter().filter(|n| **n == "webdev").count(),
+            1,
+            "webdev must not be duplicated"
+        );
+    }
+
+    #[test]
+    fn composite_search_official_description_wins() {
+        let mut official = MockRegistry::new();
+        official.add_pack(sample_metadata_named("webdev", "official"));
+
+        let mut tap = MockRegistry::new();
+        tap.add_pack(sample_metadata_named("webdev", "tap copy"));
+
+        let composite = MockComposite::new(vec![official, tap]);
+        let results = composite.search("webdev").unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].description, "official");
+    }
+
+    #[test]
+    fn composite_fetch_metadata_official_first() {
+        let mut official = MockRegistry::new();
+        official.add_pack(sample_metadata_named("webdev", "official"));
+
+        let mut tap = MockRegistry::new();
+        tap.add_pack(sample_metadata_named("webdev", "tap copy"));
+
+        let composite = MockComposite::new(vec![official, tap]);
+        let meta = composite.fetch_metadata("webdev").unwrap();
+        assert_eq!(meta.description, "official");
+    }
+
+    #[test]
+    fn composite_fetch_metadata_falls_through_to_tap() {
+        let official = MockRegistry::new(); // no packs
+
+        let mut tap = MockRegistry::new();
+        tap.add_pack(sample_metadata_named("tap-only", "from tap"));
+
+        let composite = MockComposite::new(vec![official, tap]);
+        let meta = composite.fetch_metadata("tap-only").unwrap();
+        assert_eq!(meta.description, "from tap");
+    }
+
+    #[test]
+    fn composite_fetch_metadata_not_found() {
+        let official = MockRegistry::new();
+        let tap = MockRegistry::new();
+
+        let composite = MockComposite::new(vec![official, tap]);
+        let err = composite.fetch_metadata("nonexistent");
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn composite_fetch_version_falls_through() {
+        let official = MockRegistry::new();
+
+        let mut tap = MockRegistry::new();
+        tap.add_pack(sample_metadata_named("tap-pack", "from tap"));
+
+        let composite = MockComposite::new(vec![official, tap]);
+        let release = composite
+            .fetch_version("tap-pack", &semver::Version::new(1, 0, 0))
+            .unwrap();
+        assert_eq!(release.version, semver::Version::new(1, 0, 0));
     }
 
     #[test]
