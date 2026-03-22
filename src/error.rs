@@ -25,6 +25,16 @@ pub enum WeaveError {
     #[error("pack '{name}' is not installed — run `weave list` to see installed packs")]
     NotInstalled { name: String },
 
+    // Profile errors
+    #[error("profile '{name}' not found — run `weave profile list` to see available profiles")]
+    ProfileNotFound { name: String },
+
+    #[error("cannot delete the active profile '{name}' — switch to another profile first with `weave use <profile>`")]
+    ActiveProfileDeletion { name: String },
+
+    #[error("cannot delete the 'default' profile — it is required")]
+    DefaultProfileDeletion,
+
     // Registry errors
     #[error("pack '{name}' has no releases in the registry")]
     NoReleases { name: String },

@@ -58,6 +58,45 @@ impl Profile {
         util::write_file(&path, &content)
     }
 
+    /// Check whether a profile file exists on disk.
+    pub fn exists(name: &str) -> Result<bool> {
+        Ok(Self::path(name)?.exists())
+    }
+
+    /// List all saved profile names (profiles that have been saved to disk).
+    pub fn list_all() -> Result<Vec<String>> {
+        let dir = Self::profiles_dir()?;
+        if !dir.exists() {
+            return Ok(Vec::new());
+        }
+        let mut names = Vec::new();
+        let entries =
+            std::fs::read_dir(&dir).map_err(|e| WeaveError::io("listing profiles directory", e))?;
+        for entry in entries {
+            let entry = entry.map_err(|e| WeaveError::io("reading profiles directory entry", e))?;
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("toml") {
+                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                    names.push(stem.to_string());
+                }
+            }
+        }
+        names.sort();
+        Ok(names)
+    }
+
+    /// Delete a profile from disk. Returns an error if the file does not exist.
+    pub fn delete(name: &str) -> Result<()> {
+        let path = Self::path(name)?;
+        if !path.exists() {
+            return Err(WeaveError::ProfileNotFound {
+                name: name.to_string(),
+            });
+        }
+        std::fs::remove_file(&path)
+            .map_err(|e| WeaveError::io(format!("deleting profile '{name}'"), e))
+    }
+
     /// Check if a pack is installed in this profile.
     pub fn has_pack(&self, name: &str) -> bool {
         self.packs.iter().any(|p| p.name == name)
@@ -114,5 +153,45 @@ mod tests {
         assert!(profile.remove_pack("webdev"));
         assert!(!profile.has_pack("webdev"));
         assert!(!profile.remove_pack("webdev"));
+    }
+
+    #[test]
+    fn list_all_and_delete_with_temp_dir() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        // Point WEAVE_TEST_STORE_DIR so profile I/O goes to our temp dir
+        std::env::set_var("WEAVE_TEST_STORE_DIR", tmp.path());
+
+        // Create two profiles
+        let p1 = Profile {
+            name: "alpha".into(),
+            packs: Vec::new(),
+        };
+        p1.save().unwrap();
+
+        let p2 = Profile {
+            name: "beta".into(),
+            packs: vec![test_pack("webdev")],
+        };
+        p2.save().unwrap();
+
+        // list_all should return both
+        let all = Profile::list_all().unwrap();
+        assert!(all.contains(&"alpha".to_string()));
+        assert!(all.contains(&"beta".to_string()));
+
+        // exists should return true
+        assert!(Profile::exists("alpha").unwrap());
+        assert!(Profile::exists("beta").unwrap());
+        assert!(!Profile::exists("nonexistent").unwrap());
+
+        // delete alpha
+        Profile::delete("alpha").unwrap();
+        assert!(!Profile::exists("alpha").unwrap());
+
+        // delete nonexistent should fail
+        let result = Profile::delete("nonexistent");
+        assert!(result.is_err());
+
+        std::env::remove_var("WEAVE_TEST_STORE_DIR");
     }
 }
