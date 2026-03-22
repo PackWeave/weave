@@ -84,6 +84,8 @@ The adapters are opaque. They expose only the `CliAdapter` trait. The core does 
 
 ## Git branch hygiene
 
+**Never commit directly to `main`.** All changes must go through a pull request, even docs-only changes. Create a feature branch, push it, and open a PR via `gh pr create`.
+
 **Before committing to any branch, verify its PR has not already been merged into `main`.**
 
 ```sh
