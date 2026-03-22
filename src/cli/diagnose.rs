@@ -67,10 +67,15 @@ fn pack_targets_adapter(targets: &PackTargets, id: AdapterId) -> bool {
 /// Build the full diagnostic report.
 ///
 /// This is separated from `run()` so it can be tested with mock adapters.
+///
+/// `pack_targets` resolves a pack's target flags given its name and version.
+/// In production this loads the pack from the store; in tests it can return
+/// deterministic values without filesystem I/O.
 pub fn build_report(
     profile_name: &str,
     profile: &Profile,
     adapters: &[Box<dyn CliAdapter>],
+    pack_targets: &dyn Fn(&str, &semver::Version) -> PackTargets,
 ) -> Result<DiagnoseReport> {
     // Collect per-adapter issues once.
     struct AdapterDiag {
@@ -108,17 +113,7 @@ pub fn build_report(
     let mut total_issues = 0;
 
     for installed_pack in &profile.packs {
-        // Try to load the pack's targets from the store.
-        let targets = match Store::load_pack(&installed_pack.name, &installed_pack.version) {
-            Ok(pack) => pack.targets,
-            Err(e) => {
-                warn!(
-                    "could not load pack '{}' v{} from store to check targets: {e}; assuming all targets",
-                    installed_pack.name, installed_pack.version
-                );
-                PackTargets::default()
-            }
-        };
+        let targets = pack_targets(&installed_pack.name, &installed_pack.version);
 
         let mut adapter_statuses = Vec::new();
 
@@ -244,7 +239,20 @@ pub fn run(json: bool) -> Result<()> {
     let profile = Profile::load(&config.active_profile).context("loading active profile")?;
     let adapters = adapters::all_adapters();
 
-    let report = build_report(&config.active_profile, &profile, &adapters)?;
+    let report = build_report(
+        &config.active_profile,
+        &profile,
+        &adapters,
+        &|name, version| match Store::load_pack(name, version) {
+            Ok(pack) => pack.targets,
+            Err(e) => {
+                warn!(
+                    "could not load pack '{name}' v{version} from store to check targets: {e}; assuming all targets"
+                );
+                PackTargets::default()
+            }
+        },
+    )?;
 
     if json {
         let output = format_json(&report)?;
@@ -334,6 +342,11 @@ mod tests {
         })
     }
 
+    /// Default target lookup: all CLIs targeted.
+    fn all_targets(_name: &str, _version: &semver::Version) -> PackTargets {
+        PackTargets::default()
+    }
+
     #[test]
     fn report_all_ok() {
         let profile = make_profile(&[("webdev", "1.0.0"), ("datatools", "2.1.0")]);
@@ -354,7 +367,7 @@ mod tests {
             ),
         ];
 
-        let report = build_report("default", &profile, &adapters).unwrap();
+        let report = build_report("default", &profile, &adapters, &all_targets).unwrap();
         assert_eq!(report.issue_count, 0);
         assert_eq!(report.pack_count, 2);
         assert_eq!(report.packs[0].adapters[0].status, PackHealth::Ok);
@@ -377,7 +390,7 @@ mod tests {
             }],
         )];
 
-        let report = build_report("default", &profile, &adapters).unwrap();
+        let report = build_report("default", &profile, &adapters, &all_targets).unwrap();
         assert_eq!(report.issue_count, 1);
         assert_eq!(report.packs[0].adapters[0].status, PackHealth::Drifted);
     }
@@ -393,7 +406,7 @@ mod tests {
             vec![],
         )];
 
-        let report = build_report("default", &profile, &adapters).unwrap();
+        let report = build_report("default", &profile, &adapters, &all_targets).unwrap();
         assert_eq!(report.packs[0].adapters[0].status, PackHealth::Missing);
     }
 
@@ -408,7 +421,7 @@ mod tests {
             vec![],
         )];
 
-        let report = build_report("default", &profile, &adapters).unwrap();
+        let report = build_report("default", &profile, &adapters, &all_targets).unwrap();
         assert_eq!(report.packs[0].adapters[0].status, PackHealth::Skipped);
     }
 
@@ -458,7 +471,7 @@ mod tests {
             vec![],
         )];
 
-        let report = build_report("default", &profile, &adapters).unwrap();
+        let report = build_report("default", &profile, &adapters, &all_targets).unwrap();
         assert_eq!(report.pack_count, 0);
         assert_eq!(report.issue_count, 0);
         assert!(report.packs.is_empty());
@@ -540,6 +553,39 @@ mod tests {
         assert_eq!(parsed["issue_count"], 0);
         assert_eq!(parsed["packs"][0]["name"], "webdev");
         assert_eq!(parsed["packs"][0]["adapters"][0]["status"], "ok");
+    }
+
+    #[test]
+    fn report_not_targeted() {
+        let profile = make_profile(&[("webdev", "1.0.0")]);
+        let adapters: Vec<Box<dyn CliAdapter>> = vec![
+            mock_adapter("Claude Code", true, &["webdev"], vec![]),
+            mock_adapter("Gemini CLI", true, &["webdev"], vec![]),
+            mock_adapter("Codex CLI", true, &["webdev"], vec![]),
+        ];
+
+        // Only target Claude Code — Gemini CLI and Codex CLI should be NotTargeted.
+        let claude_only = |_name: &str, _version: &semver::Version| PackTargets {
+            claude_code: true,
+            gemini_cli: false,
+            codex_cli: false,
+        };
+
+        let report = build_report("default", &profile, &adapters, &claude_only).unwrap();
+        assert_eq!(report.packs.len(), 1);
+
+        let statuses = &report.packs[0].adapters;
+        assert_eq!(statuses[0].adapter, "Claude Code");
+        assert_eq!(statuses[0].status, PackHealth::Ok);
+
+        assert_eq!(statuses[1].adapter, "Gemini CLI");
+        assert_eq!(statuses[1].status, PackHealth::NotTargeted);
+
+        assert_eq!(statuses[2].adapter, "Codex CLI");
+        assert_eq!(statuses[2].status, PackHealth::NotTargeted);
+
+        // NotTargeted adapters should not contribute to issue count.
+        assert_eq!(report.issue_count, 0);
     }
 
     #[test]
