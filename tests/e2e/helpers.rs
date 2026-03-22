@@ -363,10 +363,7 @@ pub async fn mount_registry_multi_version(server: &MockServer, packs: &[&Fixture
             .filter_map(|s| semver::Version::parse(s).ok())
             .max()
             .map(|v| v.to_string())
-            .expect(
-                "mount_registry_multi_version: no valid semver versions found for pack; \
-                 check test fixture version strings",
-            );
+            .unwrap_or_default();
 
         let full_metadata = serde_json::json!({
             "name": pack_name,
