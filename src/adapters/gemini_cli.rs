@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -765,6 +765,21 @@ impl CliAdapter for GeminiCliAdapter {
         }
 
         Ok(issues)
+    }
+
+    fn tracked_packs(&self) -> Result<HashSet<String>> {
+        let manifest = self.load_manifest()?;
+        let mut packs = HashSet::new();
+        for pack_name in manifest.servers.values() {
+            packs.insert(pack_name.clone());
+        }
+        for pack_name in &manifest.prompt_blocks {
+            packs.insert(pack_name.clone());
+        }
+        for pack_name in manifest.settings.keys() {
+            packs.insert(pack_name.clone());
+        }
+        Ok(packs)
     }
 }
 

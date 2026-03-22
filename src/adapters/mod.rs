@@ -2,20 +2,24 @@ pub mod claude_code;
 pub mod codex_cli;
 pub mod gemini_cli;
 
+use std::collections::HashSet;
 use std::path::PathBuf;
+
+use serde::Serialize;
 
 use crate::core::pack::ResolvedPack;
 use crate::error::Result;
 
 /// A diagnostic issue found by an adapter.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct DiagnosticIssue {
     pub severity: Severity,
     pub message: String,
     pub suggestion: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Severity {
     Warning,
     Error,
@@ -44,6 +48,10 @@ pub trait CliAdapter: Send + Sync {
     /// Verify the CLI's current config is consistent with installed packs.
     /// Returns a list of issues for `weave diagnose`.
     fn diagnose(&self) -> Result<Vec<DiagnosticIssue>>;
+
+    /// Returns the set of pack names this adapter is currently tracking
+    /// (i.e., has contributions for in its sidecar manifest).
+    fn tracked_packs(&self) -> Result<HashSet<String>>;
 }
 
 /// Returns all available adapters.
