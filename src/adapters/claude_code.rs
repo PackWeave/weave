@@ -154,9 +154,15 @@ impl ClaudeCodeAdapter {
         if !self.project_install {
             return false;
         }
-        // Guard: never allow project scope at home dir (~/.mcp.json would be global)
+        // Guard: never allow project scope at home dir (~/.mcp.json would be global).
+        // Canonicalize both paths so symlinks don't bypass the check.
         if let Some(home) = &self.home {
-            if &self.project_root == home {
+            let canon_home = home.canonicalize().unwrap_or_else(|_| home.clone());
+            let canon_root = self
+                .project_root
+                .canonicalize()
+                .unwrap_or_else(|_| self.project_root.clone());
+            if canon_root == canon_home {
                 return false;
             }
         }
@@ -797,8 +803,7 @@ impl CliAdapter for ClaudeCodeAdapter {
         self.apply_settings(pack, &mut manifest)?;
         self.save_manifest(&manifest)?;
 
-        // Project-scope — only if a `.claude/` directory exists in cwd,
-        // indicating the user is working in a Claude Code project.
+        // Project-scope — only if the user passed `--project` (opt-in).
         if self.has_project_scope() {
             let mut project_manifest = self.load_project_manifest()?;
             self.apply_project_servers(pack, &mut project_manifest)?;
@@ -809,7 +814,12 @@ impl CliAdapter for ClaudeCodeAdapter {
             // Record this project root in the user-scope manifest so `remove`
             // can clean up project-scope state regardless of the working directory
             // when `weave remove` is later invoked.
-            let root_str = self.project_root.to_string_lossy().to_string();
+            let root_str = self
+                .project_root
+                .canonicalize()
+                .unwrap_or_else(|_| self.project_root.clone())
+                .to_string_lossy()
+                .to_string();
             let roots = manifest
                 .project_dirs
                 .entry(pack.pack.name.clone())

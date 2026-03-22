@@ -20,8 +20,11 @@ pub fn run(pack_name: &str, version: Option<&str>, force: bool, project: bool) -
     // Guard: --project from the home directory would write to ~/.mcp.json, which
     // Claude Code reads globally. Refuse early with a clear error.
     if project {
-        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-        if let Some(home) = dirs::home_dir() {
+        let cwd = std::env::current_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .canonicalize()
+            .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+        if let Some(home) = dirs::home_dir().and_then(|h| h.canonicalize().ok()) {
             anyhow::ensure!(
                 cwd != home,
                 "cannot install to project scope from the home directory (~)\n\
