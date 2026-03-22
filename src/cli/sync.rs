@@ -50,9 +50,9 @@ pub fn run() -> Result<()> {
 
         let resolved = ResolvedPack {
             pack,
-            source: PackSource::Registry {
+            source: locked.source.clone().unwrap_or(PackSource::Registry {
                 registry_url: config.registry_url.clone(),
-            },
+            }),
         };
 
         // Apply to each installed adapter.
