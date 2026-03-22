@@ -53,6 +53,10 @@ enum Commands {
         /// Filter results by target CLI (reserved, not yet active; e.g., "claude_code", "gemini_cli", "codex_cli")
         #[arg(short, long)]
         target: Option<String>,
+
+        /// Search the official MCP Registry for servers instead of weave packs
+        #[arg(long)]
+        mcp: bool,
     },
 
     /// Initialize a new pack directory
@@ -85,7 +89,7 @@ fn main() {
         } => cli::install::run(&name, version.as_deref(), force),
         Commands::List => cli::list::run(),
         Commands::Remove { name } => cli::remove::run(&name),
-        Commands::Search { query, target } => cli::search::run(&query, target.as_deref()),
+        Commands::Search { query, target, mcp } => cli::search::run(&query, target.as_deref(), mcp),
         Commands::Update { name } => cli::update::run(name.as_deref()),
         Commands::Diagnose => cli::diagnose::run(),
     };

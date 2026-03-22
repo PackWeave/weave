@@ -50,6 +50,9 @@ pub enum WeaveError {
     #[error("registry error: {0}")]
     Registry(String),
 
+    #[error("MCP Registry error: {0}")]
+    McpRegistry(String),
+
     // Adapter errors
     #[allow(dead_code)]
     #[error("{cli} is not installed on this system")]
