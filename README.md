@@ -59,9 +59,10 @@ weave use oss     # → switch to open source web dev setup
 
 ```bash
 weave search --mcp filesystem
+# MCP Registry results for 'filesystem':
 #   Filesystem Server
-#     Package: @modelcontextprotocol/server-filesystem (npm)
-#     Source:  https://github.com/modelcontextprotocol/servers
+#     Package:    @modelcontextprotocol/server-filesystem (npm)
+#     Repository: https://github.com/modelcontextprotocol/servers
 ```
 
 **Safe and reversible — your manual config stays untouched:**
@@ -96,7 +97,7 @@ weave install @webdev
         └─▶ applies to each installed CLI — non-destructively
 
         Claude Code:  ~/.claude.json, ~/.claude/settings.json, ~/.claude/commands/,
-                      ~/.claude/CLAUDE.md
+                      ~/.claude/CLAUDE.md, ./.mcp.json (project-scope MCP servers)
         Gemini CLI:   ~/.gemini/settings.json, ~/.gemini/GEMINI.md
         Codex CLI:    ~/.codex/config.toml, ~/.codex/AGENTS.md, ~/.codex/skills/
         (+ project-scope equivalents when ./.claude/, ./.gemini/, or ./.codex/ exist)
@@ -190,7 +191,7 @@ Packs can also declare:
 - **Dependencies** on other packs — resolved transitively
 - **Slash commands / skills** — copied into `~/.claude/commands/` or `~/.codex/skills/`
 - **System prompt fragments** — appended to `CLAUDE.md` / `GEMINI.md` / `AGENTS.md` between tagged delimiters
-- **Settings fragments** — deep-merged into each CLI's settings
+- **Settings fragments** — deep-merged into Claude Code and Gemini CLI JSON settings; merged as top-level keys in Codex CLI's TOML config
 - **Environment variable declarations** — written as `${VAR}` references, never values
 
 > [!IMPORTANT]
