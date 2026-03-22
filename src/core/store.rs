@@ -1,5 +1,3 @@
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::io::Read;
 use std::path::PathBuf;
 
@@ -23,13 +21,24 @@ impl Store {
     fn version_dir_name(version: &semver::Version, source: Option<&PackSource>) -> String {
         match source {
             Some(PackSource::Local { path }) => {
-                let mut hasher = DefaultHasher::new();
-                path.hash(&mut hasher);
-                let hash = hasher.finish();
+                let hash = Self::stable_hash_path(path);
                 format!("{version}-local-{hash:016x}")
             }
             _ => version.to_string(),
         }
+    }
+
+    /// FNV-1a 64-bit hash — deterministic across Rust versions, unlike
+    /// `DefaultHasher` which explicitly does not guarantee stability.
+    fn stable_hash_path(path: &str) -> u64 {
+        const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+        const FNV_PRIME: u64 = 0x00000100000001B3;
+        let mut hash = FNV_OFFSET;
+        for byte in path.as_bytes() {
+            hash ^= *byte as u64;
+            hash = hash.wrapping_mul(FNV_PRIME);
+        }
+        hash
     }
 
     /// Path where a specific pack version is stored.
@@ -598,6 +607,18 @@ mod tests {
         assert_eq!(
             Store::strip_local_suffix("1.0.0-local-ghijklmnopqrstuv"),
             "1.0.0-local-ghijklmnopqrstuv"
+        );
+    }
+
+    #[test]
+    fn stable_hash_is_pinned() {
+        // Pinned value — if this assertion breaks, existing local cache
+        // directories become orphaned. Do NOT change the hash algorithm
+        // without a migration path for existing stores.
+        assert_eq!(
+            Store::stable_hash_path("/home/user/my-pack"),
+            0xc4f22075cdd996fa,
+            "FNV-1a output must be stable across Rust versions"
         );
     }
 }
