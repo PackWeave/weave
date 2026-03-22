@@ -1,9 +1,11 @@
 # Weave
 
 [![Build](https://github.com/PackWeave/weave/actions/workflows/ci.yml/badge.svg)](https://github.com/PackWeave/weave/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 ![Status](https://img.shields.io/badge/status-v0.2-green)
+[![Homebrew](https://img.shields.io/badge/homebrew-PackWeave%2Ftap-FBB040)](https://github.com/PackWeave/homebrew-tap)
+[![Registry](https://img.shields.io/badge/registry-browse%20packs-8B5CF6)](https://github.com/PackWeave/registry)
+![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 > **A pack manager for AI CLIs** — install, share, and version MCP servers, slash commands, and prompts across Claude Code, Gemini CLI, and Codex CLI.
 
@@ -120,6 +122,9 @@ That's it. Weave has written the pack's MCP servers, system prompt, settings, an
 | `weave remove <pack>` | Remove a pack and clean up all config entries it wrote |
 | `weave list` | Show installed packs, their versions, and which CLIs they were applied to |
 | `weave search <query>` | Search the registry for packs matching a keyword or phrase |
+| `weave search --mcp <query>` | Search the official MCP Registry for servers instead of weave packs |
+| `weave update [pack]` | Update one or all installed packs to the latest compatible version |
+| `weave init [name]` | Scaffold a new pack directory (omit name to initialize the current directory) |
 | `weave diagnose` | Check for config drift and health issues across all installed CLIs and packs |
 
 **Examples:**
@@ -136,6 +141,18 @@ weave remove webdev
 
 # Search the registry
 weave search "browser automation"
+
+# Search the MCP Registry for servers
+weave search --mcp "filesystem"
+
+# Update all installed packs
+weave update
+
+# Update a specific pack
+weave update webdev
+
+# Scaffold a new pack
+weave init my-pack
 
 # Check for config issues (e.g. project-scope directories added after install)
 weave diagnose
@@ -191,7 +208,7 @@ See [pack.schema.toml](https://github.com/PackWeave/weave/blob/main/pack.schema.
 |-----|--------|--------------------|
 | **Claude Code** | ✅ v0.1 | MCP servers · slash commands · system prompt · settings |
 | **Gemini CLI** | ✅ v0.1 | MCP servers · system prompt · settings |
-| **OpenAI Codex CLI** | ✅ v0.2 | MCP servers · skills · system prompt · settings |
+| **Codex CLI** | ✅ v0.2 | MCP servers · skills · system prompt · settings |
 
 ---
 
@@ -219,16 +236,9 @@ Running diagnostics (profile 'default')...
 
 ---
 
-## 🚀 Coming in v0.2+
+## 🚀 Coming in v0.3+
 
-These features are in active development. See [docs/ROADMAP.md](https://github.com/PackWeave/weave/blob/main/docs/ROADMAP.md) for full milestones.
-
-**v0.2 — Pack authoring:**
-
-```bash
-weave update             # update installed packs to latest compatible versions
-weave init my-pack       # scaffold a new pack
-```
+See [docs/ROADMAP.md](https://github.com/PackWeave/weave/blob/main/docs/ROADMAP.md) for full milestones.
 
 **v0.3 — Profiles, hooks, and community taps:**
 

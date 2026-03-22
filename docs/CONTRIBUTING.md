@@ -17,14 +17,26 @@ If a PR was built with AI assistance, note the tool used in the PR description.
 - Rust stable (latest)
 - `cargo`, `clippy`, `rustfmt`
 
-Note: The repo is still pre-release and does not yet include a Rust crate. Until Milestone 2 lands, the commands below will fail.
-
 ```bash
 git clone https://github.com/PackWeave/weave
 cd weave
 cargo build
 cargo test
 ```
+
+## Running tests
+
+```sh
+cargo test
+```
+
+### Test structure
+
+- **Unit tests** — `#[cfg(test)]` blocks in source files
+- **Integration tests** — `tests/` directory (adapter tests, init tests)
+- **E2E tests** — `tests/e2e/` (requires macOS/Linux, gated on Windows)
+
+E2E tests use `wiremock` for mock HTTP, `assert_cmd` for subprocess assertions, and full isolation via environment variables (`HOME`, `WEAVE_TEST_STORE_DIR`, `WEAVE_REGISTRY_URL`).
 
 ### Before opening a PR
 
