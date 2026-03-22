@@ -75,7 +75,7 @@ src/core/         Business logic — no I/O to CLI config files here
   core/conflict.rs       Tool-level conflict detection across installed packs
 src/adapters/     CLI-specific config read/write — no business logic here
 src/error.rs      All error types
-src/config.rs     Global weave config
+src/core/config.rs    Global weave config
 src/util.rs       Shared helpers (file ops, path resolution, etc.)
 ```
 
