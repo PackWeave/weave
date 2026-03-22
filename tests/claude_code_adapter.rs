@@ -1117,3 +1117,100 @@ fn apply_persists_manifest_after_each_step_even_if_later_step_fails() {
         "server should be owned by the failing pack"
     );
 }
+
+/// Issue #118: when `apply_project_settings` fails mid-apply (after
+/// `apply_project_servers` already wrote `.mcp.json`), the user-scope manifest
+/// must still contain the project root in `project_dirs`. This ensures that a
+/// subsequent `weave remove` from any working directory can clean up the
+/// project-scope state.
+#[test]
+fn mid_apply_failure_records_project_root_and_remove_cleans_up() {
+    let home = TempDir::new().unwrap();
+    let project = TempDir::new().unwrap();
+    setup_claude_home(&home);
+
+    // The pack has a valid server and valid settings in the store, so user-scope
+    // apply succeeds. The failure is injected at project scope by placing a
+    // malformed settings.json in the project's .claude/ directory. When
+    // apply_project_settings tries to deep-merge into that file it will fail
+    // parsing the existing content.
+    let _fixture = StoreFixture::create("mid-proj-fail", None, Some(r#"{"theme": "dark"}"#), None);
+
+    // Pre-create the project-scope settings file with invalid JSON so that
+    // apply_project_settings fails when it tries to read the existing content.
+    let proj_claude_dir = project.path().join(".claude");
+    std::fs::create_dir_all(&proj_claude_dir).unwrap();
+    std::fs::write(proj_claude_dir.join("settings.json"), "NOT VALID JSON {{{").unwrap();
+
+    let adapter = make_adapter_with_project(&home, &project);
+    let pack = pack_with_servers("mid-proj-fail", vec![simple_server("mid-proj-srv")]);
+
+    let result = adapter.apply(&pack);
+    assert!(
+        result.is_err(),
+        "apply should fail due to malformed project-scope settings.json"
+    );
+
+    // ── Assert 1: project_dirs in user-scope manifest contains the project root ──
+    let manifest_path = home.path().join(".claude/.packweave_manifest.json");
+    assert!(
+        manifest_path.exists(),
+        "user-scope manifest must exist after partial apply"
+    );
+    let manifest = read_json(&manifest_path);
+
+    let project_root_abs = project
+        .path()
+        .canonicalize()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
+    let project_dirs = manifest["project_dirs"]["mid-proj-fail"]
+        .as_array()
+        .expect("project_dirs should contain an entry for the pack");
+    let recorded_roots: Vec<&str> = project_dirs.iter().filter_map(|v| v.as_str()).collect();
+    assert!(
+        recorded_roots.contains(&project_root_abs.as_str()),
+        "project root should be recorded before the failing step; got {recorded_roots:?}"
+    );
+
+    // ── Assert 2: .mcp.json was written (apply_project_servers ran) ──
+    let proj_mcp = project.path().join(".mcp.json");
+    assert!(
+        proj_mcp.exists(),
+        ".mcp.json should exist because apply_project_servers ran before the failure"
+    );
+    let mcp_config = read_json(&proj_mcp);
+    assert!(
+        mcp_config["mcpServers"]["mid-proj-srv"].is_object(),
+        "project-scope server entry should be present in .mcp.json"
+    );
+
+    // ── Assert 3: remove from a DIFFERENT cwd still cleans up ──
+    // Create an adapter rooted in a completely different directory (simulating
+    // `weave remove` invoked from outside the project).
+    let other_cwd = TempDir::new().unwrap();
+    let remove_adapter = ClaudeCodeAdapter::with_home_and_project(
+        home.path().to_path_buf(),
+        other_cwd.path().to_path_buf(),
+    );
+    remove_adapter
+        .remove("mid-proj-fail")
+        .expect("remove should succeed from a different working directory");
+
+    // .mcp.json should be cleaned up (deleted, since it was the only server).
+    assert!(
+        !proj_mcp.exists(),
+        ".mcp.json should be deleted after remove cleans up the project scope"
+    );
+
+    // project_dirs should no longer contain the pack entry.
+    let manifest_after = read_json(&manifest_path);
+    assert!(
+        manifest_after
+            .get("project_dirs")
+            .and_then(|d| d.get("mid-proj-fail"))
+            .is_none(),
+        "project_dirs entry should be removed after successful cleanup"
+    );
+}
