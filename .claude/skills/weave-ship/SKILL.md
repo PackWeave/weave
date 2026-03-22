@@ -1,7 +1,6 @@
 ---
 name: weave-ship
 description: Full Weave workflow from working changes to open PR. Runs quality gates, commits, pushes, and opens a PR with the correct assignee. Use when ready to ship a change. Pass the commit message as the argument.
-disable-model-invocation: true
 allowed-tools: Bash, Read, Edit
 ---
 

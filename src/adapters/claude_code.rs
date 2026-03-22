@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -30,6 +30,12 @@ struct PackweaveManifest {
     prompt_blocks: Vec<String>, // pack names with prompt content
     #[serde(default)]
     settings: HashMap<String, SettingsRecord>, // pack_name -> settings record
+    /// Absolute paths of project roots where this manifest's packs have
+    /// project-scope installations (keyed by pack name). Stored in the
+    /// *user-scope* manifest so `weave remove` can clean up project-scope
+    /// state regardless of the current working directory.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    project_dirs: HashMap<String, Vec<String>>, // pack_name -> [project_root_abs_paths]
 }
 
 pub struct ClaudeCodeAdapter {
@@ -119,7 +125,18 @@ impl ClaudeCodeAdapter {
 
     /// Returns true if the project has a `.claude/` directory, indicating
     /// that project-scope config should be maintained.
+    ///
+    /// Explicitly excludes the home directory: `~/.claude/` is Claude Code's
+    /// user-scope global config directory, not a project indicator. Without
+    /// this guard, running `weave install` from `~` would write to `~/.mcp.json`
+    /// (a location Claude Code reads) and never clean it up via the normal
+    /// user-scope manifest path.
     fn has_project_scope(&self) -> bool {
+        if let Some(home) = &self.home {
+            if &self.project_root == home {
+                return false;
+            }
+        }
         self.project_claude_dir().exists()
     }
 
@@ -420,6 +437,48 @@ impl ClaudeCodeAdapter {
         Ok(())
     }
 
+    // ── Project-root helpers ──────────────────────────────────────────────────
+
+    /// Remove all contributions of `pack_name` from a specific project root,
+    /// reading and saving the project manifest at that root.
+    ///
+    /// This is used by `remove()` to clean up project-scope state regardless of
+    /// the current working directory (the user may run `weave remove` from a
+    /// different directory than where they originally ran `weave install`).
+    fn remove_from_project_root(&self, pack_name: &str, project_root: &Path) -> Result<()> {
+        let project_manifest_path = project_root
+            .join(".claude")
+            .join(".packweave_manifest.json");
+        if !project_manifest_path.exists() {
+            return Ok(());
+        }
+
+        let content = util::read_file(&project_manifest_path)?;
+        let mut pm: PackweaveManifest =
+            serde_json::from_str(&content).map_err(|e| WeaveError::Json {
+                path: project_manifest_path.clone(),
+                source: e,
+            })?;
+
+        let servers_to_remove: Vec<String> = pm
+            .servers
+            .iter()
+            .filter(|(_, pn)| *pn == pack_name)
+            .map(|(sn, _)| sn.clone())
+            .collect();
+        if !servers_to_remove.is_empty() {
+            let mcp_path = project_root.join(".mcp.json");
+            self.remove_servers_from_file(&mcp_path, &servers_to_remove, &mut pm.servers)?;
+        }
+
+        let settings_path = project_root.join(".claude").join("settings.json");
+        self.remove_settings_from_file(&settings_path, pack_name, &mut pm.settings)?;
+
+        let content =
+            serde_json::to_string_pretty(&pm).expect("project manifest serialization cannot fail");
+        util::write_file(&project_manifest_path, &content)
+    }
+
     // ── User-scope apply/remove ───────────────────────────────────────────────
 
     /// Merge pack servers into `~/.claude.json` (user scope).
@@ -461,27 +520,6 @@ impl ClaudeCodeAdapter {
         }
         let path = self.project_mcp_json_path();
         self.apply_servers_to_file(&path, pack, &mut manifest.servers)
-    }
-
-    /// Remove pack servers from `.mcp.json` (project scope).
-    fn remove_project_servers(
-        &self,
-        pack_name: &str,
-        manifest: &mut PackweaveManifest,
-    ) -> Result<()> {
-        let servers_to_remove: Vec<String> = manifest
-            .servers
-            .iter()
-            .filter(|(_, pn)| *pn == pack_name)
-            .map(|(sn, _)| sn.clone())
-            .collect();
-
-        if servers_to_remove.is_empty() {
-            return Ok(());
-        }
-
-        let path = self.project_mcp_json_path();
-        self.remove_servers_from_file(&path, &servers_to_remove, &mut manifest.servers)
     }
 
     /// Copy slash command files with namespaced filenames.
@@ -690,16 +728,6 @@ impl ClaudeCodeAdapter {
         let path = self.project_settings_path();
         self.apply_settings_to_file(&path, pack, &fragment, &mut manifest.settings)
     }
-
-    /// Remove settings written by a pack from `.claude/settings.json` (project scope).
-    fn remove_project_settings(
-        &self,
-        pack_name: &str,
-        manifest: &mut PackweaveManifest,
-    ) -> Result<()> {
-        let path = self.project_settings_path();
-        self.remove_settings_from_file(&path, pack_name, &mut manifest.settings)
-    }
 }
 
 impl CliAdapter for ClaudeCodeAdapter {
@@ -744,12 +772,31 @@ impl CliAdapter for ClaudeCodeAdapter {
             self.save_project_manifest(&project_manifest)?;
             self.apply_project_settings(pack, &mut project_manifest)?;
             self.save_project_manifest(&project_manifest)?;
+
+            // Record this project root in the user-scope manifest so `remove`
+            // can clean up project-scope state regardless of the working directory
+            // when `weave remove` is later invoked.
+            let root_str = self.project_root.to_string_lossy().to_string();
+            let roots = manifest
+                .project_dirs
+                .entry(pack.pack.name.clone())
+                .or_default();
+            if !roots.contains(&root_str) {
+                roots.push(root_str);
+            }
+            self.save_manifest(&manifest)?;
         }
 
         Ok(())
     }
 
     fn remove(&self, pack_name: &str) -> Result<()> {
+        // Collect all project roots to clean up. We start from the user-scope
+        // manifest (which records roots from previous `weave install` calls) and
+        // also include the current directory in case the user installs and removes
+        // from the same project or is on an older weave version without tracking.
+        let mut roots_to_clean: Vec<PathBuf> = Vec::new();
+
         // User-scope — only touch the manifest if it already exists.
         let manifest_path = self.manifest_path()?;
         if manifest_path.exists() {
@@ -758,16 +805,44 @@ impl CliAdapter for ClaudeCodeAdapter {
             self.remove_commands(pack_name, &mut manifest)?;
             self.remove_prompts(pack_name, &mut manifest)?;
             self.remove_settings(pack_name, &mut manifest)?;
-            self.save_manifest(&manifest)?;
-        }
 
-        // Project-scope — only if a project manifest exists in cwd.
-        let project_manifest_path = self.project_manifest_path();
-        if project_manifest_path.exists() {
-            let mut project_manifest = self.load_project_manifest()?;
-            self.remove_project_servers(pack_name, &mut project_manifest)?;
-            self.remove_project_settings(pack_name, &mut project_manifest)?;
-            self.save_project_manifest(&project_manifest)?;
+            // Clone the tracked project roots — we only remove entries that are
+            // successfully cleaned so failed roots can be retried on a future run.
+            if let Some(dirs) = manifest.project_dirs.get(pack_name) {
+                roots_to_clean.extend(dirs.iter().map(PathBuf::from));
+            }
+
+            // Also include the current project dir for legacy installs (installed
+            // before project_dirs tracking existed, or installed/removed from same dir).
+            let current_project_manifest = self.project_manifest_path();
+            if current_project_manifest.exists() && !roots_to_clean.contains(&self.project_root) {
+                roots_to_clean.push(self.project_root.clone());
+            }
+
+            // Clean up project-scope state in every affected project root.
+            let mut failed_roots: Vec<String> = Vec::new();
+            for root in &roots_to_clean {
+                if let Err(e) = self.remove_from_project_root(pack_name, root) {
+                    // Non-fatal: the project dir may have been deleted or moved.
+                    // Warn so the user can investigate if needed.
+                    eprintln!(
+                        "  warning: could not clean project scope in {}: {e}",
+                        root.display()
+                    );
+                    failed_roots.push(root.to_string_lossy().to_string());
+                }
+            }
+
+            // Only keep roots that failed cleanup so they can be retried later.
+            if failed_roots.is_empty() {
+                manifest.project_dirs.remove(pack_name);
+            } else {
+                manifest
+                    .project_dirs
+                    .insert(pack_name.to_string(), failed_roots);
+            }
+
+            self.save_manifest(&manifest)?;
         }
 
         Ok(())
