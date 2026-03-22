@@ -522,29 +522,45 @@ impl ClaudeCodeAdapter {
         known_server_names: &[String],
     ) -> bool {
         // Check .mcp.json for servers that match user-scope names for this pack.
+        // Fail closed: if the file exists but can't be read or parsed, treat
+        // the root as having orphans so we don't drop it prematurely.
         let mcp_path = project_root.join(".mcp.json");
         if mcp_path.exists() {
-            if let Ok(content) = util::read_file(&mcp_path) {
-                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
-                    if let Some(servers) = parsed.get("mcpServers").and_then(|v| v.as_object()) {
-                        for name in known_server_names {
-                            if servers.contains_key(name) {
-                                return true;
-                            }
+            let content = match util::read_file(&mcp_path) {
+                Ok(c) => c,
+                Err(_) => return true,
+            };
+            let parsed: serde_json::Value = match serde_json::from_str(&content) {
+                Ok(v) => v,
+                Err(_) => return true,
+            };
+            if let Some(mcp_servers_value) = parsed.get("mcpServers") {
+                if let Some(servers) = mcp_servers_value.as_object() {
+                    for name in known_server_names {
+                        if servers.contains_key(name) {
+                            return true;
                         }
                     }
+                } else {
+                    // mcpServers exists but is not an object — be conservative.
+                    return true;
                 }
             }
         }
 
         // Check project CLAUDE.md for packweave prompt block markers.
+        // Same fail-closed principle: if the file exists but can't be read,
+        // assume it may contain packweave blocks.
         let claude_md = project_root.join("CLAUDE.md");
         if claude_md.exists() {
-            if let Ok(content) = util::read_file(&claude_md) {
-                let begin_tag = format!("<!-- packweave:begin:{pack_name} -->");
-                if content.contains(&begin_tag) {
-                    return true;
+            match util::read_file(&claude_md) {
+                Ok(content) => {
+                    let begin_tag = format!("<!-- packweave:begin:{pack_name} -->");
+                    if content.contains(&begin_tag) {
+                        return true;
+                    }
                 }
+                Err(_) => return true,
             }
         }
 
