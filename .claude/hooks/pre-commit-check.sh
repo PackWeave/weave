@@ -6,6 +6,17 @@
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
+FIRST_LINE=$(echo "$COMMAND" | head -1)
+if echo "$FIRST_LINE" | grep -q 'git push'; then
+    if echo "$FIRST_LINE" | grep -qE '(^|\s)(origin\s+)?(main|master)(\s|$)'; then
+        if ! echo "$FIRST_LINE" | grep -qE '(--delete|-d)'; then
+            echo "Blocked: direct push to main/master is not allowed." >&2
+            echo "Create a feature branch, push it, and open a PR instead." >&2
+            exit 2
+        fi
+    fi
+fi
+
 if echo "$COMMAND" | grep -q 'git commit'; then
     echo "Running pre-commit quality gate..." >&2
 

@@ -95,13 +95,19 @@ The adapters are opaque. They expose only the `CliAdapter` trait. The core does 
 
 ## Workflow skills
 
-This project has three Claude Code skills that encode the standard development workflow. Use them instead of doing these steps manually:
+This project has Claude Code skills that encode the standard development workflow. Use them instead of doing these steps manually:
 
 - **`/weave-ship <commit message>`** — full PR workflow: runs quality gates, commits, pushes, and opens a PR with the correct assignee. Use this whenever you are ready to ship a change.
 - **`/rust-pre-commit`** — runs `cargo fmt --all`, `cargo clippy -- -D warnings`, and `cargo test` in order. Use this to verify the working tree is CI-ready before committing.
 - **`/copilot-review <PR number>`** — fetches all Copilot inline comments on a PR, classifies each as stale/valid/deferred/skip, fixes valid ones in-place, and creates GitHub issues for deferred ones.
+- **`/weave-issue <title> [--- description]`** — creates a well-formed GitHub issue with current branch and recent commit context auto-injected. Use when deferring a finding or tracking follow-up work.
+- **`/weave-e2e [flow]`** — runs the manual E2E validation checklist against real CLI installations (`~/.claude.json`, `~/.gemini/settings.json`, `~/.codex/config.toml`). This is the gate before shipping features that touch adapters. Run the full suite or target a single flow (`install`, `profiles`, `search`, `remove`, `diagnose`, `local`, `cleanup`).
 
-A `PreToolUse` hook also runs the quality gate automatically whenever Claude executes a `git commit` command.
+Two hooks enforce workflow automatically:
+
+- A `PreToolUse` hook runs the quality gate (`cargo fmt`, `cargo clippy`, `cargo test`) whenever Claude executes a `git commit` command.
+- The same hook blocks any `git push` targeting `main` or `master` — all changes must go through a PR.
+- A `SessionStart` hook prints branch, dirty file count, open PRs, and open issue count at the start of every session.
 
 -----
 
