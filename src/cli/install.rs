@@ -15,10 +15,28 @@ use crate::core::store::Store;
 
 /// Install a pack by name (or local path), optionally with a version requirement.
 /// When `force` is true, tool-conflict warnings are suppressed.
-pub fn run(pack_name: &str, version: Option<&str>, force: bool) -> Result<()> {
+/// When `project` is true, also installs to `.mcp.json` in the current directory.
+pub fn run(pack_name: &str, version: Option<&str>, force: bool, project: bool) -> Result<()> {
+    // Guard: --project from the home directory would write to ~/.mcp.json, which
+    // Claude Code reads globally. Refuse early with a clear error.
+    if project {
+        let cwd = std::env::current_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .canonicalize()
+            .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+        if let Some(home) = dirs::home_dir().and_then(|h| h.canonicalize().ok()) {
+            anyhow::ensure!(
+                cwd != home,
+                "cannot install to project scope from the home directory (~)\n\
+                 hint: run `weave install` from a project directory, or omit --project \
+                 to install to user scope only"
+            );
+        }
+    }
+
     // Local path install — bypasses the registry entirely.
     if is_local_path(pack_name) {
-        return install_local(pack_name, force);
+        return install_local(pack_name, force, project);
     }
 
     // Normalise name: strip a leading '@' so `weave install @webdev` works like
@@ -52,7 +70,7 @@ pub fn run(pack_name: &str, version: Option<&str>, force: bool) -> Result<()> {
     // Load lock file
     let mut lockfile = LockFile::load(&config.active_profile).context("loading lock file")?;
 
-    let adapters = adapters::installed_adapters();
+    let adapters = adapters::installed_adapters_with_scope(project);
 
     // Load installed pack manifests once before the loop rather than on each
     // iteration — avoids redundant I/O when installing multiple packs.
@@ -175,7 +193,7 @@ pub fn run(pack_name: &str, version: Option<&str>, force: bool) -> Result<()> {
 /// Reads `pack.toml` and all files from the directory, writes them to the
 /// store, and applies the pack to all installed CLI adapters — the same steps
 /// as a registry install but without a network fetch.
-fn install_local(raw_path: &str, force: bool) -> Result<()> {
+fn install_local(raw_path: &str, force: bool, project: bool) -> Result<()> {
     let path = expand_home(raw_path);
     let path = path
         .canonicalize()
@@ -267,7 +285,7 @@ fn install_local(raw_path: &str, force: bool) -> Result<()> {
         }
     }
 
-    let adapters = adapters::installed_adapters();
+    let adapters = adapters::installed_adapters_with_scope(project);
     for adapter in &adapters {
         match adapter.apply(&resolved) {
             Ok(()) => println!("    Applied to {}", adapter.name()),

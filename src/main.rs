@@ -34,6 +34,10 @@ enum Commands {
         /// Suppress tool-conflict warnings
         #[arg(long)]
         force: bool,
+
+        /// Also install to .mcp.json in the current directory (project scope)
+        #[arg(long)]
+        project: bool,
     },
 
     /// List installed packs
@@ -133,7 +137,8 @@ fn main() {
             name,
             version,
             force,
-        } => cli::install::run(&name, version.as_deref(), force),
+            project,
+        } => cli::install::run(&name, version.as_deref(), force, project),
         Commands::List => cli::list::run(),
         Commands::Remove { name } => cli::remove::run(&name),
         Commands::Search { query, target, mcp } => cli::search::run(&query, target.as_deref(), mcp),

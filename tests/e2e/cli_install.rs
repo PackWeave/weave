@@ -271,3 +271,76 @@ async fn install_writes_claude_config() {
         "~/.claude.json should contain the server name"
     );
 }
+
+/// Without `--project`, installing a pack must NOT create `.mcp.json` in the
+/// current directory — even if a `.claude/` subdirectory exists.
+#[cfg(not(target_os = "windows"))]
+#[tokio::test]
+async fn install_without_project_flag_does_not_write_mcp_json() {
+    let env = TestEnv::new().await;
+    let pack =
+        FixturePack::new("test-pack", "1.0.0").with_server("echo-server", "echo", &["hello"]);
+
+    mount_registry(&env.mock_server, &[&pack]).await;
+
+    // Create `.claude/` so the old auto-detection would have fired.
+    std::fs::create_dir_all(env.project_dir.path().join(".claude")).unwrap();
+
+    env.weave_cmd()
+        .args(["install", "test-pack"])
+        .assert()
+        .success();
+
+    // No .mcp.json should exist — project scope is now opt-in.
+    let mcp_json = env.project_dir.path().join(".mcp.json");
+    assert!(
+        !mcp_json.exists(),
+        ".mcp.json must NOT be created without --project flag"
+    );
+
+    // But user-scope ~/.claude.json must still have the server.
+    let claude_content =
+        std::fs::read_to_string(env.claude_json()).expect("~/.claude.json should exist");
+    assert!(
+        claude_content.contains("echo-server"),
+        "echo-server must still be in ~/.claude.json"
+    );
+}
+
+/// With `--project`, installing a pack writes BOTH `~/.claude.json` (user scope)
+/// and `.mcp.json` in the current directory (project scope).
+#[cfg(not(target_os = "windows"))]
+#[tokio::test]
+async fn install_with_project_flag_writes_mcp_json() {
+    let env = TestEnv::new().await;
+    let pack =
+        FixturePack::new("test-pack", "1.0.0").with_server("echo-server", "echo", &["hello"]);
+
+    mount_registry(&env.mock_server, &[&pack]).await;
+
+    env.weave_cmd()
+        .args(["install", "test-pack", "--project"])
+        .assert()
+        .success();
+
+    // Project-scope .mcp.json must be created.
+    let mcp_json = env.project_dir.path().join(".mcp.json");
+    assert!(
+        mcp_json.exists(),
+        ".mcp.json should exist after --project install"
+    );
+    let mcp: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&mcp_json).unwrap()).unwrap();
+    assert!(
+        mcp["mcpServers"]["echo-server"].is_object(),
+        "echo-server should be present in .mcp.json"
+    );
+
+    // User-scope ~/.claude.json must also have the server.
+    let claude_content =
+        std::fs::read_to_string(env.claude_json()).expect("~/.claude.json should exist");
+    assert!(
+        claude_content.contains("echo-server"),
+        "echo-server must also be in ~/.claude.json"
+    );
+}

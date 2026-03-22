@@ -329,7 +329,9 @@ Claude Code stores configuration across user and project scopes:
 
 ### MCP servers
 
-`~/.claude.json` and `.mcp.json` contain a `mcpServers` key. The adapter merges pack-defined servers into this map (per scope). To track ownership, it maintains a sidecar file at `~/.claude/.packweave_manifest.json`:
+`~/.claude.json` contains the `mcpServers` key (user scope). When `--project` is passed to `weave install`, the adapter also writes servers to `.mcp.json` in the current directory (project scope).
+
+To track ownership, the adapter maintains a sidecar file at `~/.claude/.packweave_manifest.json`:
 
 ```json
 {
@@ -340,11 +342,14 @@ Claude Code stores configuration across user and project scopes:
   "commands": {
     "webdev__review.md": "webdev"
   },
-  "prompt_blocks": ["webdev"]
+  "prompt_blocks": ["webdev"],
+  "project_dirs": {
+    "webdev": ["/Users/dev/my-project"]
+  }
 }
 ```
 
-On removal, the adapter consults this manifest to know exactly what to undo.
+`project_dirs` records the absolute (canonicalized) paths of project roots where `--project` installs have been applied. On removal, the adapter consults this manifest to clean up both user-scope and all project-scope state — regardless of the current working directory. Failed cleanups are retained for retry on the next `weave remove`.
 
 ### Slash commands
 

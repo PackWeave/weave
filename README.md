@@ -96,10 +96,10 @@ weave install web-dev
         └─▶ applies to each installed CLI — non-destructively
 
         Claude Code:  ~/.claude.json, ~/.claude/settings.json, ~/.claude/commands/,
-                      ~/.claude/CLAUDE.md, ./.mcp.json (project-scope MCP servers)
+                      ~/.claude/CLAUDE.md
+                      + .mcp.json (with --project)
         Gemini CLI:   ~/.gemini/settings.json, ~/.gemini/GEMINI.md
         Codex CLI:    ~/.codex/config.toml, ~/.codex/AGENTS.md, ~/.codex/skills/
-        (+ project-scope equivalents when ./.claude/, ./.gemini/, or ./.codex/ exist)
 ```
 
 Each CLI has its own **adapter** — a thin layer that knows exactly how to read and write that CLI's config format. Adapters never wipe your existing config. They only add, track, and cleanly remove what they own. A `weave remove` is surgical.
@@ -141,7 +141,7 @@ cargo install --git https://github.com/PackWeave/weave
 
 | Command | Description |
 |---------|-------------|
-| `weave install <pack>` | Install a pack and apply it to all supported CLIs. Use `--version` to pin (e.g. `^1.0`, `=1.2.0`). |
+| `weave install <pack>` | Install a pack and apply it to all supported CLIs. Use `--version` to pin (e.g. `^1.0`, `=1.2.0`). Use `--project` to also write to `.mcp.json` in the current directory. |
 | `weave remove <pack>` | Remove a pack and clean up all config entries it wrote |
 | `weave list` | Show installed packs with versions, descriptions, and target CLIs |
 | `weave search <query>` | Search the pack registry |
@@ -213,10 +213,14 @@ See [pack.schema.toml](https://github.com/PackWeave/weave/blob/main/pack.schema.
 
 ## 🗂️ Project-scope config
 
-Some CLIs read both a user-level config (`~/.claude/`) and a project-level config (`.claude/` in your repo). Weave applies packs to every scope that **exists at install time**.
+Some CLIs read both a user-level config (`~/.claude/`) and a project-level config (`.mcp.json` in your repo). By default, `weave install` only writes to user scope. Pass `--project` to also write MCP servers to `.mcp.json` in the current directory:
+
+```bash
+weave install web-dev --project
+```
 
 > [!TIP]
-> If you create a `.claude/`, `.gemini/`, or `.codex/` directory _after_ installing a pack, run `weave install <pack>` again from the project directory. `apply` is idempotent — it will add the missing project-scope config without duplicating anything.
+> `weave remove` cleans up both user and project scope automatically, regardless of which directory you run it from.
 
 Run `weave diagnose` to detect this condition automatically:
 

@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 
+use crate::adapters::claude_code::ClaudeCodeAdapter;
 use crate::core::config::Config;
 use crate::core::pack::PackTargets;
 use crate::core::profile::Profile;
@@ -17,6 +18,10 @@ pub fn run() -> Result<()> {
         return Ok(());
     }
 
+    // Load project_dirs from the Claude Code user manifest for scope display.
+    // This is best-effort — if it fails we simply omit scope lines.
+    let project_dirs = ClaudeCodeAdapter::new().load_project_dirs_public();
+
     println!("Installed packs (profile: {}):", profile.name);
     println!();
 
@@ -30,6 +35,23 @@ pub fn run() -> Result<()> {
                 if !pack.servers.is_empty() {
                     let names: Vec<&str> = pack.servers.iter().map(|s| s.name.as_str()).collect();
                     println!("    Servers: {}", names.join(", "));
+                }
+
+                // Show scope only for packs targeting Claude Code.
+                if pack.targets.claude_code {
+                    if let Some(ref dirs) = project_dirs {
+                        if let Some(paths) = dirs.get(&installed.name) {
+                            if paths.is_empty() {
+                                println!("    Scope: user");
+                            } else {
+                                for path in paths {
+                                    println!("    Scope: user + project ({path})");
+                                }
+                            }
+                        } else {
+                            println!("    Scope: user");
+                        }
+                    }
                 }
             }
             Err(e) => {
