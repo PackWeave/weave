@@ -41,16 +41,25 @@ impl Config {
     }
 
     /// Load config from disk, returning defaults if file doesn't exist.
+    ///
+    /// The `WEAVE_REGISTRY_URL` environment variable, when set, overrides the
+    /// `registry_url` from disk. This is used by E2E tests to point the CLI at
+    /// a mock registry without touching real config files.
     pub fn load() -> Result<Self> {
         let path = Self::path()?;
-        if !path.exists() {
-            return Ok(Self::default());
+        let mut config = if !path.exists() {
+            Self::default()
+        } else {
+            let content = util::read_file(&path)?;
+            toml::from_str(&content).map_err(|e| crate::error::WeaveError::Toml {
+                path,
+                source: Box::new(e),
+            })?
+        };
+        if let Ok(url) = std::env::var("WEAVE_REGISTRY_URL") {
+            config.registry_url = url;
         }
-        let content = util::read_file(&path)?;
-        toml::from_str(&content).map_err(|e| crate::error::WeaveError::Toml {
-            path,
-            source: Box::new(e),
-        })
+        Ok(config)
     }
 
     /// Save config to disk.
