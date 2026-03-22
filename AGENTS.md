@@ -56,9 +56,11 @@ Read docs/ARCHITECTURE.md before writing any code. It defines the module structu
 ### Testing
 
 - Unit tests go in `#[cfg(test)]` blocks in the same file
-- Integration tests go in `tests/`
-- Adapter tests use fixture directories under `tests/fixtures/` — never write to the real `~/.claude/` in tests
-- No network calls in tests — mock the registry client
+- Integration tests go in `tests/` (adapter tests, init tests)
+- E2E tests go in `tests/e2e/` — invoke the `weave` binary as a subprocess with full isolation via `TestEnv` (mock HTTP registry, fake HOME, fake store). Gated with `#[cfg(not(target_os = "windows"))]`
+- Never write to the real `~/.claude/`, `~/.gemini/`, `~/.codex/` in tests — use `TempDir` and env var overrides (`WEAVE_TEST_STORE_DIR`, `WEAVE_REGISTRY_URL`, `HOME`)
+- No network calls in tests — use `wiremock` for HTTP mocking
+- Tests that mutate process-global env vars must use `#[serial]` from `serial_test` to prevent parallel races
 
 ### Naming
 
