@@ -5,6 +5,7 @@ pub mod list;
 pub mod profile;
 pub mod remove;
 pub mod search;
+pub mod style;
 pub mod sync;
 pub mod tap;
 pub mod update;

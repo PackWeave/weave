@@ -4,6 +4,7 @@ use serde::Serialize;
 
 use crate::adapters;
 use crate::adapters::{AdapterId, CliAdapter, DiagnosticIssue};
+use crate::cli::style;
 use crate::core::config::Config;
 use crate::core::pack::{PackSource, PackTargets};
 use crate::core::profile::Profile;
@@ -185,45 +186,74 @@ pub fn build_report(
 // ── Formatting helpers (testable, pure functions) ───────────────────────────
 
 /// Render the report as human-readable text.
+///
+/// Uses [`style`] helpers for color output — when colors are disabled (test
+/// captures, piped output, `NO_COLOR`) the styled wrappers produce plain text,
+/// so a single code path serves both cases.
 pub fn format_human(report: &DiagnoseReport) -> String {
     let mut out = String::new();
 
-    out.push_str(&format!("Profile: {}\n", report.profile));
-    out.push_str(&format!("Packs: {} installed\n", report.pack_count));
+    out.push_str(&format!(
+        "{}: {}\n",
+        style::header("Profile"),
+        style::emphasis(report.profile.as_str())
+    ));
+    out.push_str(&format!(
+        "{}: {} installed\n",
+        style::header("Packs"),
+        style::success(report.pack_count.to_string())
+    ));
 
     if report.packs.is_empty() {
-        out.push_str("\n  (no packs installed)\n");
+        out.push_str(&format!("\n  {}\n", style::subtext("(no packs installed)")));
     }
 
     for pack in &report.packs {
-        out.push_str(&format!("\n  {} v{}\n", pack.name, pack.version));
+        out.push_str(&format!(
+            "\n  {} v{}\n",
+            style::pack_name(pack.name.as_str()),
+            style::version(pack.version.as_str())
+        ));
         for adapter_status in &pack.adapters {
             let status_str = match &adapter_status.status {
-                PackHealth::Ok => "ok".to_string(),
-                PackHealth::Skipped => "skipped (not installed)".to_string(),
-                PackHealth::Missing => "missing (not tracked by adapter)".to_string(),
-                PackHealth::NotTargeted => "skipped (not targeted)".to_string(),
+                PackHealth::Ok => format!("{}", style::success("ok")),
+                PackHealth::Skipped => {
+                    format!("{}", style::dim("skipped (not installed)"))
+                }
+                PackHealth::Missing => {
+                    format!("{}", style::subtext("missing (not tracked by adapter)"))
+                }
+                PackHealth::NotTargeted => {
+                    format!("{}", style::dim("skipped (not targeted)"))
+                }
                 PackHealth::Drifted => {
                     let details: Vec<&str> = adapter_status
                         .issues
                         .iter()
                         .map(|i| i.message.as_str())
                         .collect();
-                    format!("drifted ({})", details.join("; "))
+                    format!(
+                        "{}",
+                        style::subtext(format!("drifted ({})", details.join("; ")))
+                    )
                 }
             };
-            out.push_str(&format!("    {}: {}\n", adapter_status.adapter, status_str));
+            out.push_str(&format!(
+                "    {}: {}\n",
+                style::target(adapter_status.adapter.as_str()),
+                status_str
+            ));
         }
     }
 
     out.push('\n');
 
     if report.issue_count == 0 {
-        out.push_str("No issues found.\n");
+        out.push_str(&format!("{}\n", style::success("No issues found.")));
     } else {
         out.push_str(&format!(
             "{} issue(s) found. Run `weave sync` to fix.\n",
-            report.issue_count
+            style::subtext(report.issue_count.to_string())
         ));
     }
 

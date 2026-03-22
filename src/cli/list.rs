@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 
 use crate::adapters::claude_code::ClaudeCodeAdapter;
+use crate::cli::style;
 use crate::core::config::Config;
 use crate::core::pack::PackTargets;
 use crate::core::profile::Profile;
@@ -12,9 +13,15 @@ pub fn run() -> Result<()> {
     let profile = Profile::load(&config.active_profile).context("loading active profile")?;
 
     if profile.packs.is_empty() {
-        println!("No packs installed (profile: {}).", profile.name);
+        println!(
+            "{}",
+            style::subtext(format!("No packs installed (profile: {}).", profile.name))
+        );
         println!();
-        println!("Run `weave install <pack>` to get started.");
+        println!(
+            "{}",
+            style::subtext("Run `weave install <pack>` to get started.")
+        );
         return Ok(());
     }
 
@@ -22,7 +29,10 @@ pub fn run() -> Result<()> {
     // This is best-effort — if it fails we simply omit scope lines.
     let project_dirs = ClaudeCodeAdapter::new().load_project_dirs_public();
 
-    println!("Installed packs (profile: {}):", profile.name);
+    println!(
+        "{}",
+        style::header(format!("Installed packs (profile: {}):", profile.name))
+    );
     println!();
 
     for installed in &profile.packs {
@@ -30,12 +40,21 @@ pub fn run() -> Result<()> {
         match Store::load_pack(&installed.name, &installed.version, Some(&installed.source)) {
             Ok(pack) => {
                 let hooks_badge = if pack.has_hooks() { " [hooks]" } else { "" };
-                println!("  {} v{}{}", installed.name, installed.version, hooks_badge);
-                println!("    {}", pack.description);
-                println!("    Targets: {}", format_targets(&pack.targets));
+                println!(
+                    "  {} v{}{}",
+                    style::pack_name(installed.name.as_str()),
+                    style::version(installed.version.to_string()),
+                    hooks_badge
+                );
+                println!("    {}", style::subtext(pack.description.as_str()));
+                println!(
+                    "    {}: {}",
+                    style::dim("Targets"),
+                    style::target(format_targets(&pack.targets))
+                );
                 if !pack.servers.is_empty() {
                     let names: Vec<&str> = pack.servers.iter().map(|s| s.name.as_str()).collect();
-                    println!("    Servers: {}", names.join(", "));
+                    println!("    {}: {}", style::dim("Servers"), names.join(", "));
                 }
 
                 // Show scope only for packs targeting Claude Code.
@@ -43,31 +62,44 @@ pub fn run() -> Result<()> {
                     if let Some(ref dirs) = project_dirs {
                         if let Some(paths) = dirs.get(&installed.name) {
                             if paths.is_empty() {
-                                println!("    Scope: user");
+                                println!("    {}: user", style::dim("Scope"));
                             } else {
                                 for path in paths {
-                                    println!("    Scope: user + project ({path})");
+                                    println!(
+                                        "    {}: {}",
+                                        style::dim("Scope"),
+                                        style::subtext(format!("user + project ({path})"))
+                                    );
                                 }
                             }
                         } else {
-                            println!("    Scope: user");
+                            println!("    {}: user", style::dim("Scope"));
                         }
                     }
                 }
             }
             Err(e) => {
                 eprintln!(
-                    "  warning: could not load manifest for {} v{}: {e}",
-                    installed.name, installed.version
+                    "  {}: could not load manifest for {} v{}: {e}",
+                    style::dim("warning"),
+                    style::pack_name(installed.name.as_str()),
+                    style::version(installed.version.to_string())
                 );
-                println!("  {} v{}", installed.name, installed.version);
+                println!(
+                    "  {} v{}",
+                    style::pack_name(installed.name.as_str()),
+                    style::version(installed.version.to_string())
+                );
             }
         }
 
         println!();
     }
 
-    println!("{} pack(s) installed.", profile.packs.len());
+    println!(
+        "{} pack(s) installed.",
+        style::success(profile.packs.len().to_string())
+    );
 
     Ok(())
 }

@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 
 use crate::adapters::{self, ApplyOptions};
+use crate::cli::style;
 use crate::core::config::Config;
 use crate::core::install;
 use crate::core::lockfile::LockFile;
@@ -78,44 +79,55 @@ pub fn run(
 
     // Format output
     for name in &result.already_satisfied {
-        println!("  {name} is already installed and up to date");
+        println!(
+            "  {} is already installed and up to date",
+            style::pack_name(name.as_str())
+        );
     }
 
     for pack_result in &result.installed {
         println!(
             "  Installing {}@{}...",
-            pack_result.name, pack_result.version
+            style::pack_name(pack_result.name.as_str()),
+            style::version(pack_result.version.to_string())
         );
         for conflict in &pack_result.tool_conflicts {
-            eprintln!("  warning: {conflict}");
+            eprintln!("  {}: {conflict}", style::dim("warning"));
         }
         if pack_result.has_hooks && !allow_hooks {
             eprintln!(
-                "  note: pack '{}' declares hooks (shell commands that run at lifecycle events)",
-                pack_result.name
+                "  {}: pack '{}' declares hooks (shell commands that run at lifecycle events)",
+                style::dim("note"),
+                style::pack_name(pack_result.name.as_str())
             );
             eprintln!("  pass --allow-hooks to apply them");
         }
         for adapter in &pack_result.applied_adapters {
-            println!("    Applied to {adapter}");
+            println!(
+                "    {} to {}",
+                style::success("Applied"),
+                style::target(adapter.as_str())
+            );
         }
         for err in &pack_result.adapter_errors {
-            eprintln!("  warning: {err}");
+            eprintln!("  {}: {err}", style::dim("warning"));
         }
         for env_var in &pack_result.missing_env_vars {
             eprintln!(
-                "  warning: pack '{}' requires {} to be set",
-                env_var.pack_name, env_var.key
+                "  {}: pack '{}' requires {} to be set",
+                style::dim("warning"),
+                style::pack_name(env_var.pack_name.as_str()),
+                style::emphasis(env_var.key.as_str())
             );
             if let Some(desc) = &env_var.description {
-                eprintln!("  {}: {desc}", env_var.key);
+                eprintln!("  {}: {desc}", style::dim(env_var.key.as_str()));
             }
             eprintln!("  set it with: export {}=<value>", env_var.key);
         }
     }
 
     if !result.installed.is_empty() {
-        println!("Done.");
+        println!("{}", style::success("Done."));
     }
 
     Ok(())
@@ -151,49 +163,66 @@ fn run_local(raw_path: &str, force: bool, project: bool, allow_hooks: bool) -> R
 
     let result = install::install_local(&path, force, &apply_options, &mut ctx)?;
 
-    println!("  Installing {}@{} (local)...", result.name, result.version);
+    println!(
+        "  Installing {}@{} (local)...",
+        style::pack_name(result.name.as_str()),
+        style::version(result.version.to_string())
+    );
 
     // Warn about declared dependencies.
     if !result.unresolved_dependencies.is_empty() {
         eprintln!(
-            "  warning: '{}' declares dependencies: {}",
-            result.name,
+            "  {}: '{}' declares dependencies: {}",
+            style::dim("warning"),
+            style::pack_name(result.name.as_str()),
             result.unresolved_dependencies.join(", ")
         );
         eprintln!("  Install them separately: weave install <pack-name>");
     }
 
     for conflict in &result.tool_conflicts {
-        eprintln!("  warning: {conflict}");
+        eprintln!("  {}: {conflict}", style::dim("warning"));
     }
 
     // Warn about hooks that require opt-in.
     if result.has_hooks && !allow_hooks {
         eprintln!(
-            "  note: pack '{}' declares hooks (shell commands that run at lifecycle events)",
-            result.name
+            "  {}: pack '{}' declares hooks (shell commands that run at lifecycle events)",
+            style::dim("note"),
+            style::pack_name(result.name.as_str())
         );
         eprintln!("  pass --allow-hooks to apply them");
     }
 
     for adapter in &result.applied_adapters {
-        println!("    Applied to {adapter}");
+        println!(
+            "    {} to {}",
+            style::success("Applied"),
+            style::target(adapter.as_str())
+        );
     }
     for err in &result.adapter_errors {
-        eprintln!("  warning: failed to apply to {err}");
+        eprintln!("  {}: failed to apply to {err}", style::dim("warning"));
     }
 
     for env_var in &result.missing_env_vars {
         eprintln!(
-            "  warning: pack '{}' requires {} to be set",
-            env_var.pack_name, env_var.key
+            "  {}: pack '{}' requires {} to be set",
+            style::dim("warning"),
+            style::pack_name(env_var.pack_name.as_str()),
+            style::emphasis(env_var.key.as_str())
         );
         if let Some(desc) = &env_var.description {
-            eprintln!("  {}: {desc}", env_var.key);
+            eprintln!("  {}: {desc}", style::dim(env_var.key.as_str()));
         }
         eprintln!("  set it with: export {}=<value>", env_var.key);
     }
 
-    println!("Installed {}@{} (local)", result.name, result.version);
+    println!(
+        "{} {}@{} (local)",
+        style::success("Installed"),
+        style::pack_name(result.name.as_str()),
+        style::version(result.version.to_string())
+    );
     Ok(())
 }

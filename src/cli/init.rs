@@ -2,6 +2,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 
+use crate::cli::style;
+
 /// Validate that a pack name matches `[a-z0-9-]+`.
 fn validate_pack_name(name: &str) -> Result<()> {
     if name.is_empty() {
@@ -206,6 +208,11 @@ pub fn run(name: Option<&str>) -> Result<()> {
         )
     })?;
 
-    println!("Initialized pack '{}' in {}", pack_name, root_dir.display());
+    println!(
+        "{} pack '{}' in {}",
+        style::success("Initialized"),
+        style::pack_name(pack_name.as_str()),
+        root_dir.display()
+    );
     Ok(())
 }

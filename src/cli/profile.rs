@@ -1,6 +1,7 @@
 use anyhow::{bail, Context, Result};
 
 use crate::adapters::{self, ApplyOptions};
+use crate::cli::style;
 use crate::core::config::Config;
 use crate::core::lockfile::LockFile;
 use crate::core::pack::{PackSource, ResolvedPack};
@@ -18,7 +19,7 @@ pub fn create(name: &str) -> Result<()> {
 
     let profile = Profile::load(name).context("creating profile")?;
     profile.save().context("saving new profile")?;
-    println!("Created profile '{name}'");
+    println!("Created profile '{}'", style::emphasis(name));
     Ok(())
 }
 
@@ -37,7 +38,7 @@ pub fn delete(name: &str) -> Result<()> {
     }
 
     Profile::delete(name).context("deleting profile")?;
-    println!("Deleted profile '{name}'");
+    println!("Deleted profile '{}'", style::emphasis(name));
     Ok(())
 }
 
@@ -62,9 +63,13 @@ pub fn list() -> Result<()> {
 
     for name in &all_names {
         if *name == config.active_profile {
-            println!("* {name} (active)");
+            println!(
+                "* {} {}",
+                style::emphasis(name.as_str()),
+                style::success("(active)")
+            );
         } else {
-            println!("  {name}");
+            println!("  {}", style::subtext(name.as_str()));
         }
     }
 
@@ -90,7 +95,11 @@ pub fn add_pack(pack_name: &str, profile_name: &str) -> Result<()> {
 
     if plan.to_install.is_empty() {
         for name in &plan.already_satisfied {
-            println!("  {name} is already in profile '{profile_name}'");
+            println!(
+                "  {} is already in profile '{}'",
+                style::pack_name(name.as_str()),
+                style::emphasis(profile_name)
+            );
         }
         return Ok(());
     }
@@ -140,8 +149,12 @@ pub fn add_pack(pack_name: &str, profile_name: &str) -> Result<()> {
             let apply_options = ApplyOptions::default();
             for adapter in &installed_adapters {
                 match adapter.apply(&resolved, &apply_options) {
-                    Ok(()) => println!("    Applied to {}", adapter.name()),
-                    Err(e) => eprintln!("  warning: {}: {e}", adapter.name()),
+                    Ok(()) => println!(
+                        "    {} to {}",
+                        style::success("Applied"),
+                        style::target(adapter.name())
+                    ),
+                    Err(e) => eprintln!("  {}: {}: {e}", style::dim("warning"), adapter.name()),
                 }
             }
         }
@@ -154,11 +167,16 @@ pub fn add_pack(pack_name: &str, profile_name: &str) -> Result<()> {
             source,
         });
 
-        println!("  Added {name}@{version} to profile '{profile_name}'");
+        println!(
+            "  Added {}@{} to profile '{}'",
+            style::pack_name(name.as_str()),
+            style::version(version.to_string()),
+            style::emphasis(profile_name)
+        );
     }
 
     profile.save().context("saving profile")?;
     lockfile.save(profile_name).context("saving lock file")?;
-    println!("Done.");
+    println!("{}", style::success("Done."));
     Ok(())
 }

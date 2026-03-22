@@ -7,15 +7,29 @@ mod error;
 #[allow(dead_code)]
 mod util;
 
-use clap::{Parser, Subcommand};
+use clap::{builder::styling, Parser, Subcommand};
 
 /// weave — a pack manager for AI CLI tools.
 ///
 /// Weave together MCP servers, prompts, commands, and settings
 /// into shareable, versioned packs across Claude Code, Gemini CLI, and more.
 #[derive(Parser)]
-#[command(name = "weave", version, about, long_about = None)]
+#[command(
+    name = "weave",
+    version,
+    about,
+    long_about = None,
+    styles = styling::Styles::styled()
+        .header(styling::AnsiColor::Magenta.on_default().bold())
+        .usage(styling::AnsiColor::Magenta.on_default().bold())
+        .literal(styling::AnsiColor::Cyan.on_default().bold())
+        .placeholder(styling::AnsiColor::Green.on_default())
+)]
 struct Cli {
+    /// Control color output (auto, always, never)
+    #[arg(long, global = true, default_value = "auto")]
+    color: cli::style::ColorMode,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -166,6 +180,7 @@ fn main() {
     env_logger::init();
 
     let cli = Cli::parse();
+    cli::style::set_color_mode(cli.color);
 
     let result = match cli.command {
         Commands::Init { name } => cli::init::run(name.as_deref()),

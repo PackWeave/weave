@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 
 use crate::adapters::{self, ApplyOptions};
+use crate::cli::style;
 use crate::core::config::Config;
 use crate::core::profile::Profile;
 use crate::core::use_profile;
@@ -15,14 +16,14 @@ pub fn run(profile_name: Option<&str>, allow_hooks: bool) -> Result<()> {
     let target_name = match profile_name {
         Some(name) => name,
         None => {
-            println!("{}", config.active_profile);
+            println!("{}", style::emphasis(config.active_profile.as_str()));
             return Ok(());
         }
     };
 
     // If already on this profile, nothing to do.
     if config.active_profile == target_name {
-        println!("Already on profile '{target_name}'");
+        println!("Already on profile '{}'", style::emphasis(target_name));
         return Ok(());
     }
 
@@ -53,36 +54,44 @@ pub fn run(profile_name: Option<&str>, allow_hooks: bool) -> Result<()> {
 
     // Format output for removals
     for remove_result in &result.removed {
-        println!("  Removing {}...", remove_result.pack_name);
+        println!(
+            "  Removing {}...",
+            style::pack_name(remove_result.pack_name.as_str())
+        );
         for adapter in &remove_result.removed_adapters {
-            println!("    Removed from {adapter}");
+            println!("    Removed from {}", style::target(adapter.as_str()));
         }
         for w in &remove_result.adapter_warnings {
-            eprintln!("  warning: {w}");
+            eprintln!("  {}: {w}", style::dim("warning"));
         }
         for e in &remove_result.adapter_errors {
-            eprintln!("  warning: {e}");
+            eprintln!("  {}: {e}", style::dim("warning"));
         }
     }
 
     // Format output for applies
     for apply_result in &result.applied {
         if let Some(err) = &apply_result.load_error {
-            eprintln!("  warning: {err}");
+            eprintln!("  {}: {err}", style::dim("warning"));
             continue;
         }
         println!(
             "  Applying {}@{}...",
-            apply_result.name, apply_result.version
+            style::pack_name(apply_result.name.as_str()),
+            style::version(apply_result.version.to_string())
         );
         for adapter in &apply_result.applied_adapters {
-            println!("    Applied to {adapter}");
+            println!(
+                "    {} to {}",
+                style::success("Applied"),
+                style::target(adapter.as_str())
+            );
         }
         for e in &apply_result.adapter_errors {
-            eprintln!("  warning: {e}");
+            eprintln!("  {}: {e}", style::dim("warning"));
         }
     }
 
-    println!("Switched to profile '{target_name}'");
+    println!("Switched to profile '{}'", style::emphasis(target_name));
     Ok(())
 }
