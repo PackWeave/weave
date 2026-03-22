@@ -70,7 +70,13 @@ Read docs/ARCHITECTURE.md before writing any code. It defines the module structu
 - `Profile` — a named collection of installed packs
 - `Store` — the local pack cache
 - `Registry` — the remote pack index (trait)
+- `CompositeRegistry` — wraps official + tap registries with priority ordering
 - `CliAdapter` — the trait for a specific CLI's config adapter
+- `ApplyOptions` — options passed to adapter `apply()` (e.g. `allow_hooks` flag)
+- `AdapterId` — stable machine identifier for adapters (ClaudeCode, GeminiCli, CodexCli)
+- `HookEntry` — a parsed hook declaration from pack extensions
+- `TapConfig` — a registered community tap in global config
+- `Transport` — server transport type: `Stdio` or `Http`
 
 -----
 
@@ -78,11 +84,35 @@ Read docs/ARCHITECTURE.md before writing any code. It defines the module structu
 
 ```
 src/cli/              Command handlers — parse args, call core, print output
+  cli/install.rs        Thin wrapper → core::install
+  cli/remove.rs         Pack removal
+  cli/list.rs           List installed packs
+  cli/search.rs         Pack + MCP registry search
+  cli/update.rs         Thin wrapper → core::update
+  cli/init.rs           Scaffold a new pack
+  cli/profile.rs        Profile create/list/delete/add
+  cli/use_profile.rs    Thin wrapper → core::use_profile
+  cli/sync.rs           Reapply active profile
+  cli/diagnose.rs       Config drift detection
+  cli/tap.rs            Community tap add/list/remove
 src/core/             Business logic — no I/O to CLI config files here
   core/config.rs        Global weave config (~/.packweave/config.toml)
+  core/pack.rs          Pack manifest parsing + validation
+  core/profile.rs       Profile read/write, active profile tracking
+  core/lockfile.rs      Lock file read/write, version pinning
+  core/resolver.rs      Dependency graph + semver resolution
+  core/store.rs         Local pack cache (~/.packweave/packs/)
+  core/registry.rs      Registry trait + GitHubRegistry + CompositeRegistry
   core/mcp_registry.rs  MCP Registry client (weave search --mcp)
   core/conflict.rs      Tool-level conflict detection
+  core/install.rs       Install orchestration (registry + local)
+  core/update.rs        Update orchestration (version comparison + apply)
+  core/use_profile.rs   Profile switch orchestration (diff + remove + apply)
 src/adapters/         CLI-specific config read/write — no business logic here
+  adapters/mod.rs       CliAdapter trait + ApplyOptions
+  adapters/claude_code.rs  Claude Code adapter (servers, commands, prompts, settings, hooks)
+  adapters/gemini_cli.rs   Gemini CLI adapter (servers, prompts, settings)
+  adapters/codex_cli.rs    Codex CLI adapter (servers, skills, prompts, settings)
 src/error.rs          All error types
 src/util.rs           Shared helpers (path resolution, file ops)
 ```

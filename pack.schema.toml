@@ -110,7 +110,10 @@ description = "GitHub PAT with repo scope"
 # ─────────────────────────────────────────────
 
 [extensions.claude_code]
-# hooks.PostToolUse = { matcher = "Write|Edit", command = "prettier --write \"$CLAUDE_PROJECT_DIR\"" }
+# Hooks allow packs to register shell commands at Claude Code lifecycle events.
+# They require explicit user consent via `--allow-hooks` on install/sync/use.
+# hooks.PreToolUse = [{ matcher = "Bash", command = "echo pre-check" }]
+# hooks.PostToolUse = [{ matcher = "Write|Edit", command = "prettier --write \"$CLAUDE_PROJECT_DIR\"" }]
 
 [extensions.gemini_cli]
 # trust = false
@@ -159,7 +162,8 @@ codex_cli = true
 #   codex.toml         Merged (top-level keys) into Codex CLI's config.toml.
 #                      Also accepts codex.json as fallback.
 #
-# hooks/
-#   Hooks are deferred to v0.3. If enabled later, they will require explicit opt-in.
+# hooks are declared in [extensions.<cli>.hooks], not as separate files.
+# They require explicit user consent via `--allow-hooks`.
+# Only Claude Code supports hooks currently.
 #
 # ─────────────────────────────────────────────

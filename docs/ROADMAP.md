@@ -57,15 +57,15 @@ The milestones below are sequential. Each one produces something usable before t
 
 ## Milestone 4 — v0.3
 
-> Hooks, profiles, and community taps. Profiles, diagnose expansion, and sync are shipped — hooks and taps remain.
+> Hooks, profiles, community taps, and remote MCP servers. All features shipped.
 
-- [ ] Hooks support via `extensions.<cli>.hooks` with explicit opt-in
+- [x] Hooks support via `extensions.<cli>.hooks` with explicit opt-in
 - [x] Profiles: group packs into named sets
 - [x] `weave use <profile>`
-- [ ] Community taps (`weave tap add user/repo`)
+- [x] Community taps (`weave tap add user/repo`)
 - [x] `weave diagnose` — full config drift and health check across all adapters (per-pack, per-adapter status with `--json` output)
 - [x] `weave sync` — reapply active profile
-- [ ] Support remote MCP servers (`url`/`headers`) in all CLI adapters (see issue #59)
+- [x] Support remote MCP servers (`url`/`headers`) in all CLI adapters (see issue #59)
 
 -----
 
