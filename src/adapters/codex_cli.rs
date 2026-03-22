@@ -813,6 +813,7 @@ impl CliAdapter for CodexAdapter {
                                 "server '{server_name}' (from pack '{pack_name}') tracked but missing from config.toml"
                             ),
                             suggestion: Some(format!("run `weave install {pack_name}` to re-apply")),
+                            pack: Some(pack_name.clone()),
                         });
                     }
                 }
@@ -829,6 +830,7 @@ impl CliAdapter for CodexAdapter {
                             "skill file '{filename}' (from pack '{pack_name}') is tracked but missing"
                         ),
                         suggestion: Some(format!("run `weave install {pack_name}` to re-apply")),
+                        pack: Some(pack_name.clone()),
                     });
                 }
             }
@@ -851,6 +853,7 @@ impl CliAdapter for CodexAdapter {
                             "prompt block for '{pack_name}' is tracked but missing from AGENTS.md"
                         ),
                         suggestion: Some(format!("run `weave install {pack_name}` to re-apply")),
+                        pack: Some(pack_name.clone()),
                     });
                 }
             }
@@ -872,6 +875,7 @@ impl CliAdapter for CodexAdapter {
                                         suggestion: Some(format!(
                                             "run `weave install {pack_name}` to re-apply"
                                         )),
+                                        pack: Some(pack_name.clone()),
                                     });
                                 }
                             }

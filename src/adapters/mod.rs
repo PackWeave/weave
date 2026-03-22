@@ -16,6 +16,9 @@ pub struct DiagnosticIssue {
     pub severity: Severity,
     pub message: String,
     pub suggestion: Option<String>,
+    /// The pack this issue relates to, if known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pack: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
