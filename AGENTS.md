@@ -40,6 +40,12 @@ Read docs/ARCHITECTURE.md before writing any code. It defines the module structu
 - Prefer `std::fs` for simple operations; `tokio::fs` only in async contexts
 - Always check that a directory exists before writing into it
 
+### State safety
+
+- Multi-step operations that mutate state (install, remove, profile switch) must validate preconditions **before** making any changes. If step 3 of 5 can fail, verify it will succeed before running steps 1 and 2.
+- Never leave the user in a state that is neither the old nor the new. If a profile switch removes old packs and then fails to apply new ones, the user is stranded.
+- When reviewing code with `continue` or `warn and skip` in a mutation loop, trace the full state: what files have been modified so far? Can the user recover?
+
 ### Mutating CLI config files
 
 - **Read the docs/ARCHITECTURE.md section on non-destructive mutations before touching any adapter code**
