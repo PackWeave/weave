@@ -178,6 +178,100 @@ authors = ["e2e-tester"]
 
 ---
 
+## Flow 11: Community taps
+
+**Goal:** Verify `weave tap add/list/remove` commands work against real GitHub-hosted taps.
+
+**Prerequisite:** `PackWeave/example-tap` GitHub repo must exist with a `tap-test` pack.
+
+| Step | Command | Expected |
+|------|---------|----------|
+| 11.1 | `weave tap list` | "No community taps registered" or shows existing taps |
+| 11.2 | `weave tap add PackWeave/example-tap` | Exits 0, prints "Tap 'PackWeave/example-tap' added" with URL |
+| 11.3 | `weave tap list` | Shows `PackWeave/example-tap` with `https://raw.githubusercontent.com/PackWeave/example-tap/main` |
+| 11.4 | `weave tap add PackWeave/example-tap` | Exits 1, "already registered" |
+| 11.5 | `weave install tap-test` | Exits 0, pack resolves from the tap |
+| 11.6 | `weave list` | Shows `tap-test` |
+| 11.7 | `weave remove tap-test` | Exits 0, clean removal |
+| 11.8 | `weave tap remove PackWeave/example-tap` | Exits 0, prints removal confirmation |
+| 11.9 | `weave tap list` | "No community taps registered" |
+
+**Pass criteria:** Tap lifecycle (add → install from tap → remove tap) works end-to-end.
+
+---
+
+## Flow 12: Hooks (`--allow-hooks`)
+
+**Goal:** Verify hooks opt-in, application, badge display, and cleanup.
+
+**Setup:** Create a local pack with hooks at `/tmp/weave-e2e-hooks/`
+
+```toml
+# /tmp/weave-e2e-hooks/pack.toml
+[pack]
+name = "e2e-hooks-test"
+version = "0.1.0"
+description = "E2E hooks test"
+authors = ["e2e-tester"]
+
+[extensions.claude_code.hooks]
+PreToolUse = [{ matcher = "Bash", command = "echo e2e-hook-fired" }]
+```
+
+| Step | Command | Expected |
+|------|---------|----------|
+| 12.1 | Create pack dir + `pack.toml` as above | Files exist |
+| 12.2 | `weave install /tmp/weave-e2e-hooks` | Exits 0, output mentions hooks were skipped / pass --allow-hooks |
+| 12.3 | `weave list` | Shows `e2e-hooks-test` with `[hooks]` badge |
+| 12.4 | `cat ~/.claude/settings.json 2>/dev/null \| jq '.hooks // empty'` | No hooks key (skipped without flag) |
+| 12.5 | `weave remove e2e-hooks-test` | Clean removal |
+| 12.6 | `weave install /tmp/weave-e2e-hooks --allow-hooks` | Exits 0, hooks applied |
+| 12.7 | `cat ~/.claude/settings.json \| jq '.hooks'` | Contains `PreToolUse` array with matcher "Bash" and command |
+| 12.8 | `weave remove e2e-hooks-test` | Exits 0 |
+| 12.9 | `cat ~/.claude/settings.json \| jq '.hooks // "absent"'` | Hooks key removed or absent |
+
+**Pass criteria:** Hooks are skipped without flag, applied with flag, cleaned up on remove.
+
+---
+
+## Flow 13: HTTP transport servers
+
+**Goal:** Verify remote MCP servers with HTTP transport and headers are written correctly to CLI configs.
+
+**Setup:** Create a local pack with an HTTP transport server at `/tmp/weave-e2e-http/`
+
+```toml
+# /tmp/weave-e2e-http/pack.toml
+[pack]
+name = "e2e-http-test"
+version = "0.1.0"
+description = "E2E HTTP transport test"
+authors = ["e2e-tester"]
+
+[[servers]]
+name = "e2e-remote"
+transport = "http"
+url = "https://example.com/mcp/e2e-test"
+
+[servers.headers]
+Authorization = "Bearer ${E2E_API_KEY}"
+X-Test = "static-value"
+```
+
+| Step | Command | Expected |
+|------|---------|----------|
+| 13.1 | Create pack dir + `pack.toml` as above | Files exist |
+| 13.2 | `weave install /tmp/weave-e2e-http` | Exits 0, applied to adapters |
+| 13.3 | `cat ~/.claude.json \| jq '.mcpServers["e2e-remote"]'` | Has `"type": "http"`, `"url": "https://example.com/mcp/e2e-test"`, no `"command"` key |
+| 13.4 | `cat ~/.claude.json \| jq '.mcpServers["e2e-remote"].headers'` | Has `Authorization` with `${E2E_API_KEY}` and `X-Test` with `static-value` |
+| 13.5 | (If Codex installed) `grep -A5 'e2e-remote' ~/.codex/config.toml` | Shows `url` and `[mcp_servers.e2e-remote.http_headers]` section |
+| 13.6 | `weave remove e2e-http-test` | Exits 0 |
+| 13.7 | `cat ~/.claude.json \| jq '.mcpServers["e2e-remote"] // "absent"'` | Server removed |
+
+**Pass criteria:** HTTP servers appear in config with type/url/headers (not command/args); clean removal.
+
+---
+
 ## Flow 10: Cleanup
 
 **Goal:** Restore machine to pre-test state.
@@ -187,9 +281,14 @@ authors = ["e2e-tester"]
 | 10.1 | `weave remove filesystem 2>/dev/null \|\| true` | Removed if present |
 | 10.2 | `weave remove github 2>/dev/null \|\| true` | Removed if present |
 | 10.3 | `weave remove e2e-local-test 2>/dev/null \|\| true` | Removed if present |
+| 10.4a | `weave remove e2e-hooks-test 2>/dev/null \|\| true` | Removed if present |
+| 10.4b | `weave remove e2e-http-test 2>/dev/null \|\| true` | Removed if present |
+| 10.4c | `weave remove tap-test 2>/dev/null \|\| true` | Removed if present |
+| 10.4d | `weave tap remove PackWeave/example-tap 2>/dev/null \|\| true` | Tap removed |
 | 10.4 | `weave use default` | Switch to default profile |
 | 10.5 | `weave profile delete e2e-validation 2>/dev/null \|\| true` | Profile removed |
 | 10.6 | `rm -rf /tmp/weave-e2e-local` | Directory removed |
+| 10.6a | `rm -rf /tmp/weave-e2e-hooks /tmp/weave-e2e-http` | Temp dirs removed |
 | 10.7 | `rm -f .mcp.json` | Project-scope file removed if present |
 | 10.8 | `weave list` | Clean — no e2e test packs |
 | 10.9 | `weave diagnose` | No errors |
@@ -211,4 +310,7 @@ authors = ["e2e-tester"]
 | 7 — Search | ✓ / ✗ | |
 | 8 — Project-scope | ✓ / ✗ | |
 | 9 — Update | ✓ / ✗ | |
+| 11 — Community taps | ✓ / ✗ | |
+| 12 — Hooks | ✓ / ✗ | |
+| 13 — HTTP transport | ✓ / ✗ | |
 | 10 — Cleanup | ✓ / ✗ | |

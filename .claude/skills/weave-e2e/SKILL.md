@@ -24,7 +24,7 @@ Run the E2E validation checklist from `.claude/skills/weave-e2e/checklist.md`.
 
 **Arguments:** `$ARGUMENTS`
 
-- If `$ARGUMENTS` is empty → run all 10 flows in order
+- If `$ARGUMENTS` is empty → run all 13 flows in order
 - If `$ARGUMENTS` is `install` → run Flows 1 + 2
 - If `$ARGUMENTS` is `profiles` → run Flows 1 + 5
 - If `$ARGUMENTS` is `search` → run Flows 1 + 7
@@ -33,6 +33,9 @@ Run the E2E validation checklist from `.claude/skills/weave-e2e/checklist.md`.
 - If `$ARGUMENTS` is `local` → run Flows 1 + 4
 - If `$ARGUMENTS` is `project` → run Flows 1 + 8
 - If `$ARGUMENTS` is `update` → run Flows 1 + 9
+- If `$ARGUMENTS` is `tap` → run Flows 1 + 11
+- If `$ARGUMENTS` is `hooks` → run Flows 1 + 12
+- If `$ARGUMENTS` is `http` → run Flows 1 + 13
 - If `$ARGUMENTS` is `cleanup` → run Flow 10 only (safe to run any time)
 
 ## Steps
@@ -45,7 +48,7 @@ Run the E2E validation checklist from `.claude/skills/weave-e2e/checklist.md`.
    c. Evaluate against expected output
    d. Mark ✓ (pass) or ✗ (fail) with a one-line explanation
 4. If a flow fails a critical step, note it and continue to the next flow (don't abort the whole suite)
-5. Always run Flow 8 (cleanup) at the end of the full suite, even if earlier flows failed
+5. Always run Flow 10 (cleanup) at the end of the full suite, even if earlier flows failed
 6. Print the summary table from the checklist with actual ✓/✗ results filled in
 
 ## Important notes
