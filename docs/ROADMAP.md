@@ -71,20 +71,72 @@ The milestones below are sequential. Each one produces something usable before t
 
 ## Milestone 5 — v0.4 (first public release)
 
-> Quality-of-life, ecosystem features, and first public release. The first release will be cut after M5 is complete — ship a polished, full-featured product, not an early preview.
+> Pack publishing, error quality, and release infrastructure. Ship a polished, complete product that developers can install, use, author for, and trust.
 
-- [ ] Template management for CLI prompt files (CLAUDE.md, AGENTS.md, etc.)
-- [ ] Auto-update mechanism
-- [ ] Plugin system for extending weave
-- [ ] Org/team configuration sharing
-- [ ] Release Please integration — automated CHANGELOG.md and release PRs via `develop` → `main` merge flow
-- [ ] Publish `packweave` crate to crates.io (issue #78, #92)
+### Ecosystem
+
+- [ ] `weave publish` command for pack authors (issue #146)
+- [ ] `weave auth` for registry authentication (issue #147)
+
+### Correctness & Security
+
+- [ ] Additive hook merge for multi-pack coexistence (issue #145)
+- [ ] Normalize local paths before hashing in store cache key (issue #133)
+- [ ] Validate MCP server header values for plaintext secrets (issue #141)
+
+### Library Quality
+
+- [ ] Replace `anyhow` with `WeaveError` in CLI/core handlers — required for crates.io consumers (issue #143)
+- [ ] Colorize CLI output (issue #106)
+
+### Release Infrastructure
+
+- [ ] Release Please integration — automated CHANGELOG.md and release PRs (issue #43)
+- [ ] Set up `CARGO_REGISTRY_TOKEN` for crates.io publishing (issue #78)
+- [ ] Manual E2E validation on macOS, including all Claude Code hook events supported by the spec (issue #93)
 - [ ] Cut first public release — GitHub Release with binaries, Homebrew, cargo-binstall (issue #92)
+
+-----
+
+## Milestone 6 — v0.5
+
+> Ecosystem depth: richer authoring tools, adapter modernization, and onboarding improvements. Ships incrementally after the first public release.
+
+### Onboarding & Authoring
+
+- [ ] `weave export` — reverse-engineer an existing CLI setup into a publishable pack (issue #162)
+- [ ] Template placeholder substitution — `${PROJECT_NAME}`, `${PACK_NAME}` in prompt fragments (issue #165)
+- [ ] `[prerequisites]` section in pack.toml — declare system dependency checks with actionable hints (issue #161)
+- [ ] `--dry-run` flag on install/sync/remove — preview changes without writing (issue #166)
+
+### Adapter Modernization
+
+- [ ] Migrate Claude Code commands to new skills format — `~/.claude/skills/` (issue #61)
+- [ ] Support Claude Code rules directory — `.claude/rules/` (issue #62)
+- [ ] Write project-scope GEMINI.md and CLAUDE.md for prompt packs (issue #60)
+- [ ] Skill directory distribution — multi-file skills with reference materials (issue #170)
+
+### Ecosystem Power Features
+
+- [ ] Template management for CLI prompt files — CLAUDE.md, AGENTS.md, etc. (issue #50)
+- [ ] Pack-defined health checks in `weave diagnose` (issue #163)
+- [ ] Post-install scripts — `[scripts]` table in pack.toml (issue #167)
+- [ ] Pack content checksums in registry for integrity verification (issue #175)
+- [ ] Auto-update mechanism (issue #51)
+
+### Housekeeping
+
+- [ ] Use FNV-1a for local pack cache directory hashing (issue #132)
+- [ ] Include source info in `Store::list_cached` return type (issue #134)
+- [ ] Cover `CompositeRegistry` directly instead of mock reimplementation (issue #142)
+- [ ] Decouple `core::use_profile` from `GitHubRegistry` (issue #144)
 
 -----
 
 ## Explicitly deferred (no planned milestone)
 
+- **Plugin system** — no concrete use case; revisit if demand emerges
+- **Org/team configuration sharing** — profiles + taps already cover team workflows
 - **GUI or TUI** — weave is a CLI tool only
 - **Windows support** — weave targets macOS and Linux; Windows is not tested in CI. The Claude Code adapter works on Windows as a best-effort target, but full Windows support is not planned
 - **MCP server execution or sandboxing** — weave configures; it does not run
