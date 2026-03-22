@@ -1108,6 +1108,52 @@ fn apply_http_server_without_url_returns_error() {
 }
 
 #[test]
+fn remove_http_server_cleans_up() {
+    let home = TempDir::new().unwrap();
+    setup_gemini_home(&home);
+    let adapter = make_adapter(&home);
+
+    let server = McpServer {
+        name: "http-removable".into(),
+        package_type: None,
+        package: None,
+        command: None,
+        args: vec![],
+        url: Some("https://example.com/mcp".into()),
+        headers: Some(
+            [("Authorization".to_string(), "Bearer ${TOKEN}".to_string())]
+                .into_iter()
+                .collect(),
+        ),
+        transport: Some(Transport::Http),
+        tools: vec![],
+        env: HashMap::new(),
+    };
+    let pack = pack_with_servers("http-remove-pack", vec![server]);
+    adapter.apply(&pack).unwrap();
+
+    // Verify it was written
+    let settings_path = home.path().join(".gemini/settings.json");
+    let config = read_json(&settings_path);
+    assert!(
+        config["mcpServers"]["http-removable"].is_object(),
+        "HTTP server should be present after apply"
+    );
+
+    // Remove
+    adapter.remove("http-remove-pack").unwrap();
+
+    let config_after = read_json(&settings_path);
+    assert!(
+        config_after["mcpServers"]
+            .as_object()
+            .map(|m| !m.contains_key("http-removable"))
+            .unwrap_or(true),
+        "HTTP server should be removed after remove()"
+    );
+}
+
+#[test]
 fn apply_persists_manifest_after_each_step_even_if_later_step_fails() {
     let home = TempDir::new().unwrap();
     setup_gemini_home(&home);
