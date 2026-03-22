@@ -43,7 +43,7 @@ The milestones below are sequential. Each one produces something usable before t
 > Pack authoring, MCP Registry search, and distribution improvements. Codex CLI adapter shipped.
 
 - [x] Codex CLI adapter (servers, skills, prompts, settings)
-- [ ] `weave search --mcp` against the official MCP Registry (pack registry search shipped in M2)
+- [x] `weave search --mcp` against the official MCP Registry (pack registry search shipped in M2)
 - [x] `weave update` for pack version management
 - [x] `weave init` — scaffold a new pack
 - [x] Environment variable handling for secrets (write `${VAR}` references only)
