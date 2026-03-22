@@ -48,6 +48,7 @@ thiserror = "2"
 toml = "0.8"
 
 [dev-dependencies]
+serial_test = "3"
 tempfile = "3"
 
 # cargo-binstall support — tells binstall where to find pre-built binaries

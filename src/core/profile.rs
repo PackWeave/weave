@@ -23,6 +23,20 @@ pub struct InstalledPack {
     pub source: PackSource,
 }
 
+/// Validate that a profile name contains only safe characters.
+fn validate_profile_name(name: &str) -> Result<()> {
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(WeaveError::InvalidProfileName {
+            name: name.to_string(),
+        });
+    }
+    Ok(())
+}
+
 impl Profile {
     /// Directory where all profiles are stored.
     fn profiles_dir() -> Result<PathBuf> {
@@ -31,11 +45,13 @@ impl Profile {
 
     /// Path to this profile's file.
     fn path(name: &str) -> Result<PathBuf> {
+        validate_profile_name(name)?;
         Ok(Self::profiles_dir()?.join(format!("{name}.toml")))
     }
 
     /// Load a profile by name, creating it if it doesn't exist.
     pub fn load(name: &str) -> Result<Self> {
+        validate_profile_name(name)?;
         let path = Self::path(name)?;
         if !path.exists() {
             return Ok(Self {
@@ -56,6 +72,47 @@ impl Profile {
         // Profile only contains String/Vec fields — TOML serialization cannot fail.
         let content = toml::to_string_pretty(self).expect("Profile serialization cannot fail");
         util::write_file(&path, &content)
+    }
+
+    /// Check whether a profile file exists on disk.
+    pub fn exists(name: &str) -> Result<bool> {
+        Ok(Self::path(name)?.exists())
+    }
+
+    /// List all saved profile names (profiles that have been saved to disk).
+    pub fn list_all() -> Result<Vec<String>> {
+        let dir = Self::profiles_dir()?;
+        if !dir.exists() {
+            return Ok(Vec::new());
+        }
+        let mut names = Vec::new();
+        let entries =
+            std::fs::read_dir(&dir).map_err(|e| WeaveError::io("listing profiles directory", e))?;
+        for entry in entries {
+            let entry = entry.map_err(|e| WeaveError::io("reading profiles directory entry", e))?;
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("toml") {
+                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                    if validate_profile_name(stem).is_ok() {
+                        names.push(stem.to_string());
+                    }
+                }
+            }
+        }
+        names.sort();
+        Ok(names)
+    }
+
+    /// Delete a profile from disk. Returns an error if the file does not exist.
+    pub fn delete(name: &str) -> Result<()> {
+        let path = Self::path(name)?;
+        if !path.exists() {
+            return Err(WeaveError::ProfileNotFound {
+                name: name.to_string(),
+            });
+        }
+        std::fs::remove_file(&path)
+            .map_err(|e| WeaveError::io(format!("deleting profile '{name}'"), e))
     }
 
     /// Check if a pack is installed in this profile.
@@ -85,6 +142,7 @@ impl Profile {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     fn test_pack(name: &str) -> InstalledPack {
         InstalledPack {
@@ -114,5 +172,83 @@ mod tests {
         assert!(profile.remove_pack("webdev"));
         assert!(!profile.has_pack("webdev"));
         assert!(!profile.remove_pack("webdev"));
+    }
+
+    struct EnvGuard {
+        key: &'static str,
+        prev: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let prev = std::env::var(key).ok();
+            std::env::set_var(key, value);
+            Self { key, prev }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.prev {
+                Some(val) => std::env::set_var(self.key, val),
+                None => std::env::remove_var(self.key),
+            }
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn list_all_and_delete_with_temp_dir() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        // Point WEAVE_TEST_STORE_DIR so profile I/O goes to our temp dir
+        let _guard = EnvGuard::set("WEAVE_TEST_STORE_DIR", tmp.path().to_str().unwrap());
+
+        // Create two profiles
+        let p1 = Profile {
+            name: "alpha".into(),
+            packs: Vec::new(),
+        };
+        p1.save().unwrap();
+
+        let p2 = Profile {
+            name: "beta".into(),
+            packs: vec![test_pack("webdev")],
+        };
+        p2.save().unwrap();
+
+        // list_all should return both
+        let all = Profile::list_all().unwrap();
+        assert!(all.contains(&"alpha".to_string()));
+        assert!(all.contains(&"beta".to_string()));
+
+        // exists should return true
+        assert!(Profile::exists("alpha").unwrap());
+        assert!(Profile::exists("beta").unwrap());
+        assert!(!Profile::exists("nonexistent").unwrap());
+
+        // delete alpha
+        Profile::delete("alpha").unwrap();
+        assert!(!Profile::exists("alpha").unwrap());
+
+        // delete nonexistent should fail
+        let result = Profile::delete("nonexistent");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_profile_name_rejects_traversal() {
+        assert!(validate_profile_name("../../etc/evil").is_err());
+        assert!(validate_profile_name("").is_err());
+        assert!(validate_profile_name("has spaces").is_err());
+        assert!(validate_profile_name("has/slash").is_err());
+        assert!(validate_profile_name("has.dot").is_err());
+    }
+
+    #[test]
+    fn validate_profile_name_accepts_valid() {
+        assert!(validate_profile_name("default").is_ok());
+        assert!(validate_profile_name("my-profile").is_ok());
+        assert!(validate_profile_name("my_profile").is_ok());
+        assert!(validate_profile_name("Profile123").is_ok());
     }
 }

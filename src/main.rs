@@ -80,6 +80,46 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+
+    /// Manage named profiles
+    Profile {
+        #[command(subcommand)]
+        action: ProfileAction,
+    },
+
+    /// Switch to a named profile, or print the active profile (no args)
+    Use {
+        /// Profile name to switch to. Omit to print the current profile.
+        profile: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ProfileAction {
+    /// Create a new empty profile
+    Create {
+        /// Profile name
+        name: String,
+    },
+
+    /// Delete a profile (cannot delete the active or default profile)
+    Delete {
+        /// Profile name
+        name: String,
+    },
+
+    /// List all profiles
+    List,
+
+    /// Add a pack reference to a profile
+    Add {
+        /// Pack name (e.g., "webdev")
+        pack: String,
+
+        /// Target profile name
+        #[arg(short, long)]
+        profile: String,
+    },
 }
 
 fn main() {
@@ -100,6 +140,13 @@ fn main() {
         Commands::Update { name } => cli::update::run(name.as_deref()),
         Commands::Sync => cli::sync::run(),
         Commands::Diagnose { json } => cli::diagnose::run(json),
+        Commands::Profile { action } => match action {
+            ProfileAction::Create { name } => cli::profile::create(&name),
+            ProfileAction::Delete { name } => cli::profile::delete(&name),
+            ProfileAction::List => cli::profile::list(),
+            ProfileAction::Add { pack, profile } => cli::profile::add_pack(&pack, &profile),
+        },
+        Commands::Use { profile } => cli::use_profile::run(profile.as_deref()),
     };
 
     if let Err(err) = result {
