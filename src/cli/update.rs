@@ -53,6 +53,17 @@ pub fn run(pack_spec: Option<&str>) -> Result<()> {
     let mut any_updated = false;
 
     for (name, version_req) in &packs_to_update {
+        // Local packs are not updated automatically — the user re-runs
+        // `weave install ./path` to refresh them.
+        if let Some(locked) = lockfile.packs.get(name) {
+            if matches!(&locked.source, Some(PackSource::Local { .. })) {
+                println!(
+                    "  skipping '{name}' — local source; re-run `weave install ./path` to refresh"
+                );
+                continue;
+            }
+        }
+
         // For a named pack without @latest, derive the major-version constraint
         // from whatever is currently installed.
         let effective_req = match version_req {
@@ -147,7 +158,13 @@ pub fn run(pack_spec: Option<&str>) -> Result<()> {
             });
 
             // Record in lock file
-            lockfile.lock_pack(resolved_name, version.clone(), Some(release.sha256.clone()));
+            lockfile.lock_pack(
+                resolved_name,
+                version.clone(),
+                PackSource::Registry {
+                    registry_url: config.registry_url.clone(),
+                },
+            );
 
             if adapter_errors.is_empty() {
                 any_updated = true;

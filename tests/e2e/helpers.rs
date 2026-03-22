@@ -1,8 +1,6 @@
 use std::collections::HashMap;
-use std::io::Write;
 use std::path::PathBuf;
 
-use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -83,7 +81,7 @@ impl TestEnv {
 
 // ── FixturePack ──────────────────────────────────────────────────────────────
 
-/// Builder for a valid pack archive (tar.gz) with computed SHA256.
+/// Builder for a fixture pack whose content is served inline in the registry JSON.
 pub struct FixturePack {
     pub name: String,
     pub version: String,
@@ -92,8 +90,6 @@ pub struct FixturePack {
     pub prompt: Option<String>,
     pub commands: Vec<(String, String)>,
     pub dependencies: Vec<(String, String)>,
-    pub archive_bytes: Vec<u8>,
-    pub sha256: String,
 }
 
 impl FixturePack {
@@ -107,8 +103,6 @@ impl FixturePack {
             prompt: None,
             commands: Vec::new(),
             dependencies: Vec::new(),
-            archive_bytes: Vec::new(),
-            sha256: String::new(),
         }
     }
 
@@ -141,57 +135,18 @@ impl FixturePack {
         self
     }
 
-    /// Build the tar.gz archive and compute its SHA256.
-    pub fn build(mut self) -> Self {
-        let mut files: Vec<(String, Vec<u8>)> = Vec::new();
-
-        // Generate pack.toml
-        let pack_toml = self.generate_pack_toml();
-        files.push(("pack.toml".to_string(), pack_toml.into_bytes()));
-
-        // System prompt
+    /// Build the `files` map for this fixture — the inline content served in
+    /// the registry JSON. No tarball or SHA256 involved.
+    pub fn files(&self) -> HashMap<String, String> {
+        let mut files = HashMap::new();
+        files.insert("pack.toml".to_string(), self.generate_pack_toml());
         if let Some(ref prompt) = self.prompt {
-            files.push(("prompts/system.md".to_string(), prompt.clone().into_bytes()));
+            files.insert("prompts/system.md".to_string(), prompt.clone());
         }
-
-        // Slash commands
         for (name, content) in &self.commands {
-            files.push((format!("commands/{name}.md"), content.clone().into_bytes()));
+            files.insert(format!("commands/{name}.md"), content.clone());
         }
-
-        // Build tar
-        let mut tar_bytes = Vec::new();
-        {
-            let mut builder = tar::Builder::new(&mut tar_bytes);
-            for (path, content) in &files {
-                let mut header = tar::Header::new_gnu();
-                header.set_size(content.len() as u64);
-                header.set_mode(0o644);
-                header.set_cksum();
-                builder
-                    .append_data(&mut header, path, content.as_slice())
-                    .expect("failed to append tar entry");
-            }
-            builder.finish().expect("failed to finish tar archive");
-        }
-
-        // Compress with gzip
-        let mut gz_bytes = Vec::new();
-        {
-            let mut encoder =
-                flate2::write::GzEncoder::new(&mut gz_bytes, flate2::Compression::default());
-            encoder.write_all(&tar_bytes).expect("failed to write gzip");
-            encoder.finish().expect("failed to finish gzip");
-        }
-
-        // Compute SHA256
-        let mut hasher = Sha256::new();
-        hasher.update(&gz_bytes);
-        let sha256 = format!("{:x}", hasher.finalize());
-
-        self.archive_bytes = gz_bytes;
-        self.sha256 = sha256;
-        self
+        files
     }
 
     /// Generate a valid `pack.toml` string matching the Pack struct format.
@@ -231,28 +186,20 @@ impl FixturePack {
 ///
 /// Routes served:
 /// - `GET /index.json` — lightweight search catalog (name, description, latest_version)
-/// - `GET /packs/{name}.json` — full per-pack metadata with versions array
-/// - `GET /packs/{name}-{version}.tar.gz` — archive bytes
+/// - `GET /packs/{name}.json` — full per-pack metadata with inline `files` content
 ///
+/// No tarball routes — pack content is embedded directly in the release JSON.
 /// `WEAVE_REGISTRY_URL` in tests points to the mock server root URI, which
 /// `GitHubRegistry` uses as `base_url` to construct these paths.
 pub async fn mount_registry(server: &MockServer, packs: &[&FixturePack]) {
     let mut lightweight_index: HashMap<String, serde_json::Value> = HashMap::new();
 
     for pack in packs {
-        let download_url = format!(
-            "{}/packs/{}-{}.tar.gz",
-            server.uri(),
-            pack.name,
-            pack.version
-        );
-
         let deps: HashMap<String, String> = pack.dependencies.iter().cloned().collect();
 
         let release = serde_json::json!({
             "version": pack.version,
-            "url": download_url,
-            "sha256": pack.sha256,
+            "files": pack.files(),
             "dependencies": deps,
         });
 
@@ -299,20 +246,6 @@ pub async fn mount_registry(server: &MockServer, packs: &[&FixturePack]) {
         )
         .mount(server)
         .await;
-
-    // Archives at GET /packs/{name}-{version}.tar.gz
-    for pack in packs {
-        let archive_path = format!("/packs/{}-{}.tar.gz", pack.name, pack.version);
-        Mock::given(method("GET"))
-            .and(path(&archive_path))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_bytes(pack.archive_bytes.clone())
-                    .insert_header("content-type", "application/octet-stream"),
-            )
-            .mount(server)
-            .await;
-    }
 }
 
 /// Mount a mock registry where multiple versions of the same pack are available.
@@ -325,19 +258,11 @@ pub async fn mount_registry_multi_version(server: &MockServer, packs: &[&Fixture
     let mut meta_map: HashMap<String, (String, String)> = HashMap::new();
 
     for pack in packs {
-        let download_url = format!(
-            "{}/packs/{}-{}.tar.gz",
-            server.uri(),
-            pack.name,
-            pack.version
-        );
-
         let deps: HashMap<String, String> = pack.dependencies.iter().cloned().collect();
 
         let release = serde_json::json!({
             "version": pack.version,
-            "url": download_url,
-            "sha256": pack.sha256,
+            "files": pack.files(),
             "dependencies": deps,
         });
 
@@ -408,18 +333,4 @@ pub async fn mount_registry_multi_version(server: &MockServer, packs: &[&Fixture
         )
         .mount(server)
         .await;
-
-    // Archives
-    for pack in packs {
-        let archive_path = format!("/packs/{}-{}.tar.gz", pack.name, pack.version);
-        Mock::given(method("GET"))
-            .and(path(&archive_path))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_bytes(pack.archive_bytes.clone())
-                    .insert_header("content-type", "application/octet-stream"),
-            )
-            .mount(server)
-            .await;
-    }
 }

@@ -81,7 +81,6 @@ fn simple_server(name: &str) -> McpServer {
         url: None,
         headers: None,
         transport: Some(Transport::Stdio),
-        namespace: None,
         tools: vec![],
         env: HashMap::new(),
     }
@@ -108,7 +107,6 @@ fn server_with_env(name: &str, env_keys: &[&str]) -> McpServer {
         url: None,
         headers: None,
         transport: Some(Transport::Stdio),
-        namespace: None,
         tools: vec![],
         env,
     }
@@ -296,7 +294,6 @@ fn apply_writes_server_args() {
         url: None,
         headers: None,
         transport: Some(Transport::Stdio),
-        namespace: None,
         tools: vec![],
         env: HashMap::new(),
     };
@@ -400,7 +397,6 @@ fn apply_writes_url_for_http_transport() {
         url: Some("https://example.com/mcp".into()),
         headers: None,
         transport: Some(Transport::Http),
-        namespace: None,
         tools: vec![],
         env: HashMap::new(),
     };

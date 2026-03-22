@@ -94,8 +94,8 @@ If you are not ready to build a pack, open a **Pack request** issue using the te
 ### Process
 
 1. Build your pack locally and test it with `weave install <local-path>`
-1. Run `weave publish` — this creates the archive and opens a draft PR
-1. A maintainer reviews and merges
+1. Run `weave publish` — this validates your pack and opens a draft PR against the registry
+1. A maintainer reviews and merges; CI auto-generates `packs/{name}.json` from your `src/` files
 
 ### Pack naming
 

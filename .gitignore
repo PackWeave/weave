@@ -27,3 +27,7 @@ target
 
 # Claude Code local settings (machine-specific, may contain permissions/tokens)
 .claude/settings.local.json
+
+# weave runtime state — written by `weave install/remove`, not shared config
+.claude/.packweave_manifest.json
+.mcp.json

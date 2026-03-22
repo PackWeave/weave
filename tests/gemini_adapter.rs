@@ -82,7 +82,6 @@ fn simple_server(name: &str) -> McpServer {
         url: None,
         headers: None,
         transport: Some(Transport::Stdio),
-        namespace: None,
         tools: vec![],
         env: HashMap::new(),
     }
@@ -109,7 +108,6 @@ fn server_with_env(name: &str, env_keys: &[&str]) -> McpServer {
         url: None,
         headers: None,
         transport: Some(Transport::Stdio),
-        namespace: None,
         tools: vec![],
         env,
     }
@@ -254,7 +252,6 @@ fn apply_writes_server_args() {
         url: None,
         headers: None,
         transport: Some(Transport::Stdio),
-        namespace: None,
         tools: vec![],
         env: HashMap::new(),
     };
@@ -1053,7 +1050,6 @@ fn apply_http_server_writes_url() {
                 .collect(),
         ),
         transport: Some(Transport::Http),
-        namespace: None,
         tools: vec![],
         env: HashMap::new(),
     };
@@ -1097,7 +1093,6 @@ fn apply_http_server_without_url_returns_error() {
         url: None, // missing url
         headers: None,
         transport: Some(Transport::Http),
-        namespace: None,
         tools: vec![],
         env: HashMap::new(),
     };

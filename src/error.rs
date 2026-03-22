@@ -49,17 +49,6 @@ pub enum WeaveError {
     #[error("dependency conflict for '{pack}': {conflicts}")]
     DependencyConflict { pack: String, conflicts: String },
 
-    // Store errors
-    #[error("SHA256 checksum mismatch for '{name}' — expected {expected}, got {actual}. The archive may be corrupted; try installing again.")]
-    ChecksumMismatch {
-        name: String,
-        expected: String,
-        actual: String,
-    },
-
-    #[error("failed to download pack '{name}': {reason}")]
-    DownloadFailed { name: String, reason: String },
-
     #[error("registry error: {0}")]
     Registry(String),
 

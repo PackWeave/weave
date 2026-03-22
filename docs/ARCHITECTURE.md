@@ -26,13 +26,13 @@ This document describes the internal design of weave. It is intended for contrib
 weave install @webdev
        │
        ▼
-  Registry client          ← fetches pack metadata + archive URL
+  Registry client          ← fetches pack metadata + inline file content
        │
        ▼
   Resolver                 ← resolves semver, checks conflicts, builds install plan
        │
        ▼
-  Store                    ← downloads, verifies SHA256, extracts to ~/.packweave/packs/
+  Store                    ← writes inline files to ~/.packweave/packs/
        │
        ▼
   Profile                  ← records pack as installed in active profile
@@ -139,7 +139,6 @@ pub struct McpServer {
     /// Optional HTTP headers (e.g. Authorization). Only used for http transport.
     pub headers: Option<HashMap<String, String>>,
     pub transport: Option<Transport>,
-    pub namespace: Option<String>,
     pub tools: Vec<String>,
     pub env: HashMap<String, EnvVar>,
 }
@@ -260,10 +259,11 @@ pub struct InstallPlan {
 
 Manages `~/.packweave/packs/`. Responsible for:
 
-- Downloading pack archives from a URL
-- Verifying SHA256 checksums
-- Extracting to `~/.packweave/packs/<name>/<version>/`
+- Writing pack files from the inline `files` map in `PackRelease` to `~/.packweave/packs/<name>/<version>/`
+- Path-validating all keys in the `files` map (rejects absolute paths, `..` components, Windows drive prefixes)
 - Evicting old versions when no longer referenced
+
+Uses an atomic staging pattern: files are written to a `.tmp` directory first, then renamed to the final destination so a failure never leaves a partial cache entry.
 
 The store never deletes a pack version that is referenced by any profile's lock file.
 
@@ -281,7 +281,7 @@ pub trait Registry: Send + Sync {
 The default implementation (`GitHubRegistry`) uses a two-tier sparse index against the `PackWeave/registry` GitHub repo:
 
 - **`{base_url}/index.json`** — lightweight catalog fetched once for `weave search` and `weave list`. Contains only pack names, descriptions, and latest versions. Cached in-process after first fetch.
-- **`{base_url}/packs/{name}.json`** — full pack metadata fetched on demand when installing or resolving a specific pack. Contains all versions, download URLs, SHA256 checksums, and dependencies. Cached per-pack after first fetch.
+- **`{base_url}/packs/{name}.json`** — full pack metadata fetched on demand when installing or resolving a specific pack. Contains all versions with their complete file content embedded inline as a flat map of relative path → file content. Cached per-pack after first fetch.
 
 Key structs:
 
@@ -453,23 +453,29 @@ The adapter saves the manifest after each individual mutation step (servers, ski
 
 -----
 
-## Pack archive format
+## Pack content format
 
-Packs are distributed as `.tar.gz` archives. The registry index entry for each version includes:
+Packs are distributed as inline JSON — file content is embedded directly in `packs/{name}.json`.
+Each version entry contains a `files` map of relative path → file content:
 
 ```json
 {
   "version": "1.2.0",
-  "url": "https://github.com/PackWeave/registry/releases/download/...",
-  "sha256": "abc123...",
-  "size_bytes": 4096,
+  "files": {
+    "pack.toml": "[pack]\nname = \"my-pack\"\n...",
+    "prompts/system.md": "You are...",
+    "commands/review.md": "# Review\n..."
+  },
   "dependencies": {
     "other-pack": "^1.0.0"
   }
 }
 ```
 
-The store always verifies the SHA256 before extracting. A failed verification aborts the install.
+The store writes each entry directly to `~/.packweave/packs/{name}/{version}/` after
+path-validating the key (rejects absolute paths, `..` components, Windows drive prefixes).
+Trust is provided by TLS and GitHub as the content host. No tarballs, no release artifacts,
+no SHA256 ceremony.
 
 -----
 
@@ -480,7 +486,7 @@ The store always verifies the SHA256 before extracting. A failed verification ab
 |`~/.packweave/config.toml`           |Active profile name, registry URL, auth token path|
 |`~/.packweave/profiles/<n>.toml`     |Installed pack list for a profile                 |
 |`~/.packweave/locks/<n>.lock`        |Pinned exact versions for a profile               |
-|`~/.packweave/packs/<name>/<ver>/`   |Extracted pack contents                           |
+|`~/.packweave/packs/<name>/<ver>/`   |Inline pack file contents written on install      |
 |`~/.claude/.packweave_manifest.json` |Tracks what weave wrote in Claude Code config     |
 |`~/.gemini/.packweave_manifest.json` |Tracks what weave wrote in Gemini CLI config      |
 |`~/.codex/.packweave_manifest.json`  |Tracks what weave wrote in Codex CLI config       |

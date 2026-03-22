@@ -53,8 +53,6 @@ pub struct McpServer {
     #[serde(default)]
     pub transport: Option<Transport>,
     #[serde(default)]
-    pub namespace: Option<String>,
-    #[serde(default)]
     pub tools: Vec<String>,
     #[serde(default)]
     pub env: HashMap<String, EnvVar>,

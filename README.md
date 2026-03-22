@@ -175,14 +175,12 @@ name = "puppeteer"
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-puppeteer"]
 transport = "stdio"
-namespace = "browser"
 
 [[servers]]
 name = "filesystem"
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-filesystem"]
 transport = "stdio"
-namespace = "fs"
 ```
 
 Packs can also declare:

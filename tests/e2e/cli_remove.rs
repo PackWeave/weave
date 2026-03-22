@@ -4,9 +4,8 @@ use assert_cmd::prelude::*;
 #[tokio::test]
 async fn remove_installed_pack() {
     let env = TestEnv::new().await;
-    let pack = FixturePack::new("test-pack", "1.0.0")
-        .with_server("echo-server", "echo", &["hello"])
-        .build();
+    let pack =
+        FixturePack::new("test-pack", "1.0.0").with_server("echo-server", "echo", &["hello"]);
 
     mount_registry(&env.mock_server, &[&pack]).await;
 
@@ -44,12 +43,8 @@ async fn remove_not_installed() {
 #[tokio::test]
 async fn remove_preserves_other_packs() {
     let env = TestEnv::new().await;
-    let pack_a = FixturePack::new("pack-a", "1.0.0")
-        .with_server("server-a", "echo", &["a"])
-        .build();
-    let pack_b = FixturePack::new("pack-b", "1.0.0")
-        .with_server("server-b", "echo", &["b"])
-        .build();
+    let pack_a = FixturePack::new("pack-a", "1.0.0").with_server("server-a", "echo", &["a"]);
+    let pack_b = FixturePack::new("pack-b", "1.0.0").with_server("server-b", "echo", &["b"]);
 
     mount_registry(&env.mock_server, &[&pack_a, &pack_b]).await;
 
