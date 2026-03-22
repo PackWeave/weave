@@ -571,9 +571,12 @@ async fn remove_http_server_cleans_up() {
     // Verify cleanup
     let content: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&claude_json).unwrap()).unwrap();
-    let servers = content["mcpServers"].as_object();
+    let servers = content
+        .get("mcpServers")
+        .and_then(|v| v.as_object())
+        .expect("mcpServers should be a JSON object in ~/.claude.json");
     assert!(
-        servers.map_or(true, |m| !m.contains_key("remote-api")),
+        !servers.contains_key("remote-api"),
         "remote-api should be removed from ~/.claude.json after pack removal"
     );
 }

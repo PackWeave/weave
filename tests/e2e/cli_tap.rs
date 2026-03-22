@@ -1,5 +1,4 @@
 use predicates::prelude::*;
-use wiremock::MockServer;
 
 use super::helpers::*;
 use assert_cmd::prelude::*;
