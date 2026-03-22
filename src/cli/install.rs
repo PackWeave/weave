@@ -350,8 +350,9 @@ fn visit_dir(root: &Path, current: &Path, files: &mut HashMap<String, String>) -
             continue;
         }
 
-        // Use symlink_metadata so we never follow symlinks — a symlink to a
-        // directory could escape the pack root or loop indefinitely.
+        // DirEntry::metadata() calls lstat on Unix (does not follow symlinks),
+        // so is_symlink() correctly identifies symlinks and we skip them.
+        // A symlink to a directory could escape the pack root or loop indefinitely.
         let meta = entry
             .metadata()
             .with_context(|| format!("reading metadata for {}", path.display()))?;
