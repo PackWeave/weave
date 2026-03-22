@@ -95,7 +95,7 @@ weave install web-dev
         ├─▶ resolves transitive dependencies
         └─▶ applies to each installed CLI — non-destructively
 
-            Claude Code:  ~/.claude.json, ~/.claude/settings.json, ~/.claude/commands/,
+        Claude Code:  ~/.claude.json, ~/.claude/settings.json, ~/.claude/commands/,
                       ~/.claude/CLAUDE.md, ./.mcp.json (project-scope MCP servers)
         Gemini CLI:   ~/.gemini/settings.json, ~/.gemini/GEMINI.md
         Codex CLI:    ~/.codex/config.toml, ~/.codex/AGENTS.md, ~/.codex/skills/
