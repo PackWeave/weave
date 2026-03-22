@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::adapters::{CliAdapter, DiagnosticIssue, Severity};
-use crate::core::pack::{McpServer, ResolvedPack, Transport};
+use crate::core::pack::{McpServer, PackSource, ResolvedPack, Transport};
 use crate::core::store::Store;
 use crate::error::{Result, WeaveError};
 use crate::util;
@@ -540,7 +540,8 @@ impl CodexAdapter {
     /// Copy skill files with namespaced filenames to `~/.codex/skills/`.
     /// Removes stale skills from a previous version of the same pack before adding the new set.
     fn apply_skills(&self, pack: &ResolvedPack, manifest: &mut CodexManifest) -> Result<()> {
-        let skills_dir = Store::pack_dir(&pack.pack.name, &pack.pack.version)?.join("skills");
+        let skills_dir = Store::pack_dir(&pack.pack.name, &pack.pack.version, Some(&pack.source))?
+            .join("skills");
 
         // Remove stale skills from an older version of this pack.
         self.remove_skills(&pack.pack.name, manifest)?;
@@ -601,10 +602,15 @@ impl CodexAdapter {
 
     /// Append prompt content between tagged delimiters to `~/.codex/AGENTS.md`.
     fn apply_prompts(&self, pack: &ResolvedPack, manifest: &mut CodexManifest) -> Result<()> {
+        let src = Some(&pack.source);
         let prompt_content =
-            Store::read_pack_file(&pack.pack.name, &pack.pack.version, "prompts/codex.md")?.or(
-                Store::read_pack_file(&pack.pack.name, &pack.pack.version, "prompts/system.md")?,
-            );
+            Store::read_pack_file(&pack.pack.name, &pack.pack.version, "prompts/codex.md", src)?
+                .or(Store::read_pack_file(
+                    &pack.pack.name,
+                    &pack.pack.version,
+                    "prompts/system.md",
+                    src,
+                )?);
 
         let prompt_content = match prompt_content {
             Some(c) if !c.trim().is_empty() => c,
@@ -690,7 +696,8 @@ impl CodexAdapter {
     /// Merge settings fragment into `~/.codex/config.toml` (user scope).
     fn apply_settings(&self, pack: &ResolvedPack, manifest: &mut CodexManifest) -> Result<()> {
         // Try TOML first, fall back to JSON for compatibility.
-        let (fragment, format) = load_settings_fragment(&pack.pack.name, &pack.pack.version)?;
+        let (fragment, format) =
+            load_settings_fragment(&pack.pack.name, &pack.pack.version, Some(&pack.source))?;
 
         let fragment = match fragment {
             Some(f) => f,
@@ -714,7 +721,8 @@ impl CodexAdapter {
         pack: &ResolvedPack,
         manifest: &mut CodexManifest,
     ) -> Result<()> {
-        let (fragment, format) = load_settings_fragment(&pack.pack.name, &pack.pack.version)?;
+        let (fragment, format) =
+            load_settings_fragment(&pack.pack.name, &pack.pack.version, Some(&pack.source))?;
 
         let fragment = match fragment {
             Some(f) => f,
@@ -1012,9 +1020,11 @@ enum SettingsFormat {
 fn load_settings_fragment(
     pack_name: &str,
     version: &semver::Version,
+    source: Option<&PackSource>,
 ) -> Result<(Option<serde_json::Value>, SettingsFormat)> {
     // Prefer TOML
-    if let Some(content) = Store::read_pack_file(pack_name, version, "settings/codex.toml")? {
+    if let Some(content) = Store::read_pack_file(pack_name, version, "settings/codex.toml", source)?
+    {
         if content.trim().is_empty() {
             return Ok((None, SettingsFormat::Toml));
         }
@@ -1030,7 +1040,8 @@ fn load_settings_fragment(
     }
 
     // Fallback to JSON
-    if let Some(content) = Store::read_pack_file(pack_name, version, "settings/codex.json")? {
+    if let Some(content) = Store::read_pack_file(pack_name, version, "settings/codex.json", source)?
+    {
         if content.trim().is_empty() {
             return Ok((None, SettingsFormat::Json));
         }

@@ -110,7 +110,7 @@ pub fn run(profile_name: Option<&str>) -> Result<()> {
 /// Try to load a pack from the store; if missing, attempt to fetch it from the registry.
 fn load_or_fetch_pack(name: &str, version: &semver::Version, source: &PackSource) -> Result<Pack> {
     // Try loading from store first
-    if let Ok(pack) = Store::load_pack(name, version) {
+    if let Ok(pack) = Store::load_pack(name, version, Some(source)) {
         return Ok(pack);
     }
 
@@ -125,8 +125,8 @@ fn load_or_fetch_pack(name: &str, version: &semver::Version, source: &PackSource
     let release = registry
         .fetch_version(name, version)
         .context("resolving pack from registry")?;
-    Store::fetch(name, &release).context("downloading pack")?;
-    Store::load_pack(name, version).context("loading fetched pack")
+    Store::fetch(name, &release, Some(source)).context("downloading pack")?;
+    Store::load_pack(name, version, Some(source)).context("loading fetched pack")
 }
 
 /// Compute the diff between two profiles.

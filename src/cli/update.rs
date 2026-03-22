@@ -94,7 +94,7 @@ pub fn run(pack_spec: Option<&str>) -> Result<()> {
 
             // Fetch from registry and store
             let release = registry.fetch_version(resolved_name, version)?;
-            let pack_dir = Store::fetch(resolved_name, &release)?;
+            let pack_dir = Store::fetch(resolved_name, &release, None)?;
 
             // Load the pack manifest
             let pack = crate::core::pack::Pack::load(&pack_dir)?;

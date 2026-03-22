@@ -32,7 +32,7 @@ pub fn run() -> Result<()> {
 
     for (pack_name, locked) in &lockfile.packs {
         // Load the pack manifest from the local store.
-        let pack = match Store::load_pack(pack_name, &locked.version) {
+        let pack = match Store::load_pack(pack_name, &locked.version, locked.source.as_ref()) {
             Ok(p) => p,
             Err(e) => {
                 eprintln!(
@@ -50,9 +50,9 @@ pub fn run() -> Result<()> {
 
         let resolved = ResolvedPack {
             pack,
-            source: PackSource::Registry {
+            source: locked.source.clone().unwrap_or(PackSource::Registry {
                 registry_url: config.registry_url.clone(),
-            },
+            }),
         };
 
         // Apply to each installed adapter.

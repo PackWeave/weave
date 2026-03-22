@@ -27,7 +27,7 @@ pub fn run() -> Result<()> {
 
     for installed in &profile.packs {
         // Try to load the full manifest from the store for rich details.
-        match Store::load_pack(&installed.name, &installed.version) {
+        match Store::load_pack(&installed.name, &installed.version, Some(&installed.source)) {
             Ok(pack) => {
                 println!("  {} v{}", installed.name, installed.version);
                 println!("    {}", pack.description);

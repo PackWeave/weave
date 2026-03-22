@@ -172,7 +172,8 @@ impl StoreFixture {
         let store = shared_store_root();
 
         let version = semver::Version::new(1, 0, 0);
-        let pack_dir = Store::pack_dir(name, &version).expect("store root must be determinable");
+        let pack_dir =
+            Store::pack_dir(name, &version, None).expect("store root must be determinable");
 
         // Safety: verify pack_dir is inside the shared test store — guards
         // against accidental writes to the real ~/.packweave/ store.

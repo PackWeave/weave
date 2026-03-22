@@ -5,7 +5,7 @@ use serde::Serialize;
 use crate::adapters;
 use crate::adapters::{AdapterId, CliAdapter, DiagnosticIssue};
 use crate::core::config::Config;
-use crate::core::pack::PackTargets;
+use crate::core::pack::{PackSource, PackTargets};
 use crate::core::profile::Profile;
 use crate::core::store::Store;
 
@@ -75,7 +75,7 @@ pub fn build_report(
     profile_name: &str,
     profile: &Profile,
     adapters: &[Box<dyn CliAdapter>],
-    pack_targets: &dyn Fn(&str, &semver::Version) -> PackTargets,
+    pack_targets: &dyn Fn(&str, &semver::Version, Option<&PackSource>) -> PackTargets,
 ) -> Result<DiagnoseReport> {
     // Collect per-adapter issues once.
     struct AdapterDiag {
@@ -113,7 +113,11 @@ pub fn build_report(
     let mut total_issues = 0;
 
     for installed_pack in &profile.packs {
-        let targets = pack_targets(&installed_pack.name, &installed_pack.version);
+        let targets = pack_targets(
+            &installed_pack.name,
+            &installed_pack.version,
+            Some(&installed_pack.source),
+        );
 
         let mut adapter_statuses = Vec::new();
 
@@ -243,7 +247,7 @@ pub fn run(json: bool) -> Result<()> {
         &config.active_profile,
         &profile,
         &adapters,
-        &|name, version| match Store::load_pack(name, version) {
+        &|name, version, source| match Store::load_pack(name, version, source) {
             Ok(pack) => pack.targets,
             Err(e) => {
                 warn!(
@@ -343,7 +347,11 @@ mod tests {
     }
 
     /// Default target lookup: all CLIs targeted.
-    fn all_targets(_name: &str, _version: &semver::Version) -> PackTargets {
+    fn all_targets(
+        _name: &str,
+        _version: &semver::Version,
+        _source: Option<&PackSource>,
+    ) -> PackTargets {
         PackTargets::default()
     }
 
@@ -559,17 +567,30 @@ mod tests {
     fn report_not_targeted() {
         let profile = make_profile(&[("webdev", "1.0.0")]);
         let adapters: Vec<Box<dyn CliAdapter>> = vec![
-            mock_adapter("Claude Code", true, &["webdev"], vec![]),
-            mock_adapter("Gemini CLI", true, &["webdev"], vec![]),
-            mock_adapter("Codex CLI", true, &["webdev"], vec![]),
+            mock_adapter(
+                AdapterId::ClaudeCode,
+                "Claude Code",
+                true,
+                &["webdev"],
+                vec![],
+            ),
+            mock_adapter(
+                AdapterId::GeminiCli,
+                "Gemini CLI",
+                true,
+                &["webdev"],
+                vec![],
+            ),
+            mock_adapter(AdapterId::CodexCli, "Codex CLI", true, &["webdev"], vec![]),
         ];
 
         // Only target Claude Code — Gemini CLI and Codex CLI should be NotTargeted.
-        let claude_only = |_name: &str, _version: &semver::Version| PackTargets {
-            claude_code: true,
-            gemini_cli: false,
-            codex_cli: false,
-        };
+        let claude_only =
+            |_name: &str, _version: &semver::Version, _source: Option<&PackSource>| PackTargets {
+                claude_code: true,
+                gemini_cli: false,
+                codex_cli: false,
+            };
 
         let report = build_report("default", &profile, &adapters, &claude_only).unwrap();
         assert_eq!(report.packs.len(), 1);

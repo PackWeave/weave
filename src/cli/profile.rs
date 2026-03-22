@@ -107,7 +107,7 @@ pub fn add_pack(pack_name: &str, profile_name: &str) -> Result<()> {
     for (name, version) in &plan.to_install {
         // Ensure the pack is in the store
         let release = registry.fetch_version(name, version)?;
-        let pack_dir = Store::fetch(name, &release)?;
+        let pack_dir = Store::fetch(name, &release, None)?;
 
         let source = PackSource::Registry {
             registry_url: config.registry_url.clone(),

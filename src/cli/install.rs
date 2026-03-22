@@ -85,7 +85,7 @@ pub fn run(pack_name: &str, version: Option<&str>, force: bool, project: bool) -
 
         // Fetch from registry and store
         let release = registry.fetch_version(name, version)?;
-        let pack_dir = Store::fetch(name, &release)?;
+        let pack_dir = Store::fetch(name, &release, None)?;
 
         // Load the pack manifest
         let pack = crate::core::pack::Pack::load(&pack_dir)?;
@@ -224,6 +224,10 @@ fn install_local(raw_path: &str, force: bool, project: bool) -> Result<()> {
     let mut profile = Profile::load(&config.active_profile).context("loading active profile")?;
     let mut lockfile = LockFile::load(&config.active_profile).context("loading lock file")?;
 
+    let local_source = PackSource::Local {
+        path: path.to_string_lossy().to_string(),
+    };
+
     // Local installs always re-install, even at the same version, so that
     // file changes made during pack development are picked up without
     // requiring a version bump.  Evict the store cache first so Store::fetch
@@ -231,7 +235,7 @@ fn install_local(raw_path: &str, force: bool, project: bool) -> Result<()> {
     //
     // This is a hard error: if eviction fails, Store::fetch would return the
     // old cached directory and the "refresh" would silently apply stale data.
-    Store::evict(name, version)
+    Store::evict(name, version, Some(&local_source))
         .with_context(|| format!("evicting cached '{name}@{version}' before local refresh"))?;
 
     println!("  Installing {name}@{version} (local)...");
@@ -245,15 +249,11 @@ fn install_local(raw_path: &str, force: bool, project: bool) -> Result<()> {
         dependencies: pack.dependencies.clone(),
     };
 
-    let pack_dir =
-        Store::fetch(name, &release).with_context(|| format!("writing pack '{name}' to store"))?;
+    let pack_dir = Store::fetch(name, &release, Some(&local_source))
+        .with_context(|| format!("writing pack '{name}' to store"))?;
 
     // Re-load from store to validate written files.
     let pack = Pack::load(&pack_dir)?;
-
-    let local_source = PackSource::Local {
-        path: path.to_string_lossy().to_string(),
-    };
 
     let resolved = ResolvedPack {
         pack: pack.clone(),
@@ -419,7 +419,7 @@ fn visit_dir(root: &Path, current: &Path, files: &mut HashMap<String, String>) -
 fn load_installed_packs(profile: &Profile) -> Vec<Pack> {
     let mut packs = Vec::new();
     for installed in &profile.packs {
-        match Store::load_pack(&installed.name, &installed.version) {
+        match Store::load_pack(&installed.name, &installed.version, Some(&installed.source)) {
             Ok(pack) => packs.push(pack),
             Err(e) => {
                 log::warn!(
