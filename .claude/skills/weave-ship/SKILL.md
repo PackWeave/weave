@@ -30,10 +30,9 @@ $ARGUMENTS
 
 2. **Check PR not already merged** — run `gh pr list --head $(git branch --show-current) --state merged`; if any result, stop and warn that the branch was already merged
 
-3. **Quality gates** — run in order, stop on first failure:
-   - `cargo fmt --all`
-   - `cargo clippy -- -D warnings`
-   - `cargo test`
+3. **Pre-commit** — run these before committing (the git pre-commit hook handles `fmt --check` and `clippy`, so don't duplicate those):
+   - `cargo fmt --all` — auto-fix formatting so the hook's `--check` passes
+   - `cargo test` — the hook does not run tests, so run them here; stop on failure
 
 4. **Commit** — if $ARGUMENTS is empty, ask the user for a commit message before proceeding; otherwise use $ARGUMENTS as the commit message. Stage all modified tracked files and new relevant files, then commit. No attribution taglines.
 
