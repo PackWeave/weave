@@ -121,7 +121,7 @@ The milestones below are sequential. Each one produces something usable before t
 - [ ] Template management for CLI prompt files — CLAUDE.md, AGENTS.md, etc. (issue #50)
 - [ ] Pack-defined health checks in `weave diagnose` (issue #163)
 - [ ] Post-install scripts — `[scripts]` table in pack.toml (issue #167)
-- [ ] SHA-256 script integrity verification — hash hook commands at install, verify at sync/use (issue #168)
+- [ ] Pack content checksums in registry for integrity verification (issue #175)
 - [ ] Auto-update mechanism (issue #51)
 
 ### Housekeeping
