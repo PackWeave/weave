@@ -93,9 +93,6 @@ transport = "stdio"
 # [servers.headers]
 # Authorization = "Bearer ${MY_API_KEY}"
 
-# Optional. Namespace used to prefix tools and avoid conflicts.
-namespace = "github"
-
 # Optional. Declared tool list for conflict detection and filtering.
 tools = ["create_pr", "list_issues"]
 

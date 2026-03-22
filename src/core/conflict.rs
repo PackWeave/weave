@@ -104,7 +104,6 @@ mod tests {
             url: None,
             headers: None,
             transport: None,
-            namespace: None,
             tools: tools.into_iter().map(String::from).collect(),
             env: HashMap::new(),
         }

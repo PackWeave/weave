@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::core::pack::PackSource;
 use crate::error::{Result, WeaveError};
 use crate::util;
 
@@ -14,14 +15,12 @@ pub struct LockFile {
     pub packs: BTreeMap<String, LockedPack>,
 }
 
-/// A single locked pack entry with its exact version and checksum.
+/// A single locked pack entry with its exact version and install source.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LockedPack {
     pub version: semver::Version,
     #[serde(default)]
-    pub sha256: Option<String>,
-    #[serde(default)]
-    pub source: Option<String>,
+    pub source: Option<PackSource>,
 }
 
 impl LockFile {
@@ -58,14 +57,13 @@ impl LockFile {
         util::write_file(&path, &content)
     }
 
-    /// Record a pack's resolved version.
-    pub fn lock_pack(&mut self, name: &str, version: semver::Version, sha256: Option<String>) {
+    /// Record a pack's resolved version and install source.
+    pub fn lock_pack(&mut self, name: &str, version: semver::Version, source: PackSource) {
         self.packs.insert(
             name.to_string(),
             LockedPack {
                 version,
-                sha256,
-                source: None,
+                source: Some(source),
             },
         );
     }
@@ -86,9 +84,18 @@ mod tests {
             packs: BTreeMap::new(),
         };
 
-        lock.lock_pack("webdev", semver::Version::new(1, 2, 3), Some("abc".into()));
+        lock.lock_pack(
+            "webdev",
+            semver::Version::new(1, 2, 3),
+            PackSource::Registry {
+                registry_url: "https://example.com".to_string(),
+            },
+        );
         assert_eq!(lock.packs["webdev"].version, semver::Version::new(1, 2, 3));
-        assert_eq!(lock.packs["webdev"].sha256.as_deref(), Some("abc"));
+        assert!(matches!(
+            &lock.packs["webdev"].source,
+            Some(PackSource::Registry { .. })
+        ));
 
         lock.unlock_pack("webdev");
         assert!(lock.packs.is_empty());
@@ -99,10 +106,32 @@ mod tests {
         let mut lock = LockFile {
             packs: BTreeMap::new(),
         };
-        lock.lock_pack("test", semver::Version::new(0, 1, 0), None);
+        lock.lock_pack(
+            "test",
+            semver::Version::new(0, 1, 0),
+            PackSource::Registry {
+                registry_url: "https://example.com".to_string(),
+            },
+        );
 
         let toml_str = toml::to_string_pretty(&lock).unwrap();
         let parsed: LockFile = toml::from_str(&toml_str).unwrap();
         assert_eq!(parsed.packs["test"].version, semver::Version::new(0, 1, 0));
+        assert!(matches!(
+            &parsed.packs["test"].source,
+            Some(PackSource::Registry { .. })
+        ));
+    }
+
+    #[test]
+    fn old_lockfile_without_source_deserializes() {
+        // Lockfiles written before source tracking had no `source` key — must default to None.
+        let toml_str = "[packs.filesystem]\nversion = \"0.1.0\"\n";
+        let parsed: LockFile = toml::from_str(toml_str).unwrap();
+        assert_eq!(
+            parsed.packs["filesystem"].version,
+            semver::Version::new(0, 1, 0)
+        );
+        assert!(parsed.packs["filesystem"].source.is_none());
     }
 }

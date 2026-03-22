@@ -109,7 +109,13 @@ pub fn add_pack(pack_name: &str, profile_name: &str) -> Result<()> {
             },
         });
 
-        lockfile.lock_pack(name, version.clone(), None);
+        lockfile.lock_pack(
+            name,
+            version.clone(),
+            PackSource::Registry {
+                registry_url: config.registry_url.clone(),
+            },
+        );
 
         println!("  Added {name}@{version} to profile '{profile_name}'");
     }

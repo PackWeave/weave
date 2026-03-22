@@ -3,6 +3,106 @@ use predicates::prelude::*;
 use super::helpers::*;
 use assert_cmd::prelude::*;
 
+// ── Local pack install ────────────────────────────────────────────────────────
+
+#[cfg(not(target_os = "windows"))]
+#[tokio::test]
+async fn install_local_pack() {
+    let env = TestEnv::new().await;
+    // No registry mounts needed — local install bypasses the registry.
+
+    // Create a minimal pack directory under project_dir.
+    let pack_dir = env.project_dir.path().join("my-local-pack");
+    std::fs::create_dir_all(&pack_dir).unwrap();
+    std::fs::write(
+        pack_dir.join("pack.toml"),
+        "[pack]\nname = \"my-local-pack\"\nversion = \"0.1.0\"\ndescription = \"local test\"\nauthors = [\"tester\"]\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(pack_dir.join("prompts")).unwrap();
+    std::fs::write(pack_dir.join("prompts/system.md"), "Hello from local pack.").unwrap();
+
+    env.weave_cmd()
+        .args(["install", "./my-local-pack"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Installed my-local-pack@0.1.0 (local)").from_utf8());
+
+    // Pack files should be in the store.
+    let stored_toml = env
+        .store_dir
+        .path()
+        .join("packs/my-local-pack/0.1.0/pack.toml");
+    assert!(stored_toml.exists(), "pack.toml should be written to store");
+
+    // Profile should record the pack.
+    let profile_content = std::fs::read_to_string(env.profile_toml("default")).unwrap();
+    assert!(profile_content.contains("my-local-pack"));
+
+    // Lockfile should record the pack with a local source.
+    let lockfile_content = std::fs::read_to_string(env.lockfile_path("default")).unwrap();
+    assert!(lockfile_content.contains("my-local-pack"));
+    assert!(lockfile_content.contains("local"));
+}
+
+#[cfg(not(target_os = "windows"))]
+#[tokio::test]
+async fn install_local_pack_prompt_applied() {
+    let env = TestEnv::new().await;
+
+    let pack_dir = env.project_dir.path().join("prompt-pack");
+    std::fs::create_dir_all(pack_dir.join("prompts")).unwrap();
+    std::fs::write(
+        pack_dir.join("pack.toml"),
+        "[pack]\nname = \"prompt-pack\"\nversion = \"0.1.0\"\ndescription = \"test\"\nauthors = [\"tester\"]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        pack_dir.join("prompts/system.md"),
+        "## Unique local prompt marker",
+    )
+    .unwrap();
+
+    env.weave_cmd()
+        .args(["install", "./prompt-pack"])
+        .assert()
+        .success();
+
+    // Prompt content should appear in CLAUDE.md.
+    let claude_md = env.claude_dir().join("CLAUDE.md");
+    let content = std::fs::read_to_string(&claude_md).unwrap_or_default();
+    assert!(
+        content.contains("Unique local prompt marker"),
+        "CLAUDE.md should contain prompt content from local pack"
+    );
+}
+
+#[cfg(not(target_os = "windows"))]
+#[tokio::test]
+async fn install_local_pack_already_installed() {
+    let env = TestEnv::new().await;
+
+    let pack_dir = env.project_dir.path().join("my-pack");
+    std::fs::create_dir_all(&pack_dir).unwrap();
+    std::fs::write(
+        pack_dir.join("pack.toml"),
+        "[pack]\nname = \"my-pack\"\nversion = \"0.1.0\"\ndescription = \"test\"\nauthors = [\"tester\"]\n",
+    )
+    .unwrap();
+
+    env.weave_cmd()
+        .args(["install", "./my-pack"])
+        .assert()
+        .success();
+
+    // Second install at the same version should report already installed.
+    env.weave_cmd()
+        .args(["install", "./my-pack"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("already installed").from_utf8());
+}
+
 #[tokio::test]
 async fn install_single_pack() {
     let env = TestEnv::new().await;
