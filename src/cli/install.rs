@@ -210,9 +210,11 @@ fn install_local(raw_path: &str, force: bool) -> Result<()> {
     // file changes made during pack development are picked up without
     // requiring a version bump.  Evict the store cache first so Store::fetch
     // writes the updated files rather than returning the cached directory.
-    if let Err(e) = Store::evict(name, version) {
-        log::warn!("could not evict cached '{name}@{version}' before local refresh: {e}");
-    }
+    //
+    // This is a hard error: if eviction fails, Store::fetch would return the
+    // old cached directory and the "refresh" would silently apply stale data.
+    Store::evict(name, version)
+        .with_context(|| format!("evicting cached '{name}@{version}' before local refresh"))?;
 
     println!("  Installing {name}@{version} (local)...");
 
@@ -355,17 +357,17 @@ fn visit_dir(root: &Path, current: &Path, files: &mut HashMap<String, String>) -
             continue;
         }
 
-        // DirEntry::metadata() calls lstat on Unix (does not follow symlinks),
-        // so is_symlink() correctly identifies symlinks and we skip them.
+        // DirEntry::file_type() does not follow symlinks on any platform, so
+        // is_symlink() correctly identifies symlinks and we skip them.
         // A symlink to a directory could escape the pack root or loop indefinitely.
-        let meta = entry
-            .metadata()
-            .with_context(|| format!("reading metadata for {}", path.display()))?;
-        if meta.file_type().is_symlink() {
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("reading file type for {}", path.display()))?;
+        if file_type.is_symlink() {
             continue;
         }
 
-        if meta.is_dir() {
+        if file_type.is_dir() {
             // At the root level, only recurse into known pack content directories.
             // This prevents accidentally ingesting large trees (target/, node_modules/).
             if current == root && !PACK_CONTENT_DIRS.contains(&name_str.as_ref()) {
