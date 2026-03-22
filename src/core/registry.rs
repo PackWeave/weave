@@ -95,8 +95,15 @@ pub struct GitHubRegistry {
 
 impl GitHubRegistry {
     pub fn new(base_url: &str) -> Self {
+        // Strip trailing slash and also normalise old-style URLs that already
+        // include the `/index.json` suffix (e.g. configs written before the
+        // sparse-index migration).  Without this, old installs would request
+        // `.../index.json/index.json` and break silently.
+        let base_url = base_url
+            .trim_end_matches('/')
+            .trim_end_matches("/index.json");
         Self {
-            base_url: base_url.trim_end_matches('/').to_string(),
+            base_url: base_url.to_string(),
             cached_search_index: std::sync::Mutex::new(None),
             cached_packs: std::sync::Mutex::new(HashMap::new()),
         }
@@ -135,6 +142,20 @@ impl GitHubRegistry {
             if let Some(meta) = cache.get(name) {
                 return Ok(meta.clone());
             }
+        }
+
+        // Validate the name before interpolating it into the URL.  Pack names
+        // must be [a-z0-9-]+ and this is already enforced for user-supplied
+        // names by Pack::validate, but dependency names from registry responses
+        // could in theory contain path-traversal segments like `../`.
+        if name.is_empty()
+            || !name
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        {
+            return Err(WeaveError::Registry(format!(
+                "invalid pack name '{name}' — names must contain only lowercase letters, numbers, and hyphens"
+            )));
         }
 
         let url = format!("{}/packs/{}.json", self.base_url, name);
@@ -377,6 +398,25 @@ mod tests {
             meta.latest_version().unwrap(),
             semver::Version::new(1, 1, 0)
         );
+    }
+
+    #[test]
+    fn new_strips_trailing_slash() {
+        let r = GitHubRegistry::new("https://example.com/registry/");
+        assert_eq!(r.base_url, "https://example.com/registry");
+    }
+
+    #[test]
+    fn new_strips_old_index_json_suffix() {
+        // Old configs stored the full URL including /index.json.
+        let r = GitHubRegistry::new("https://example.com/registry/index.json");
+        assert_eq!(r.base_url, "https://example.com/registry");
+    }
+
+    #[test]
+    fn new_strips_index_json_with_trailing_slash() {
+        let r = GitHubRegistry::new("https://example.com/registry/index.json/");
+        assert_eq!(r.base_url, "https://example.com/registry");
     }
 
     #[test]
