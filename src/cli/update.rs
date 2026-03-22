@@ -4,7 +4,7 @@ use crate::adapters;
 use crate::core::config::Config;
 use crate::core::lockfile::LockFile;
 use crate::core::profile::Profile;
-use crate::core::registry::GitHubRegistry;
+use crate::core::registry::registry_from_config;
 use crate::core::update;
 
 /// Update one or all installed packs to the latest compatible version.
@@ -14,7 +14,7 @@ use crate::core::update;
 /// - `pack_spec` = Some("foo@latest") -> update pack "foo" across major versions
 pub fn run(pack_spec: Option<&str>) -> Result<()> {
     let config = Config::load().context("loading weave config")?;
-    let registry = GitHubRegistry::new(&config.registry_url);
+    let registry = registry_from_config(&config);
     let mut profile = Profile::load(&config.active_profile).context("loading active profile")?;
     let mut lockfile = LockFile::load(&config.active_profile).context("loading lock file")?;
     let adapters = adapters::installed_adapters();

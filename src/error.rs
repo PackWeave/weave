@@ -77,6 +77,16 @@ pub enum WeaveError {
         reason: String,
     },
 
+    // Tap errors
+    #[error("invalid tap name '{name}' — expected format 'user/repo' (e.g. 'acme/my-packs')")]
+    InvalidTapName { name: String },
+
+    #[error("tap '{name}' is already registered — run `weave tap list` to see registered taps")]
+    TapAlreadyExists { name: String },
+
+    #[error("tap '{name}' is not registered — run `weave tap list` to see registered taps")]
+    TapNotFound { name: String },
+
     // Config errors
     #[error("could not determine home directory — set the HOME environment variable")]
     NoHomeDir,

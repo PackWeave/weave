@@ -426,6 +426,130 @@ fn apply_writes_url_for_http_transport() {
 }
 
 #[test]
+fn apply_http_server_writes_headers() {
+    let home = TempDir::new().unwrap();
+    setup_codex_home(&home);
+    let adapter = make_adapter(&home);
+
+    let server = McpServer {
+        name: "http-with-headers".into(),
+        package_type: None,
+        package: None,
+        command: None,
+        args: vec![],
+        url: Some("https://example.com/mcp".into()),
+        headers: Some(
+            [("Authorization".to_string(), "${API_KEY}".to_string())]
+                .into_iter()
+                .collect(),
+        ),
+        transport: Some(Transport::Http),
+        tools: vec![],
+        env: HashMap::new(),
+    };
+    let pack = pack_with_servers("http-headers-pack", vec![server]);
+    adapter.apply(&pack).unwrap();
+
+    let config_path = home.path().join(".codex/config.toml");
+    let config = read_toml(&config_path);
+    let entry = config["mcp_servers"]["http-with-headers"]
+        .as_table()
+        .expect("server entry should be a table");
+    assert_eq!(
+        entry["url"].as_str().unwrap(),
+        "https://example.com/mcp",
+        "url must be written"
+    );
+    let headers = entry["http_headers"]
+        .as_table()
+        .expect("http_headers subtable must exist");
+    assert_eq!(
+        headers["Authorization"].as_str().unwrap(),
+        "${API_KEY}",
+        "header value must preserve env var reference"
+    );
+    assert!(
+        entry.get("command").is_none(),
+        "command must not appear in HTTP server config"
+    );
+}
+
+#[test]
+fn apply_http_server_without_url_returns_error() {
+    let home = TempDir::new().unwrap();
+    setup_codex_home(&home);
+    let adapter = make_adapter(&home);
+
+    let server = McpServer {
+        name: "no-url-server".into(),
+        package_type: None,
+        package: None,
+        command: None,
+        args: vec![],
+        url: None,
+        headers: None,
+        transport: Some(Transport::Http),
+        tools: vec![],
+        env: HashMap::new(),
+    };
+    let pack = pack_with_servers("bad-http-pack", vec![server]);
+    let result = adapter.apply(&pack);
+    assert!(result.is_err(), "should fail when HTTP server has no url");
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("url"),
+        "error message should mention the missing url field"
+    );
+}
+
+#[test]
+fn remove_http_server_cleans_up() {
+    let home = TempDir::new().unwrap();
+    setup_codex_home(&home);
+    let adapter = make_adapter(&home);
+
+    let server = McpServer {
+        name: "http-removable".into(),
+        package_type: None,
+        package: None,
+        command: None,
+        args: vec![],
+        url: Some("https://example.com/mcp".into()),
+        headers: Some(
+            [("Authorization".to_string(), "${API_KEY}".to_string())]
+                .into_iter()
+                .collect(),
+        ),
+        transport: Some(Transport::Http),
+        tools: vec![],
+        env: HashMap::new(),
+    };
+    let pack = pack_with_servers("http-remove-pack", vec![server]);
+    adapter.apply(&pack).unwrap();
+
+    // Verify it was written
+    let config_path = home.path().join(".codex/config.toml");
+    let config = read_toml(&config_path);
+    assert!(
+        config["mcp_servers"]["http-removable"].is_table(),
+        "server should be present after apply"
+    );
+
+    // Remove
+    adapter.remove("http-remove-pack").unwrap();
+
+    let config_after = read_toml(&config_path);
+    assert!(
+        config_after
+            .get("mcp_servers")
+            .and_then(|s| s.as_table())
+            .map(|t| !t.contains_key("http-removable"))
+            .unwrap_or(true),
+        "HTTP server should be removed after remove()"
+    );
+}
+
+#[test]
 fn apply_preserves_existing_user_servers() {
     let home = TempDir::new().unwrap();
     setup_codex_home(&home);

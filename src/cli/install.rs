@@ -5,7 +5,7 @@ use crate::core::config::Config;
 use crate::core::install;
 use crate::core::lockfile::LockFile;
 use crate::core::profile::Profile;
-use crate::core::registry::GitHubRegistry;
+use crate::core::registry::registry_from_config;
 
 /// Install a pack by name (or local path), optionally with a version requirement.
 /// When `force` is true, tool-conflict warnings are suppressed.
@@ -38,7 +38,7 @@ pub fn run(pack_name: &str, version: Option<&str>, force: bool, project: bool) -
     let pack_name = pack_name.strip_prefix('@').unwrap_or(pack_name);
 
     let config = Config::load().context("loading weave config")?;
-    let registry = GitHubRegistry::new(&config.registry_url);
+    let registry = registry_from_config(&config);
 
     let version_req = match version {
         Some(v) => Some(
@@ -118,8 +118,7 @@ fn run_local(raw_path: &str, force: bool, project: bool) -> Result<()> {
     let adapters = adapters::installed_adapters_with_scope(project);
 
     // No registry needed for local installs, but InstallContext requires one.
-    // Use a dummy — it won't be called.
-    let registry = crate::core::registry::GitHubRegistry::new(&config.registry_url);
+    let registry = registry_from_config(&config);
     let mut ctx = install::InstallContext {
         config: &config,
         registry: &registry,

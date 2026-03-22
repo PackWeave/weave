@@ -424,4 +424,32 @@ url = "https://example.com/mcp"
         let result = Pack::from_toml(toml, &PathBuf::from("test.toml"));
         assert!(result.is_ok());
     }
+
+    #[test]
+    fn parse_http_server_with_headers() {
+        let toml = r#"
+[pack]
+name = "test"
+version = "1.0.0"
+description = "Test"
+
+[[servers]]
+name = "remote-api"
+transport = "http"
+url = "https://api.example.com/mcp"
+
+[servers.headers]
+Authorization = "${API_KEY}"
+X-Custom = "static-value"
+"#;
+        let pack = Pack::from_toml(toml, &PathBuf::from("test.toml")).unwrap();
+        assert_eq!(pack.servers.len(), 1);
+        let server = &pack.servers[0];
+        assert_eq!(server.transport, Some(Transport::Http));
+        assert_eq!(server.url.as_deref(), Some("https://api.example.com/mcp"));
+        let headers = server.headers.as_ref().expect("headers should be present");
+        assert_eq!(headers["Authorization"], "${API_KEY}");
+        assert_eq!(headers["X-Custom"], "static-value");
+        assert!(server.command.is_none());
+    }
 }

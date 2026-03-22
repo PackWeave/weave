@@ -91,10 +91,34 @@ enum Commands {
         action: ProfileAction,
     },
 
+    /// Manage community taps (third-party pack registries)
+    Tap {
+        #[command(subcommand)]
+        action: TapAction,
+    },
+
     /// Switch to a named profile, or print the active profile (no args)
     Use {
         /// Profile name to switch to. Omit to print the current profile.
         profile: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum TapAction {
+    /// Add a community tap (e.g. `weave tap add user/repo`)
+    Add {
+        /// Tap name in user/repo format
+        name: String,
+    },
+
+    /// List registered community taps
+    List,
+
+    /// Remove a community tap
+    Remove {
+        /// Tap name in user/repo format
+        name: String,
     },
 }
 
@@ -145,6 +169,11 @@ fn main() {
         Commands::Update { name } => cli::update::run(name.as_deref()),
         Commands::Sync => cli::sync::run(),
         Commands::Diagnose { json } => cli::diagnose::run(json),
+        Commands::Tap { action } => match action {
+            TapAction::Add { name } => cli::tap::add(&name),
+            TapAction::List => cli::tap::list(),
+            TapAction::Remove { name } => cli::tap::remove(&name),
+        },
         Commands::Profile { action } => match action {
             ProfileAction::Create { name } => cli::profile::create(&name),
             ProfileAction::Delete { name } => cli::profile::delete(&name),
