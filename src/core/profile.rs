@@ -23,6 +23,20 @@ pub struct InstalledPack {
     pub source: PackSource,
 }
 
+/// Validate that a profile name contains only safe characters.
+fn validate_profile_name(name: &str) -> Result<()> {
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(WeaveError::InvalidProfileName {
+            name: name.to_string(),
+        });
+    }
+    Ok(())
+}
+
 impl Profile {
     /// Directory where all profiles are stored.
     fn profiles_dir() -> Result<PathBuf> {
@@ -31,11 +45,13 @@ impl Profile {
 
     /// Path to this profile's file.
     fn path(name: &str) -> Result<PathBuf> {
+        validate_profile_name(name)?;
         Ok(Self::profiles_dir()?.join(format!("{name}.toml")))
     }
 
     /// Load a profile by name, creating it if it doesn't exist.
     pub fn load(name: &str) -> Result<Self> {
+        validate_profile_name(name)?;
         let path = Self::path(name)?;
         if !path.exists() {
             return Ok(Self {
@@ -193,5 +209,22 @@ mod tests {
         assert!(result.is_err());
 
         std::env::remove_var("WEAVE_TEST_STORE_DIR");
+    }
+
+    #[test]
+    fn validate_profile_name_rejects_traversal() {
+        assert!(validate_profile_name("../../etc/evil").is_err());
+        assert!(validate_profile_name("").is_err());
+        assert!(validate_profile_name("has spaces").is_err());
+        assert!(validate_profile_name("has/slash").is_err());
+        assert!(validate_profile_name("has.dot").is_err());
+    }
+
+    #[test]
+    fn validate_profile_name_accepts_valid() {
+        assert!(validate_profile_name("default").is_ok());
+        assert!(validate_profile_name("my-profile").is_ok());
+        assert!(validate_profile_name("my_profile").is_ok());
+        assert!(validate_profile_name("Profile123").is_ok());
     }
 }

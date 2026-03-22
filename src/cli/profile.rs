@@ -44,17 +44,19 @@ pub fn list() -> Result<()> {
     let config = Config::load().context("loading weave config")?;
     let profiles = Profile::list_all().context("listing profiles")?;
 
-    if profiles.is_empty() {
-        // If no profiles saved yet, just show the default as active
-        println!("* default (active)");
-        return Ok(());
-    }
+    let mut all_names = profiles;
 
     // Ensure "default" always appears even if no file exists on disk
-    let mut all_names = profiles;
     if !all_names.contains(&"default".to_string()) {
-        all_names.insert(0, "default".to_string());
+        all_names.push("default".to_string());
     }
+
+    // Ensure the active profile always appears even if no file exists on disk
+    if !all_names.contains(&config.active_profile) {
+        all_names.push(config.active_profile.clone());
+    }
+
+    all_names.sort();
 
     for name in &all_names {
         if *name == config.active_profile {
@@ -70,6 +72,10 @@ pub fn list() -> Result<()> {
 /// Add a pack reference to a named profile.
 pub fn add_pack(pack_name: &str, profile_name: &str) -> Result<()> {
     let pack_name = pack_name.strip_prefix('@').unwrap_or(pack_name);
+
+    if !Profile::exists(profile_name).context("checking profile existence")? {
+        bail!("profile '{profile_name}' does not exist — create it first with `weave profile create {profile_name}`");
+    }
 
     let config = Config::load().context("loading weave config")?;
     let registry = GitHubRegistry::new(&config.registry_url);

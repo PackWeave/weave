@@ -26,8 +26,10 @@ pub fn run(profile_name: Option<&str>) -> Result<()> {
         return Ok(());
     }
 
-    // Load target profile — must exist on disk.
-    if !Profile::exists(target_name).context("checking target profile")? {
+    // Load target profile — must exist on disk (except "default", which is always valid).
+    if target_name != "default"
+        && !Profile::exists(target_name).context("checking target profile")?
+    {
         return Err(WeaveError::ProfileNotFound {
             name: target_name.to_string(),
         }

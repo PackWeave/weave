@@ -35,6 +35,9 @@ pub enum WeaveError {
     #[error("cannot delete the 'default' profile — it is required")]
     DefaultProfileDeletion,
 
+    #[error("invalid profile name '{name}' — only letters, digits, hyphens, and underscores are allowed")]
+    InvalidProfileName { name: String },
+
     // Registry errors
     #[error("pack '{name}' has no releases in the registry")]
     NoReleases { name: String },
