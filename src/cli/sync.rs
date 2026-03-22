@@ -39,7 +39,10 @@ pub fn run() -> Result<()> {
                     "  warning: could not load {pack_name}@{} from store: {e}",
                     locked.version
                 );
-                eprintln!("  hint: run 'weave install {pack_name}' to re-fetch it");
+                eprintln!(
+                    "  hint: run 'weave install {pack_name} --version ={}' to re-fetch it",
+                    locked.version
+                );
                 error_count += 1;
                 continue;
             }
@@ -71,9 +74,9 @@ pub fn run() -> Result<()> {
     }
 
     if error_count > 0 {
-        println!("Sync complete with {error_count} warning(s). {synced_count} adapter(s) updated.");
+        println!("Sync complete with {error_count} warning(s). {synced_count} adapter(s) applied.");
     } else {
-        println!("Sync complete. {synced_count} adapter(s) updated.");
+        println!("Sync complete. {synced_count} adapter(s) applied.");
     }
 
     Ok(())
