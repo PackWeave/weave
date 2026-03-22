@@ -20,7 +20,7 @@ You will receive a response within 72 hours. We will work with you to understand
 
 weave is a local CLI tool. Its attack surface includes:
 
-- **Archive extraction** — pack archives are downloaded from the registry and extracted to disk. weave validates paths and checksums before extraction.
+- **Pack content writes** — pack files are fetched inline from the registry and written to a local store, then applied to CLI config directories. weave rejects absolute paths and path traversal (`..`) components before writing any file.
 - **CLI config file writes** — adapters write to `~/.claude/`, `~/.gemini/`, and similar directories. Writes are tracked in a sidecar manifest and must be idempotent.
 - **Registry fetches** — weave fetches pack metadata and releases over HTTPS from a configured registry URL.
 

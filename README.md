@@ -6,17 +6,17 @@
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-> **A pack manager for AI CLIs** — install, share, and version MCP servers, slash commands, and prompts across Claude Code, Gemini CLI, and Codex CLI.
+> **One command configures all your AI CLIs.** Install, share, and version MCP servers, slash commands, and prompts across Claude Code, Gemini CLI, and Codex CLI.
 
 ```bash
-weave install @webdev    # Puppeteer + Git MCP servers → Claude Code, Gemini CLI, Codex CLI
-weave install @databases # add Postgres + Redis — dependencies auto-resolved
-weave remove databases   # clean undo — your manual edits stay untouched
+weave install web-dev    # Puppeteer MCP → Claude Code, Gemini CLI, Codex CLI
+weave install git-tools  # Git MCP server — add alongside, no conflicts
+weave remove web-dev     # clean undo — your manual edits stay untouched
 ```
 
 ---
 
-## The problem
+## 🔥 The problem
 
 Every AI CLI has its own configuration format. Setting up MCP servers, slash commands, and system prompts means hand-editing JSON and Markdown files scattered across different directories with different schemas.
 
@@ -31,27 +31,27 @@ There's no way to share your setup with a teammate, version it, or switch betwee
 **One command, all CLIs configured:**
 
 ```bash
-weave install @webdev
-# → Puppeteer, filesystem, and Git MCP servers
+weave install web-dev
+# → Puppeteer MCP server
 #   configured in Claude Code, Gemini CLI, and Codex CLI
 ```
 
 **Stack packs — dependencies resolve automatically:**
 
 ```bash
-weave install @webdev
-weave install @databases
-# → Postgres + Redis added alongside your web dev servers, no conflicts
+weave install web-dev
+weave install postgres
+# → PostgreSQL MCP added alongside Puppeteer, no conflicts
 ```
 
 **Switch contexts instantly:**
 
 ```bash
-weave profile create work && weave profile add @cloud-infra -p work
-weave profile create oss && weave profile add @webdev -p oss
+weave profile create work && weave profile add github -p work
+weave profile create oss && weave profile add web-dev -p oss
 
-weave use work    # → all CLIs reconfigured for cloud infrastructure
-weave use oss     # → switch to open source web dev setup
+weave use work    # → all CLIs reconfigured for GitHub tools
+weave use oss     # → switch to web development setup
 ```
 
 **Discover MCP servers from the official registry:**
@@ -69,7 +69,7 @@ weave search --mcp filesystem
 ```bash
 weave diagnose      # detect config drift across all CLIs
 weave sync          # fix it — reapply your profile
-weave remove webdev # clean undo, manual edits survive
+weave remove web-dev # clean undo, manual edits survive
 ```
 
 **Create and share your own packs:**
@@ -89,13 +89,13 @@ Think of packs like Homebrew formulas for your AI CLI setup — community-mainta
 A **pack** is a `pack.toml` manifest bundled with MCP server definitions, slash commands, system prompt fragments, and settings. Packs install into the active **profile** — a named set of packs for a specific context (`work`, `oss`, `personal`). Create profiles with `weave profile create`, switch with `weave use`, and recover from config drift with `weave sync`.
 
 ```
-weave install @webdev
+weave install web-dev
         │
-        ├─▶ fetches + verifies the pack archive from the registry
+        ├─▶ fetches pack content from the registry
         ├─▶ resolves transitive dependencies
         └─▶ applies to each installed CLI — non-destructively
 
-        Claude Code:  ~/.claude.json, ~/.claude/settings.json, ~/.claude/commands/,
+            Claude Code:  ~/.claude.json, ~/.claude/settings.json, ~/.claude/commands/,
                       ~/.claude/CLAUDE.md, ./.mcp.json (project-scope MCP servers)
         Gemini CLI:   ~/.gemini/settings.json, ~/.gemini/GEMINI.md
         Codex CLI:    ~/.codex/config.toml, ~/.codex/AGENTS.md, ~/.codex/skills/
@@ -164,7 +164,7 @@ A pack is a directory with a `pack.toml` manifest at its root:
 
 ```toml
 [pack]
-name = "webdev"
+name = "web-dev"
 version = "1.0.0"
 description = "Web development MCP stack"
 authors = ["yourname"]
@@ -194,6 +194,12 @@ Packs can also declare:
 > [!IMPORTANT]
 > Packs never store secret values. Env vars are written as `${MY_API_KEY}` references into CLI config files — the actual values come from your shell environment at runtime.
 
+**Test your pack locally before publishing:**
+
+```bash
+weave install ./my-pack    # install from a local directory — idempotent, re-reads files on each run
+```
+
 See [pack.schema.toml](https://github.com/PackWeave/weave/blob/main/pack.schema.toml) for the full annotated schema and [docs/PACKS.md](https://github.com/PackWeave/weave/blob/main/docs/PACKS.md) for quality guidelines.
 
 ---
@@ -208,7 +214,7 @@ See [pack.schema.toml](https://github.com/PackWeave/weave/blob/main/pack.schema.
 
 ---
 
-## Project-scope config
+## 🗂️ Project-scope config
 
 Some CLIs read both a user-level config (`~/.claude/`) and a project-level config (`.claude/` in your repo). Weave applies packs to every scope that **exists at install time**.
 
@@ -221,8 +227,8 @@ Run `weave diagnose` to detect this condition automatically:
 Profile: default
 Packs: 1 installed
 
-  webdev v1.0.0
-    Claude Code: drifted (server 'puppeteer' (from pack 'webdev') is tracked but missing from claude.json)
+  web-dev v1.0.0
+    Claude Code: drifted (server 'puppeteer' (from pack 'web-dev') is tracked but missing from claude.json)
     Gemini CLI: ok
     Codex CLI: ok
 
@@ -263,6 +269,6 @@ See [docs/CONTRIBUTING.md](https://github.com/PackWeave/weave/blob/main/docs/CON
 
 ---
 
-## License
+## 📄 License
 
 Apache 2.0 — Copyright 2026 Brenno Rangel Ferrari. See [LICENSE](./LICENSE).
