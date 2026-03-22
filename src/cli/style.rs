@@ -156,10 +156,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn should_colorize_respects_no_color_and_term() {
-        // We can't easily test should_colorize() since it reads env vars, but
-        // we can test that Styled produces plain text when colors are disabled
-        // (which is the default in test — stdout is not a TTY).
+    fn styled_is_plain_text_when_stdout_not_tty() {
+        // We don't exercise should_colorize() directly here; instead, we rely on
+        // the test harness' default (stdout is not a TTY) and verify that Styled
+        // helpers produce plain text with no ANSI escape codes.
         let s = pack_name("webdev");
         assert_eq!(s.to_string(), "webdev");
 

@@ -202,7 +202,7 @@ fn run_local(raw_path: &str, force: bool, project: bool, allow_hooks: bool) -> R
         );
     }
     for err in &result.adapter_errors {
-        eprintln!("  {}: failed to apply to {err}", style::dim("warning"));
+        eprintln!("  {}: failed to apply: {err}", style::dim("warning"));
     }
 
     for env_var in &result.missing_env_vars {
