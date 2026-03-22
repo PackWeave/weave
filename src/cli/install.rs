@@ -240,8 +240,13 @@ fn install_local(raw_path: &str, force: bool) -> Result<()> {
         source: local_source.clone(),
     };
 
+    // Exclude the pack being refreshed from conflict detection — otherwise a
+    // re-install of the same pack would always flag self-conflicts.
     let installed_packs = if !force {
         load_installed_packs(&profile)
+            .into_iter()
+            .filter(|p| p.name != *name)
+            .collect()
     } else {
         vec![]
     };
