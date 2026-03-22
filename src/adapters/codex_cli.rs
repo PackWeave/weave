@@ -885,20 +885,38 @@ impl CliAdapter for CodexAdapter {
     }
 
     fn tracked_packs(&self) -> Result<HashSet<String>> {
-        let manifest = self.load_manifest()?;
         let mut packs = HashSet::new();
-        for pack_name in manifest.servers.values() {
+
+        // Collect from user-scope manifest.
+        let user_manifest = self.load_manifest()?;
+        for pack_name in user_manifest.servers.values() {
             packs.insert(pack_name.clone());
         }
-        for pack_name in manifest.skills.values() {
+        for pack_name in user_manifest.skills.values() {
             packs.insert(pack_name.clone());
         }
-        for pack_name in &manifest.prompt_blocks {
+        for pack_name in &user_manifest.prompt_blocks {
             packs.insert(pack_name.clone());
         }
-        for pack_name in manifest.settings.keys() {
+        for pack_name in user_manifest.settings.keys() {
             packs.insert(pack_name.clone());
         }
+
+        // Union with project-scope manifest (if it exists).
+        let project_manifest = self.load_project_manifest()?;
+        for pack_name in project_manifest.servers.values() {
+            packs.insert(pack_name.clone());
+        }
+        for pack_name in project_manifest.skills.values() {
+            packs.insert(pack_name.clone());
+        }
+        for pack_name in &project_manifest.prompt_blocks {
+            packs.insert(pack_name.clone());
+        }
+        for pack_name in project_manifest.settings.keys() {
+            packs.insert(pack_name.clone());
+        }
+
         Ok(packs)
     }
 }
