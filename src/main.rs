@@ -71,6 +71,9 @@ enum Commands {
         name: Option<String>,
     },
 
+    /// Reapply the active profile's lock file to all adapters
+    Sync,
+
     /// Check for config drift and project-scope staleness across all adapters
     Diagnose,
 }
@@ -91,6 +94,7 @@ fn main() {
         Commands::Remove { name } => cli::remove::run(&name),
         Commands::Search { query, target, mcp } => cli::search::run(&query, target.as_deref(), mcp),
         Commands::Update { name } => cli::update::run(name.as_deref()),
+        Commands::Sync => cli::sync::run(),
         Commands::Diagnose => cli::diagnose::run(),
     };
 
