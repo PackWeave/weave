@@ -1,13 +1,14 @@
 ---
 name: weave-e2e
 description: Run the manual E2E validation checklist against real CLI installations on this machine. Tests weave against actual ~/.claude.json, ~/.gemini/settings.json, ~/.codex/config.toml — not mocks. Pass a flow name to run a targeted subset (install, profiles, search, remove, diagnose), or omit for the full suite.
+disable-model-invocation: true
 allowed-tools: Bash, Read
 ---
 
 ## Current state
 
 ### weave binary
-!`weave --version 2>/dev/null || (cd /Users/brenno/dev/weave && cargo build --release 2>/dev/null && echo "Built. Add target/release to PATH or use ./target/release/weave") || echo "ERROR: weave not in PATH and build failed"`
+!`weave --version 2>/dev/null || (cd "${CLAUDE_PROJECT_DIR:-.}" && cargo build --release 2>/dev/null && echo "Built. Add target/release to PATH or use ./target/release/weave") || echo "ERROR: weave not in PATH and build failed"`
 
 ### Installed CLIs
 !`{ [ -d ~/.claude ] && echo "Claude Code: YES (~/.claude/)"; } 2>/dev/null; { [ -f ~/.gemini/settings.json ] && echo "Gemini CLI: YES (~/.gemini/settings.json)"; } 2>/dev/null; { [ -f ~/.codex/config.toml ] && echo "Codex CLI: YES (~/.codex/config.toml)"; } 2>/dev/null`

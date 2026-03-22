@@ -9,7 +9,7 @@ allowed-tools: Bash
 
 Run the three checks in order. Stop and report on the first failure — do not proceed to the next step if one fails.
 
-1. `cargo fmt --all` — formats all code in place, then verify nothing changed with `git diff --name-only`
+1. `cargo fmt --all` — formats all code in place; then run `git diff --name-only` to list any files that were changed and need to be staged before committing
 2. `cargo clippy -- -D warnings` — lint, deny all warnings
 3. `cargo test` — run all unit + integration + E2E tests
 

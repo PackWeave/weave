@@ -8,20 +8,40 @@ COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
 FIRST_LINE=$(echo "$COMMAND" | head -1)
 if echo "$FIRST_LINE" | grep -q 'git push'; then
-    if echo "$FIRST_LINE" | grep -qE '(^|\s)(origin\s+)?(main|master)(\s|$)'; then
-        if ! echo "$FIRST_LINE" | grep -qE '(--delete|-d)'; then
-            echo "Blocked: direct push to main/master is not allowed." >&2
-            echo "Create a feature branch, push it, and open a PR instead." >&2
-            exit 2
-        fi
+    # Parse args after 'git push' to catch refspec forms: origin main, HEAD:main, refs/heads/main
+    PUSH_ARGS=$(echo "$FIRST_LINE" | sed -E 's/^[[:space:]]*git[[:space:]]+push[[:space:]]*//')
+    is_delete=false
+    dest_to_main=false
+    # shellcheck disable=SC2086
+    set -- $PUSH_ARGS
+    for arg in "$@"; do
+        case "$arg" in
+            --delete|-d) is_delete=true ;;
+            --*|-*) ;;  # skip other flags
+            *)
+                # Could be remote name or refspec (src:dest or bare dest)
+                refspec="${arg#+}"
+                dest="$refspec"
+                case "$refspec" in *:*) dest="${refspec##*:}" ;; esac
+                short_dest="${dest#refs/heads/}"
+                if [ "$short_dest" = "main" ] || [ "$short_dest" = "master" ]; then
+                    dest_to_main=true
+                fi
+                ;;
+        esac
+    done
+    if [ "$dest_to_main" = true ] && [ "$is_delete" = false ]; then
+        echo "Blocked: direct push to main/master is not allowed." >&2
+        echo "Create a feature branch, push it, and open a PR instead." >&2
+        exit 2
     fi
 fi
 
 if echo "$COMMAND" | grep -q 'git commit'; then
     echo "Running pre-commit quality gate..." >&2
 
-    if ! cargo fmt --all; then
-        echo "cargo fmt failed — fix formatting before committing." >&2
+    if ! cargo fmt --all -- --check; then
+        echo "cargo fmt check failed — run 'cargo fmt --all' locally, restage the changes, and retry." >&2
         exit 2
     fi
 
