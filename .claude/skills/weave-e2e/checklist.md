@@ -221,7 +221,7 @@ PreToolUse = [{ matcher = "Bash", command = "echo e2e-hook-fired" }]
 | Step | Command | Expected |
 |------|---------|----------|
 | 12.1 | Create pack dir + `pack.toml` as above | Files exist |
-| 12.2 | `weave install /tmp/weave-e2e-hooks` | Exits 0, output mentions hooks were skipped / pass --allow-hooks |
+| 12.2 | `weave install /tmp/weave-e2e-hooks` | Exits 0, output notes the pack declares hooks and instructs to pass `--allow-hooks` to apply them |
 | 12.3 | `weave list` | Shows `e2e-hooks-test` with `[hooks]` badge |
 | 12.4 | `cat ~/.claude/settings.json 2>/dev/null \| jq '.hooks // empty'` | No hooks key (skipped without flag) |
 | 12.5 | `weave remove e2e-hooks-test` | Clean removal |
@@ -272,26 +272,25 @@ X-Test = "static-value"
 
 ---
 
-## Flow 10: Cleanup
+## Flow 14: Cleanup
 
 **Goal:** Restore machine to pre-test state.
 
 | Step | Command | Expected |
 |------|---------|----------|
-| 10.1 | `weave remove filesystem 2>/dev/null \|\| true` | Removed if present |
-| 10.2 | `weave remove github 2>/dev/null \|\| true` | Removed if present |
-| 10.3 | `weave remove e2e-local-test 2>/dev/null \|\| true` | Removed if present |
-| 10.4a | `weave remove e2e-hooks-test 2>/dev/null \|\| true` | Removed if present |
-| 10.4b | `weave remove e2e-http-test 2>/dev/null \|\| true` | Removed if present |
-| 10.4c | `weave remove tap-test 2>/dev/null \|\| true` | Removed if present |
-| 10.4d | `weave tap remove PackWeave/example-tap 2>/dev/null \|\| true` | Tap removed |
-| 10.4 | `weave use default` | Switch to default profile |
-| 10.5 | `weave profile delete e2e-validation 2>/dev/null \|\| true` | Profile removed |
-| 10.6 | `rm -rf /tmp/weave-e2e-local` | Directory removed |
-| 10.6a | `rm -rf /tmp/weave-e2e-hooks /tmp/weave-e2e-http` | Temp dirs removed |
-| 10.7 | `rm -f .mcp.json` | Project-scope file removed if present |
-| 10.8 | `weave list` | Clean — no e2e test packs |
-| 10.9 | `weave diagnose` | No errors |
+| 14.1 | `weave remove filesystem 2>/dev/null \|\| true` | Removed if present |
+| 14.2 | `weave remove github 2>/dev/null \|\| true` | Removed if present |
+| 14.3 | `weave remove e2e-local-test 2>/dev/null \|\| true` | Removed if present |
+| 14.4 | `weave remove e2e-hooks-test 2>/dev/null \|\| true` | Removed if present |
+| 14.5 | `weave remove e2e-http-test 2>/dev/null \|\| true` | Removed if present |
+| 14.6 | `weave remove tap-test 2>/dev/null \|\| true` | Removed if present |
+| 14.7 | `weave tap remove PackWeave/example-tap 2>/dev/null \|\| true` | Tap removed |
+| 14.8 | `weave use default` | Switch to default profile |
+| 14.9 | `weave profile delete e2e-validation 2>/dev/null \|\| true` | Profile removed |
+| 14.10 | `rm -rf /tmp/weave-e2e-local /tmp/weave-e2e-hooks /tmp/weave-e2e-http` | Temp dirs removed |
+| 14.11 | `rm -f .mcp.json` | Project-scope file removed if present |
+| 14.12 | `weave list` | Clean — no e2e test packs |
+| 14.13 | `weave diagnose` | No errors |
 
 **Pass criteria:** Machine state matches pre-test baseline.
 
@@ -313,4 +312,4 @@ X-Test = "static-value"
 | 11 — Community taps | ✓ / ✗ | |
 | 12 — Hooks | ✓ / ✗ | |
 | 13 — HTTP transport | ✓ / ✗ | |
-| 10 — Cleanup | ✓ / ✗ | |
+| 14 — Cleanup | ✓ / ✗ | |
