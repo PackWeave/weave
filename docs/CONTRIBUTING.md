@@ -10,7 +10,7 @@ weave accepts two kinds of contributions: **code** and **packs**.
 
 ### 🛠️ Prerequisites
 
-- Rust stable (latest)
+- Rust stable (latest release)
 - `cargo`, `clippy`, `rustfmt`
 
 ```bash
@@ -59,6 +59,10 @@ fix: remove orphaned command files on pack removal
 docs: update adapter trait documentation
 chore: bump clap to 4.5
 ```
+
+### 💡 Proposing features
+
+For non-trivial features, open an issue first to discuss scope and approach before writing code. Check [docs/ROADMAP.md](https://github.com/PackWeave/weave/blob/main/docs/ROADMAP.md) to see whether the feature is already planned or explicitly deferred.
 
 ### 🐛 Opening issues
 
