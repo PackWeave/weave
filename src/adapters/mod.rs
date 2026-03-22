@@ -61,7 +61,10 @@ pub trait CliAdapter: Send + Sync {
 
     /// Remove all contributions made by a pack.
     /// Must leave user's manual edits untouched.
-    fn remove(&self, pack_name: &str) -> Result<()>;
+    ///
+    /// Returns a list of non-fatal warnings (e.g. project-scope cleanup failures)
+    /// that the CLI layer should surface to the user.
+    fn remove(&self, pack_name: &str) -> Result<Vec<String>>;
 
     /// Verify the CLI's current config is consistent with installed packs.
     /// Returns a list of issues for `weave diagnose`.

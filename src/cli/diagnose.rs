@@ -319,8 +319,8 @@ mod tests {
         fn apply(&self, _pack: &crate::core::pack::ResolvedPack) -> crate::error::Result<()> {
             Ok(())
         }
-        fn remove(&self, _pack_name: &str) -> crate::error::Result<()> {
-            Ok(())
+        fn remove(&self, _pack_name: &str) -> crate::error::Result<Vec<String>> {
+            Ok(vec![])
         }
         fn diagnose(&self) -> crate::error::Result<Vec<DiagnosticIssue>> {
             Ok(self.issues.clone())

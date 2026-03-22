@@ -35,7 +35,12 @@ pub fn run(pack_name: &str) -> Result<()> {
         let mut adapter_errors: Vec<String> = Vec::new();
         for adapter in &adapters {
             match adapter.remove(name) {
-                Ok(()) => println!("    Removed from {}", adapter.name()),
+                Ok(warnings) => {
+                    println!("    Removed from {}", adapter.name());
+                    for w in warnings {
+                        eprintln!("  warning: {}: {w}", adapter.name());
+                    }
+                }
                 Err(e) => adapter_errors.push(format!("{}: {e}", adapter.name())),
             }
         }

@@ -64,7 +64,12 @@ pub fn run(profile_name: Option<&str>) -> Result<()> {
         println!("  Removing {pack_name}...");
         for adapter in &installed_adapters {
             match adapter.remove(pack_name) {
-                Ok(()) => println!("    Removed from {}", adapter.name()),
+                Ok(warnings) => {
+                    println!("    Removed from {}", adapter.name());
+                    for w in warnings {
+                        eprintln!("  warning: {}: {w}", adapter.name());
+                    }
+                }
                 Err(e) => eprintln!("  warning: {}: {e}", adapter.name()),
             }
         }
