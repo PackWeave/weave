@@ -11,7 +11,7 @@
 
 ```bash
 weave install @webdev    # install a web dev MCP stack
-weave use work           # switch to a named profile
+weave list               # see what's installed and where
 weave diagnose           # verify config health across all your CLIs
 ```
 
@@ -31,7 +31,7 @@ There's no way to share your setup with a teammate, version it, or switch betwee
 
 Think of packs like Homebrew formulas for your AI CLI setup — community-maintained, versioned, one-line install.
 
-A **pack** is a `pack.toml` manifest bundled with MCP server definitions, slash commands, system prompt fragments, and settings. Packs install into the active **profile** — a named set of packs for a specific context (`work`, `oss`, `personal`). Switch between profiles with `weave use work` and recover from config drift with `weave sync`.
+A **pack** is a `pack.toml` manifest bundled with MCP server definitions, slash commands, system prompt fragments, and settings. Packs install into the active **profile** — a named set of packs for a specific context (`work`, `oss`, `personal`). Create named profiles with `weave profile create work`, switch with `weave use work`, and recover from config drift with `weave sync`.
 
 ```
 weave install @webdev
@@ -243,7 +243,7 @@ Profile: default
 Packs: 1 installed
 
   webdev v1.0.0
-    Claude Code: drifted (pack 'webdev' has no project-scope entries but .claude/ now exists)
+    Claude Code: drifted (server 'puppeteer' (from pack 'webdev') is tracked but missing from claude.json)
     Gemini CLI: ok
     Codex CLI: ok
 
