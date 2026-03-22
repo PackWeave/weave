@@ -44,14 +44,14 @@ The milestones below are sequential. Each one produces something usable before t
 
 - [x] Codex CLI adapter (servers, skills, prompts, settings)
 - [ ] `weave search --mcp` against the official MCP Registry (pack registry search shipped in M2)
-- [ ] `weave update` for pack version management
-- [ ] `weave init` — scaffold a new pack
+- [x] `weave update` for pack version management
+- [x] `weave init` — scaffold a new pack
 - [x] Environment variable handling for secrets (write `${VAR}` references only)
 - [x] Recursive transitive dependency resolution with cycle detection
-- [ ] Improved conflict detection using declared tool lists
+- [x] Improved conflict detection using declared tool lists
 - [ ] Publish `packweave` crate to crates.io (required for `cargo binstall` and `cargo install` to resolve by name)
-- [ ] SHA256 checksums alongside release binaries (see issue #40)
-- [ ] ARM Linux release target — `aarch64-unknown-linux-gnu` via `cross` (see issue #41)
+- [x] SHA256 checksums alongside release binaries (see issue #40)
+- [x] ARM Linux release target — `aarch64-unknown-linux-gnu` via `cross` (see issue #41)
 
 -----
 
