@@ -656,6 +656,10 @@ impl GeminiCliAdapter {
 }
 
 impl CliAdapter for GeminiCliAdapter {
+    fn id(&self) -> super::AdapterId {
+        super::AdapterId::GeminiCli
+    }
+
     fn name(&self) -> &str {
         "Gemini CLI"
     }
