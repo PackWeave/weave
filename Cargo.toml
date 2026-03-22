@@ -8,8 +8,23 @@ edition = "2021"
 description = "A pack manager for AI CLI tools — weave together MCP servers, prompts, commands, and settings"
 license = "Apache-2.0"
 repository = "https://github.com/PackWeave/weave"
+homepage = "https://github.com/PackWeave/weave"
+readme = "README.md"
 keywords = ["mcp", "cli", "ai", "pack-manager"]
 categories = ["command-line-utilities", "development-tools"]
+exclude = [
+  ".claude/",
+  ".github/",
+  ".githooks/",
+  "docs/",
+  "install.sh",
+  "SECURITY.md",
+  "AGENTS.md",
+  "CLAUDE.md",
+  "CODEX.md",
+  "GEMINI.md",
+  "pack.schema.toml",
+]
 
 # The CLI binary is named 'weave' regardless of the crate name on crates.io
 [[bin]]
