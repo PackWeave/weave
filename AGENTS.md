@@ -71,9 +71,12 @@ Read docs/ARCHITECTURE.md before writing any code. It defines the module structu
 ```
 src/cli/          Command handlers — parse args, call core, print output
 src/core/         Business logic — no I/O to CLI config files here
+  core/mcp_registry.rs   Upstream MCP registry integration
+  core/conflict.rs       Tool-level conflict detection across installed packs
 src/adapters/     CLI-specific config read/write — no business logic here
 src/error.rs      All error types
-src/config.rs     Global weave config
+src/core/config.rs    Global weave config
+src/util.rs       Shared helpers (file ops, path resolution, etc.)
 ```
 
 The CLI handlers are thin. They parse arguments, call into `core/` or `adapters/`, and format output. Business logic does not live in `cli/`.

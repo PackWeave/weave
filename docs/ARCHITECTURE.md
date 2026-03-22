@@ -89,6 +89,8 @@ src/
     resolver.rs            Dependency graph construction and semver resolution.
     store.rs               Local pack cache: download, extract, verify, evict.
     registry.rs            Registry trait + default GitHub-backed implementation.
+    mcp_registry.rs        Upstream MCP registry integration.
+    conflict.rs            Tool-level conflict detection across installed packs.
     config.rs              Global weave config (~/.packweave/config.toml).
 
   adapters/
@@ -340,7 +342,7 @@ Pack settings (`settings/claude.json`) are deep-merged into `~/.claude/settings.
 
 ### Hooks
 
-Hooks are deferred until v0.3. When introduced, they will live under `extensions.claude_code.hooks` and require explicit opt-in (for example, `--allow-hooks`).
+Hooks are planned for v0.3 (Milestone 4). When introduced, they will live under `extensions.claude_code.hooks` and require explicit opt-in (for example, `--allow-hooks`).
 
 -----
 
@@ -471,6 +473,15 @@ Panics are not used for recoverable errors. `unwrap()` and `expect()` are only a
 - **Integration tests** live in `tests/` and operate against temporary directories created per-test via `TempDir`.
 - **Adapter tests** create isolated home and project directories. Store isolation is achieved via the `WEAVE_TEST_STORE_DIR` environment variable.
 - The registry is mocked in tests — no network calls in CI.
+
+-----
+
+## Environment variables
+
+|Variable                |Purpose                                                        |
+|------------------------|---------------------------------------------------------------|
+|`WEAVE_TEST_STORE_DIR`  |Overrides `~/.packweave/` root (used in tests)                 |
+|`WEAVE_REGISTRY_URL`    |Overrides registry URL in Config (used in E2E tests, PR #84)  |
 
 -----
 
