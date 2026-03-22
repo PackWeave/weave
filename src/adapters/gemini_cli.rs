@@ -236,6 +236,8 @@ impl GeminiCliAdapter {
         servers_map: &mut HashMap<String, String>,
     ) -> Result<()> {
         if !path.exists() {
+            // Config file absent — no file write needed; safe to clean up
+            // ownership tracking immediately since there is nothing to roll back.
             for s in servers_to_remove {
                 servers_map.remove(s);
             }
@@ -249,16 +251,41 @@ impl GeminiCliAdapter {
                 source: e,
             })?;
 
-        if let Some(mcp) = config.get_mut("mcpServers").and_then(|v| v.as_object_mut()) {
-            for server_name in servers_to_remove {
-                mcp.remove(server_name);
-                servers_map.remove(server_name);
+        match config.get_mut("mcpServers") {
+            Some(v) => {
+                let mcp = v.as_object_mut().ok_or_else(|| WeaveError::RemoveFailed {
+                    pack: String::new(),
+                    cli: "Gemini CLI".into(),
+                    reason: format!(
+                        "{}: `mcpServers` exists but is not a JSON object",
+                        path.display()
+                    ),
+                })?;
+                for server_name in servers_to_remove {
+                    mcp.remove(server_name);
+                }
+            }
+            None => {
+                // mcpServers key absent — no file mutation occurred; safe to clean
+                // up ownership tracking immediately since there is nothing to roll back.
+                for s in servers_to_remove {
+                    servers_map.remove(s);
+                }
+                return Ok(());
             }
         }
 
         // JSON serialization of a valid serde_json::Value cannot fail.
         let output = serde_json::to_string_pretty(&config).expect("JSON serialization cannot fail");
-        util::write_file(path, &output)
+        util::write_file(path, &output)?;
+
+        // Only mutate ownership tracking after the file write succeeds — otherwise
+        // an I/O error would silently drop entries from the manifest.
+        for s in servers_to_remove {
+            servers_map.remove(s);
+        }
+
+        Ok(())
     }
 
     /// Deep-merge settings fragment into the JSON file at `path`.
