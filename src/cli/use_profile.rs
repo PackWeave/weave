@@ -43,6 +43,20 @@ pub fn run(profile_name: Option<&str>) -> Result<()> {
     // Compute the diff
     let (to_remove, to_add) = compute_diff(&current_profile, &target_profile);
 
+    // Pre-flight: verify all packs can be loaded (or fetched) before making
+    // any changes. Without this, the remove loop could run and then the add
+    // loop could fail partway through, leaving adapter configs in a broken
+    // state that is neither the old profile nor the new one.
+    for installed in &to_add {
+        load_or_fetch_pack(&installed.name, &installed.version, &installed.source)
+            .with_context(|| {
+                format!(
+                    "cannot switch: pack {}@{} is not available — resolve this before switching profiles",
+                    installed.name, installed.version
+                )
+            })?;
+    }
+
     let installed_adapters = adapters::installed_adapters();
 
     // Remove packs that are in current but not in target
