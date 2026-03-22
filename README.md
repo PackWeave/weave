@@ -64,6 +64,18 @@ weave search --mcp filesystem
 #     Repository: https://github.com/modelcontextprotocol/servers
 ```
 
+**Pin packs to a project — teammates get the same setup:**
+
+```bash
+weave install web-dev --project
+# → MCP servers written to both ~/.claude.json (user)
+#   and .mcp.json in this repo (project scope)
+
+weave list
+# web-dev v1.0.0 — Web development MCP stack
+#   Scope: user + project (/Users/dev/my-app)
+```
+
 **Safe and reversible — your manual config stays untouched:**
 
 ```bash
@@ -77,7 +89,7 @@ weave remove web-dev # clean undo, manual edits survive
 ```bash
 weave init my-pack
 # → scaffolds pack.toml, prompts/, commands/, skills/, settings/
-# edit, test, publish — anyone can `weave install @my-pack`
+# edit, test, publish — anyone can `weave install my-pack`
 ```
 
 ---
@@ -106,7 +118,7 @@ Each CLI has its own **adapter** — a thin layer that knows exactly how to read
 
 ---
 
-## 📥 Installation
+## 📥 Installation & quickstart
 
 **Homebrew (macOS and Linux):**
 
@@ -135,6 +147,14 @@ cargo install --git https://github.com/PackWeave/weave
 > [!NOTE]
 > Weave targets macOS and Linux. Windows is not officially supported or tested in CI.
 
+**Try your first pack:**
+
+```bash
+weave install web-dev       # installs Puppeteer MCP across all your AI CLIs
+weave list                  # see what's installed
+weave remove web-dev        # clean undo
+```
+
 ---
 
 ## 🔧 Commands
@@ -143,7 +163,7 @@ cargo install --git https://github.com/PackWeave/weave
 |---------|-------------|
 | `weave install <pack>` | Install a pack and apply it to all supported CLIs. Use `--version` to pin (e.g. `^1.0`, `=1.2.0`). Use `--project` to also write to `.mcp.json` in the current directory. |
 | `weave remove <pack>` | Remove a pack and clean up all config entries it wrote |
-| `weave list` | Show installed packs with versions, descriptions, and target CLIs |
+| `weave list` | Show installed packs with versions, scope, and target CLIs |
 | `weave search <query>` | Search the pack registry |
 | `weave search --mcp <query>` | Search the official MCP Registry for servers |
 | `weave update [pack]` | Update one or all packs to the latest compatible version |
@@ -242,12 +262,10 @@ Packs: 1 installed
 
 See [docs/ROADMAP.md](https://github.com/PackWeave/weave/blob/main/docs/ROADMAP.md) for full milestones.
 
-**Hooks and community taps:**
-
-```bash
-weave tap add user/repo  # add a community pack source
-# Hooks: pack-defined lifecycle hooks with explicit opt-in (--allow-hooks)
-```
+- **Hooks** — pack-defined lifecycle hooks with explicit opt-in (`--allow-hooks`)
+- **Community taps** — `weave tap add user/repo` for third-party pack sources
+- **Remote MCP servers** — `url`/`headers` transport in all adapters
+- **Org config sharing** — team-wide profiles and pack sets
 
 ---
 
