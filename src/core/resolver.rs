@@ -212,9 +212,7 @@ mod tests {
     fn release(major: u64, minor: u64, patch: u64) -> PackRelease {
         PackRelease {
             version: semver::Version::new(major, minor, patch),
-            url: format!("https://example.com/pack-{major}.{minor}.{patch}.tar.gz"),
-            sha256: format!("{major}{minor}{patch}"),
-            size_bytes: None,
+            files: HashMap::new(),
             dependencies: HashMap::new(),
         }
     }
@@ -233,9 +231,7 @@ mod tests {
             .collect();
         PackRelease {
             version: semver::Version::new(major, minor, patch),
-            url: format!("https://example.com/pack-{major}.{minor}.{patch}.tar.gz"),
-            sha256: format!("{major}{minor}{patch}"),
-            size_bytes: None,
+            files: HashMap::new(),
             dependencies,
         }
     }

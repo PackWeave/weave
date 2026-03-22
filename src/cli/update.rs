@@ -147,7 +147,7 @@ pub fn run(pack_spec: Option<&str>) -> Result<()> {
             });
 
             // Record in lock file
-            lockfile.lock_pack(resolved_name, version.clone(), Some(release.sha256.clone()));
+            lockfile.lock_pack(resolved_name, version.clone(), None);
 
             if adapter_errors.is_empty() {
                 any_updated = true;

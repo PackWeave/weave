@@ -32,13 +32,16 @@ pub struct PackMetadata {
 }
 
 /// A specific release of a pack.
+///
+/// `files` is a flat map of relative path → file content (e.g. `"pack.toml"`,
+/// `"prompts/system.md"`). The store writes these directly to disk — no tarball,
+/// no SHA256 verification, no additional network download beyond the registry JSON.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PackRelease {
     pub version: semver::Version,
-    pub url: String,
-    pub sha256: String,
+    /// Pack file contents keyed by relative path.
     #[serde(default)]
-    pub size_bytes: Option<u64>,
+    pub files: HashMap<String, String>,
     /// Direct dependencies of this release, keyed by pack name with a semver requirement.
     #[serde(default)]
     pub dependencies: HashMap<String, semver::VersionReq>,
@@ -325,16 +328,18 @@ mod tests {
             versions: vec![
                 PackRelease {
                     version: semver::Version::new(1, 0, 0),
-                    url: "https://example.com/webdev-1.0.0.tar.gz".into(),
-                    sha256: "abc123".into(),
-                    size_bytes: Some(1024),
+                    files: HashMap::from([(
+                        "pack.toml".to_string(),
+                        "[pack]\nname = \"webdev\"\nversion = \"1.0.0\"\ndescription = \"Web development tools\"\n".to_string(),
+                    )]),
                     dependencies: HashMap::new(),
                 },
                 PackRelease {
                     version: semver::Version::new(1, 1, 0),
-                    url: "https://example.com/webdev-1.1.0.tar.gz".into(),
-                    sha256: "def456".into(),
-                    size_bytes: Some(2048),
+                    files: HashMap::from([(
+                        "pack.toml".to_string(),
+                        "[pack]\nname = \"webdev\"\nversion = \"1.1.0\"\ndescription = \"Web development tools\"\n".to_string(),
+                    )]),
                     dependencies: HashMap::new(),
                 },
             ],
@@ -359,7 +364,7 @@ mod tests {
         let release = registry
             .fetch_version("webdev", &semver::Version::new(1, 0, 0))
             .unwrap();
-        assert_eq!(release.sha256, "abc123");
+        assert!(release.files.contains_key("pack.toml"));
 
         let err = registry.fetch_version("webdev", &semver::Version::new(9, 9, 9));
         assert!(err.is_err());

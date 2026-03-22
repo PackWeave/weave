@@ -6,9 +6,9 @@ This document is the authoritative specification for the PackWeave registry prot
 
 ## Overview
 
-The pack registry is a GitHub-hosted repository (`PackWeave/registry`) that serves pack metadata and archives. It is separate from MCP server registries (like the official MCP Registry or Smithery) — weave packs are composable bundles of MCP servers, system prompts, and slash commands, not individual MCP server listings.
+The pack registry is a GitHub-hosted repository (`PackWeave/registry`) that serves pack metadata and file content. It is separate from MCP server registries (like the official MCP Registry or Smithery) — weave packs are composable bundles of MCP server configuration, system prompts, slash commands, and settings, not individual MCP server listings.
 
-The registry uses a two-tier sparse index so clients never download more than they need. At hundreds of packs, a monolithic index becomes impractical; the sparse design keeps every operation fast.
+The registry uses a two-tier sparse index so clients never download more than they need. Pack content is embedded directly in `packs/{name}.json` as a flat map of relative path → file content — no tarballs, no release artifacts, no SHA256 ceremony.
 
 ---
 
@@ -18,17 +18,21 @@ The registry uses a two-tier sparse index so clients never download more than th
 PackWeave/registry/
 ├── index.json              Lightweight search catalog
 ├── packs/
-│   └── {name}.json         Full metadata per pack — fetched on demand
+│   └── {name}.json         Full metadata + inline file content per pack
 ├── src/
 │   └── {name}/
 │       ├── pack.toml       Canonical pack source — reviewed by maintainers
-│       └── prompts/
-│           └── system.md
+│       ├── prompts/
+│       ├── commands/
+│       ├── skills/
+│       └── settings/
 ├── TEMPLATE/               Starter template for contributors
 │   └── pack.toml
 ├── README.md
 └── CONTRIBUTING.md
 ```
+
+A GitHub Actions workflow automatically regenerates `packs/{name}.json` and `index.json` from `src/` on every merge to main. Contributors only ever touch files under `src/`.
 
 ---
 
@@ -36,7 +40,7 @@ PackWeave/registry/
 
 ### Tier 1 — `index.json` (lightweight catalog)
 
-Fetched once for `weave search` and `weave list`. Contains only what is needed to display results — no version arrays, no download URLs.
+Fetched once for `weave search` and `weave list`. Contains only what is needed to display results — no version arrays, no file content.
 
 **URL:** `{registry_base_url}/index.json`
 
@@ -61,9 +65,9 @@ Fetched once for `weave search` and `weave list`. Contains only what is needed t
 
 The client fetches this file once and caches it in-process for the lifetime of the command. It is never written to disk.
 
-### Tier 2 — `packs/{name}.json` (per-pack metadata)
+### Tier 2 — `packs/{name}.json` (per-pack metadata + content)
 
-Fetched on demand when installing or resolving a specific pack. Contains all versions, download URLs, and SHA256 checksums.
+Fetched on demand when installing or resolving a specific pack. Contains all versions and their complete file content inline.
 
 **URL:** `{registry_base_url}/packs/{name}.json`
 
@@ -80,14 +84,18 @@ Fetched on demand when installing or resolving a specific pack. Contains all ver
   "versions": [
     {
       "version": "0.1.0",
-      "url": "https://github.com/PackWeave/registry/releases/download/packs-v0.1.0/filesystem-0.1.0.tar.gz",
-      "sha256": "9477b9d29b1fdc92f0a7e4bdabc5d6fd4498cd9a8b5ca846ede9865e8fd3d263",
-      "size_bytes": null,
-      "dependencies": {}
+      "dependencies": {},
+      "files": {
+        "pack.toml": "[pack]\nname = \"filesystem\"\n...",
+        "prompts/system.md": "# System prompt content...",
+        "commands/review.md": "# Review command..."
+      }
     }
   ]
 }
 ```
+
+`files` is a flat map of relative path → file content. The store writes each entry directly to `~/.packweave/packs/{name}/{version}/` — no tarball download, no SHA256 verification step. Trust is provided by TLS and GitHub as the content host.
 
 The client caches this per-pack after the first fetch for the lifetime of the command.
 
@@ -97,16 +105,12 @@ The client caches this per-pack after the first fetch for the lifetime of the co
 weave install filesystem
         │
         ├─ GET {base}/packs/filesystem.json
-        │   └─ {versions: [{version, url, sha256, dependencies}]}
+        │   └─ {versions: [{version, files, dependencies}]}
         │
         ├─ resolve: pick version satisfying constraints
         │
-        ├─ GET {url}  (e.g. filesystem-0.1.0.tar.gz)
-        │   └─ archive bytes
-        │
-        ├─ verify sha256
-        │
-        ├─ extract to ~/.packweave/packs/filesystem/0.1.0/
+        ├─ write files from release.files to ~/.packweave/packs/filesystem/0.1.0/
+        │   (path-validated: no .., no absolute paths)
         │
         └─ apply to installed CLIs
 ```
@@ -138,7 +142,7 @@ Default: `https://raw.githubusercontent.com/PackWeave/registry/main`
 
 ## Pack Format — `pack.toml`
 
-Every pack archive must contain a `pack.toml` at its root. The canonical format uses a `[pack]` section header for pack metadata, with `[[servers]]`, `[targets]`, `[dependencies]`, and `[extensions.*]` as top-level TOML sections.
+Every pack must contain a `pack.toml` at its root. The canonical format uses a `[pack]` section header for pack metadata, with `[[servers]]`, `[targets]`, `[dependencies]`, and `[extensions.*]` as top-level TOML sections.
 
 ```toml
 [pack]
@@ -160,7 +164,7 @@ min_tool_version = "0.4.0"   # Minimum weave version required to use this pack
 [[servers]]
 name = "server-name"         # Must be globally unique across all installed packs
 command = "npx"              # Executable for stdio transport
-args = ["-y", "@org/pkg@latest"]
+args = ["-y", "@org/pkg@1.2.3"]
 transport = "stdio"          # "stdio" (default) or "http"
 
 # For HTTP/SSE transport, use url instead of command/args:
@@ -189,19 +193,24 @@ codex_cli = true
 
 ---
 
-## Pack Archive Format
+## Pack File Layout
 
-Packs are distributed as `.tar.gz` archives. The layout inside the archive:
+The `files` map in `packs/{name}.json` mirrors the source layout under `src/{name}/`. All paths are relative; no leading `/`; no `..` components.
 
 ```
 pack.toml                        Required — the manifest
-prompts/system.md                Optional — system prompt appended to the CLI's instruction file
-commands/{name}.md               Optional — slash commands (one file per command)
+prompts/claude.md                Optional — appended to Claude Code's CLAUDE.md
+prompts/gemini.md                Optional — appended to Gemini CLI's GEMINI.md
+prompts/codex.md                 Optional — appended to Codex CLI's AGENTS.md
+prompts/system.md                Optional — fallback prompt when CLI-specific file is absent
+commands/{name}.md               Optional — slash commands for Claude Code
+skills/{name}.md                 Optional — skill files for Codex CLI
+settings/claude.json             Optional — deep-merged into ~/.claude/settings.json
+settings/gemini.json             Optional — deep-merged into ~/.gemini/settings.json
+settings/codex.toml              Optional — merged into ~/.codex/config.toml
 ```
 
-All paths are relative; no leading `/`; no `..` path components. Symlinks and hardlinks are rejected during extraction.
-
-The SHA256 checksum in `packs/{name}.json` is computed over the raw `.tar.gz` bytes (after gzip compression). The store verifies this before extracting.
+All content is plain text (TOML, JSON, Markdown) — no binaries. MCP server code lives on npm/PyPI/GitHub and is fetched at runtime by the CLI; weave only distributes the configuration that points at it.
 
 ---
 
@@ -212,9 +221,7 @@ Any HTTP server that serves the two endpoints below is a valid registry:
 | Endpoint | Content |
 |----------|---------|
 | `GET /index.json` | Lightweight catalog: `HashMap<name, {name, description, keywords, latest_version}>` |
-| `GET /packs/{name}.json` | Full metadata: `{name, description, authors, license, repository, keywords, versions: [...]}` |
-
-Pack archives can be hosted anywhere — their URLs are embedded in the per-pack `versions[].url` field.
+| `GET /packs/{name}.json` | Full metadata with inline `files` content |
 
 To point weave at an alternative registry:
 
@@ -259,11 +266,11 @@ WEAVE_REGISTRY_URL=https://your-registry.example.com weave search mypack
   "versions": [
     {
       "version": "semver string",
-      "url": "string",
-      "sha256": "hex string",
-      "size_bytes": "integer | null",
       "dependencies": {
         "<pack-name>": "semver requirement string"
+      },
+      "files": {
+        "<relative-path>": "file content string"
       }
     }
   ]

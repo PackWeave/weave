@@ -260,10 +260,11 @@ pub struct InstallPlan {
 
 Manages `~/.packweave/packs/`. Responsible for:
 
-- Downloading pack archives from a URL
-- Verifying SHA256 checksums
-- Extracting to `~/.packweave/packs/<name>/<version>/`
+- Writing pack files from the inline `files` map in `PackRelease` to `~/.packweave/packs/<name>/<version>/`
+- Path-validating all keys in the `files` map (rejects absolute paths, `..` components, Windows drive prefixes)
 - Evicting old versions when no longer referenced
+
+Uses an atomic staging pattern: files are written to a `.tmp` directory first, then renamed to the final destination so a failure never leaves a partial cache entry.
 
 The store never deletes a pack version that is referenced by any profile's lock file.
 

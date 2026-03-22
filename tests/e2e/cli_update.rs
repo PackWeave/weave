@@ -6,13 +6,11 @@ use predicates::prelude::*;
 async fn update_to_newer_version() {
     let env = TestEnv::new().await;
 
-    let pack_v1 = FixturePack::new("test-pack", "1.0.0")
-        .with_server("echo-server", "echo", &["hello"])
-        .build();
+    let pack_v1 =
+        FixturePack::new("test-pack", "1.0.0").with_server("echo-server", "echo", &["hello"]);
 
-    let pack_v2 = FixturePack::new("test-pack", "1.1.0")
-        .with_server("echo-server", "echo", &["hello"])
-        .build();
+    let pack_v2 =
+        FixturePack::new("test-pack", "1.1.0").with_server("echo-server", "echo", &["hello"]);
 
     mount_registry_multi_version(&env.mock_server, &[&pack_v1, &pack_v2]).await;
 
@@ -47,9 +45,8 @@ async fn update_to_newer_version() {
 async fn update_already_latest() {
     let env = TestEnv::new().await;
 
-    let pack = FixturePack::new("test-pack", "1.0.0")
-        .with_server("echo-server", "echo", &["hello"])
-        .build();
+    let pack =
+        FixturePack::new("test-pack", "1.0.0").with_server("echo-server", "echo", &["hello"]);
 
     mount_registry(&env.mock_server, &[&pack]).await;
 

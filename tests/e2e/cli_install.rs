@@ -6,9 +6,8 @@ use assert_cmd::prelude::*;
 #[tokio::test]
 async fn install_single_pack() {
     let env = TestEnv::new().await;
-    let pack = FixturePack::new("test-pack", "1.0.0")
-        .with_server("echo-server", "echo", &["hello"])
-        .build();
+    let pack =
+        FixturePack::new("test-pack", "1.0.0").with_server("echo-server", "echo", &["hello"]);
 
     mount_registry(&env.mock_server, &[&pack]).await;
 
@@ -30,9 +29,8 @@ async fn install_single_pack() {
 #[tokio::test]
 async fn install_already_installed() {
     let env = TestEnv::new().await;
-    let pack = FixturePack::new("test-pack", "1.0.0")
-        .with_server("echo-server", "echo", &["hello"])
-        .build();
+    let pack =
+        FixturePack::new("test-pack", "1.0.0").with_server("echo-server", "echo", &["hello"]);
 
     mount_registry(&env.mock_server, &[&pack]).await;
 
@@ -66,9 +64,8 @@ async fn install_nonexistent_pack() {
 #[tokio::test]
 async fn install_with_at_prefix() {
     let env = TestEnv::new().await;
-    let pack = FixturePack::new("test-pack", "1.0.0")
-        .with_server("echo-server", "echo", &["hello"])
-        .build();
+    let pack =
+        FixturePack::new("test-pack", "1.0.0").with_server("echo-server", "echo", &["hello"]);
 
     mount_registry(&env.mock_server, &[&pack]).await;
 
@@ -86,9 +83,8 @@ async fn install_with_at_prefix() {
 #[tokio::test]
 async fn install_idempotent() {
     let env = TestEnv::new().await;
-    let pack = FixturePack::new("test-pack", "1.0.0")
-        .with_server("echo-server", "echo", &["hello"])
-        .build();
+    let pack =
+        FixturePack::new("test-pack", "1.0.0").with_server("echo-server", "echo", &["hello"]);
 
     mount_registry(&env.mock_server, &[&pack]).await;
 
@@ -115,9 +111,8 @@ async fn install_idempotent() {
 #[tokio::test]
 async fn install_writes_lockfile() {
     let env = TestEnv::new().await;
-    let pack = FixturePack::new("test-pack", "1.0.0")
-        .with_server("echo-server", "echo", &["hello"])
-        .build();
+    let pack =
+        FixturePack::new("test-pack", "1.0.0").with_server("echo-server", "echo", &["hello"]);
 
     mount_registry(&env.mock_server, &[&pack]).await;
 
@@ -142,9 +137,8 @@ async fn install_writes_lockfile() {
 #[tokio::test]
 async fn install_writes_claude_config() {
     let env = TestEnv::new().await;
-    let pack = FixturePack::new("test-pack", "1.0.0")
-        .with_server("my-mcp-server", "node", &["server.js"])
-        .build();
+    let pack =
+        FixturePack::new("test-pack", "1.0.0").with_server("my-mcp-server", "node", &["server.js"]);
 
     mount_registry(&env.mock_server, &[&pack]).await;
 

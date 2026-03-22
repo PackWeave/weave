@@ -109,7 +109,7 @@ pub fn add_pack(pack_name: &str, profile_name: &str) -> Result<()> {
             },
         });
 
-        lockfile.lock_pack(name, version.clone(), Some(release.sha256.clone()));
+        lockfile.lock_pack(name, version.clone(), None);
 
         println!("  Added {name}@{version} to profile '{profile_name}'");
     }

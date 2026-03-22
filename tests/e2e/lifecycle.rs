@@ -5,9 +5,8 @@ use predicates::prelude::*;
 #[tokio::test]
 async fn golden_path() {
     let env = TestEnv::new().await;
-    let pack = FixturePack::new("test-pack", "1.0.0")
-        .with_server("echo-server", "echo", &["hello"])
-        .build();
+    let pack =
+        FixturePack::new("test-pack", "1.0.0").with_server("echo-server", "echo", &["hello"]);
 
     mount_registry(&env.mock_server, &[&pack]).await;
 

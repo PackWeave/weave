@@ -143,7 +143,7 @@ pub fn run(pack_name: &str, version: Option<&str>, force: bool) -> Result<()> {
         });
 
         // Record in lock file
-        lockfile.lock_pack(name, version.clone(), Some(release.sha256.clone()));
+        lockfile.lock_pack(name, version.clone(), None);
     }
 
     // Save state
