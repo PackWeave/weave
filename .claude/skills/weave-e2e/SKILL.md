@@ -24,14 +24,16 @@ Run the E2E validation checklist from `.claude/skills/weave-e2e/checklist.md`.
 
 **Arguments:** `$ARGUMENTS`
 
-- If `$ARGUMENTS` is empty → run all 8 flows in order
+- If `$ARGUMENTS` is empty → run all 10 flows in order
 - If `$ARGUMENTS` is `install` → run Flows 1 + 2
 - If `$ARGUMENTS` is `profiles` → run Flows 1 + 5
 - If `$ARGUMENTS` is `search` → run Flows 1 + 7
 - If `$ARGUMENTS` is `remove` → run Flows 1 + 6
 - If `$ARGUMENTS` is `diagnose` → run Flows 1 + 3
 - If `$ARGUMENTS` is `local` → run Flows 1 + 4
-- If `$ARGUMENTS` is `cleanup` → run Flow 8 only (safe to run any time)
+- If `$ARGUMENTS` is `project` → run Flows 1 + 8
+- If `$ARGUMENTS` is `update` → run Flows 1 + 9
+- If `$ARGUMENTS` is `cleanup` → run Flow 10 only (safe to run any time)
 
 ## Steps
 
@@ -49,7 +51,7 @@ Run the E2E validation checklist from `.claude/skills/weave-e2e/checklist.md`.
 ## Important notes
 
 - This modifies **real** config files (`~/.claude.json`, `~/.gemini/settings.json`, `~/.codex/config.toml`)
-- The `e2e-validation` profile is used for isolation — always clean it up in Flow 8
+- The `e2e-validation` profile is used for isolation — always clean it up in Flow 10
 - If the machine doesn't have a particular CLI installed, mark those CLI-specific steps as `N/A`
 - If `weave` is not in PATH, look for it at `./target/release/weave` (build the project first)
 - Do not abort on first failure — the goal is a complete picture of what works and what doesn't

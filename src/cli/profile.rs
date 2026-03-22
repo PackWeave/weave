@@ -1,8 +1,9 @@
 use anyhow::{bail, Context, Result};
 
+use crate::adapters;
 use crate::core::config::Config;
 use crate::core::lockfile::LockFile;
-use crate::core::pack::PackSource;
+use crate::core::pack::{PackSource, ResolvedPack};
 use crate::core::profile::{InstalledPack, Profile};
 use crate::core::registry::{GitHubRegistry, Registry};
 use crate::core::resolver::Resolver;
@@ -96,17 +97,41 @@ pub fn add_pack(pack_name: &str, profile_name: &str) -> Result<()> {
 
     let mut lockfile = LockFile::load(profile_name).context("loading lock file")?;
 
+    let is_active = config.active_profile == profile_name;
+    let installed_adapters = if is_active {
+        adapters::installed_adapters()
+    } else {
+        vec![]
+    };
+
     for (name, version) in &plan.to_install {
         // Ensure the pack is in the store
         let release = registry.fetch_version(name, version)?;
-        let _pack_dir = Store::fetch(name, &release)?;
+        let pack_dir = Store::fetch(name, &release)?;
+
+        let source = PackSource::Registry {
+            registry_url: config.registry_url.clone(),
+        };
+
+        // If this is the active profile, apply to adapters immediately
+        if is_active {
+            let pack = crate::core::pack::Pack::load(&pack_dir)?;
+            let resolved = ResolvedPack {
+                pack,
+                source: source.clone(),
+            };
+            for adapter in &installed_adapters {
+                match adapter.apply(&resolved) {
+                    Ok(()) => println!("    Applied to {}", adapter.name()),
+                    Err(e) => eprintln!("  warning: {}: {e}", adapter.name()),
+                }
+            }
+        }
 
         profile.add_pack(InstalledPack {
             name: name.clone(),
             version: version.clone(),
-            source: PackSource::Registry {
-                registry_url: config.registry_url.clone(),
-            },
+            source,
         });
 
         lockfile.lock_pack(

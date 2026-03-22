@@ -476,12 +476,12 @@ fn remove_servers_project_scope() {
     adapter.apply(&pack).unwrap();
     adapter.remove("rm-proj-pack").unwrap();
 
+    // When the last project-scope server is removed, the .mcp.json file
+    // should be deleted entirely rather than leaving an empty stub.
     let proj_mcp = project.path().join(".mcp.json");
-    let config = read_json(&proj_mcp);
-    let mcp = config["mcpServers"].as_object().unwrap();
     assert!(
-        mcp.get("rm-proj-server").is_none(),
-        "project-scope server should be removed"
+        !proj_mcp.exists(),
+        ".mcp.json should be deleted when the last project-scope server is removed"
     );
 }
 

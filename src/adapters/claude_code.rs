@@ -535,6 +535,22 @@ impl ClaudeCodeAdapter {
         if !servers_to_remove.is_empty() {
             let mcp_path = project_root.join(".mcp.json");
             self.remove_servers_from_file(&mcp_path, &servers_to_remove, &mut pm.servers)?;
+
+            // If the .mcp.json now has an empty mcpServers object, delete the file
+            // entirely to avoid leaving empty stubs behind.
+            if mcp_path.exists() {
+                if let Ok(content) = util::read_file(&mcp_path) {
+                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
+                        if parsed
+                            .get("mcpServers")
+                            .and_then(|s| s.as_object())
+                            .is_some_and(|o| o.is_empty())
+                        {
+                            std::fs::remove_file(&mcp_path).ok();
+                        }
+                    }
+                }
+            }
         }
 
         let settings_path = project_root.join(".claude").join("settings.json");
