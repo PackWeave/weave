@@ -292,11 +292,11 @@ impl CodexAdapter {
                 })?;
                 for server_name in servers_to_remove {
                     mcp.remove(server_name);
-                    servers_map.remove(server_name);
                 }
             }
             None => {
-                // mcp_servers key absent — nothing to remove from the file; clean up manifest.
+                // mcp_servers key absent — no file mutation occurred; safe to clean
+                // up ownership tracking immediately since there is nothing to roll back.
                 for s in servers_to_remove {
                     servers_map.remove(s);
                 }
@@ -304,7 +304,15 @@ impl CodexAdapter {
             }
         }
 
-        Self::write_config_toml(path, &config)
+        Self::write_config_toml(path, &config)?;
+
+        // Only mutate ownership tracking after the file write succeeds — otherwise
+        // an I/O error would silently drop entries from the manifest.
+        for s in servers_to_remove {
+            servers_map.remove(s);
+        }
+
+        Ok(())
     }
 
     /// Merge settings fragment (top-level keys only) into the TOML file at `path`.
