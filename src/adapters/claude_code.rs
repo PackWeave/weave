@@ -34,7 +34,7 @@ struct PackweaveManifest {
     /// project-scope installations (keyed by pack name). Stored in the
     /// *user-scope* manifest so `weave remove` can clean up project-scope
     /// state regardless of the current working directory.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     project_dirs: HashMap<String, Vec<String>>, // pack_name -> [project_root_abs_paths]
 }
 
@@ -806,31 +806,43 @@ impl CliAdapter for ClaudeCodeAdapter {
             self.remove_prompts(pack_name, &mut manifest)?;
             self.remove_settings(pack_name, &mut manifest)?;
 
-            // Drain the tracked project roots for this pack.
-            if let Some(dirs) = manifest.project_dirs.remove(pack_name) {
-                roots_to_clean.extend(dirs.into_iter().map(PathBuf::from));
+            // Clone the tracked project roots — we only remove entries that are
+            // successfully cleaned so failed roots can be retried on a future run.
+            if let Some(dirs) = manifest.project_dirs.get(pack_name) {
+                roots_to_clean.extend(dirs.iter().map(PathBuf::from));
+            }
+
+            // Also include the current project dir for legacy installs (installed
+            // before project_dirs tracking existed, or installed/removed from same dir).
+            let current_project_manifest = self.project_manifest_path();
+            if current_project_manifest.exists() && !roots_to_clean.contains(&self.project_root) {
+                roots_to_clean.push(self.project_root.clone());
+            }
+
+            // Clean up project-scope state in every affected project root.
+            let mut failed_roots: Vec<String> = Vec::new();
+            for root in &roots_to_clean {
+                if let Err(e) = self.remove_from_project_root(pack_name, root) {
+                    // Non-fatal: the project dir may have been deleted or moved.
+                    // Warn so the user can investigate if needed.
+                    eprintln!(
+                        "  warning: could not clean project scope in {}: {e}",
+                        root.display()
+                    );
+                    failed_roots.push(root.to_string_lossy().to_string());
+                }
+            }
+
+            // Only keep roots that failed cleanup so they can be retried later.
+            if failed_roots.is_empty() {
+                manifest.project_dirs.remove(pack_name);
+            } else {
+                manifest
+                    .project_dirs
+                    .insert(pack_name.to_string(), failed_roots);
             }
 
             self.save_manifest(&manifest)?;
-        }
-
-        // Also include the current project dir for legacy installs (installed
-        // before project_dirs tracking existed, or installed/removed from same dir).
-        let current_project_manifest = self.project_manifest_path();
-        if current_project_manifest.exists() && !roots_to_clean.contains(&self.project_root) {
-            roots_to_clean.push(self.project_root.clone());
-        }
-
-        // Clean up project-scope state in every affected project root.
-        for root in &roots_to_clean {
-            if let Err(e) = self.remove_from_project_root(pack_name, root) {
-                // Non-fatal: the project dir may have been deleted or moved.
-                // Warn so the user can investigate if needed.
-                eprintln!(
-                    "  warning: could not clean project scope in {}: {e}",
-                    root.display()
-                );
-            }
         }
 
         Ok(())
