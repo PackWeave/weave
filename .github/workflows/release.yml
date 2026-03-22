@@ -60,7 +60,7 @@ jobs:
 
       - name: Install cross
         if: matrix.use_cross
-        run: cargo install cross --locked
+        run: command -v cross || cargo install cross --locked
 
       - name: Build release binary
         run: |
@@ -135,3 +135,32 @@ jobs:
         run: cargo publish --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  homebrew:
+    name: Update Homebrew formula
+    needs: release
+    if: github.repository == 'PackWeave/weave'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update formula
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          TARBALL="https://github.com/PackWeave/weave/archive/refs/tags/${TAG}.tar.gz"
+          SHA256=$(curl -sL "$TARBALL" | sha256sum | cut -d ' ' -f1)
+
+          # Clone the tap repo
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/PackWeave/homebrew-tap.git" tap
+          cd tap
+
+          # Update url and sha256 in the formula
+          sed -i "s|url \".*\"|url \"${TARBALL}\"|" Formula/weave.rb
+          sed -i "s|sha256 \".*\"|sha256 \"${SHA256}\"|" Formula/weave.rb
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/weave.rb
+          git commit -m "weave ${VERSION}"
+          git push
