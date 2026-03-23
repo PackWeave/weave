@@ -567,6 +567,7 @@ Panics are not used for recoverable errors. `unwrap()` and `expect()` are only a
 
 |Variable                |Purpose                                                        |
 |------------------------|---------------------------------------------------------------|
+|`WEAVE_TOKEN`           |Override credentials file for registry authentication (CI/automation)|
 |`WEAVE_TEST_STORE_DIR`  |Overrides `~/.packweave/` root (used in tests)                 |
 |`WEAVE_REGISTRY_URL`    |Overrides registry URL in Config (used in E2E tests, PR #84)  |
 

@@ -154,7 +154,8 @@ Default: `https://raw.githubusercontent.com/PackWeave/registry/main`
 |----------|---------------|-----|
 | `weave install`, `search`, `update` | No (recommended) | The registry is public, but authenticated requests get 5,000 req/hr instead of 60 |
 | `weave publish` | **Yes** | Pushes pack content to the registry repository via the GitHub API |
-| Private/self-hosted registries | Depends | The registry operator decides; weave sends the token as a `Bearer` header on all requests |
+| Community taps | N/A | Tokens are never sent to community taps — only to the official registry's trusted hosts |
+| Private/self-hosted registries | Not currently supported | Tokens are only sent to hosts on the trusted allowlist (GitHub hosts). Alternative registry hosts do not receive tokens |
 
 ### Token lifecycle
 
@@ -166,6 +167,10 @@ sequenceDiagram
     participant FS as ~/.packweave/credentials
 
     User->>CLI: weave auth login --token ghp_xxxxx
+    CLI->>CLI: Validate token format
+    alt Invalid format
+        CLI-->>User: ✗ Token does not match expected format
+    end
     CLI->>GH: GET /user (Bearer ghp_xxxxx)
     alt Token valid
         GH-->>CLI: 200 {login: "username"}
@@ -195,10 +200,13 @@ flowchart TD
     B -->|No| C{~/.packweave/credentials exists?}
     C -->|Yes| E[Read file token]
     C -->|No| F[No token — anonymous]
-    D --> G[GET registry with Authorization: Bearer header]
-    E --> G
-    F --> H[GET registry without auth — 60 req/hr limit]
+    D --> T{Is target host in trusted allowlist?}
+    E --> T
+    T -->|Yes| G[GET with Authorization: Bearer header]
+    T -->|No| H2[GET without auth — token withheld]
+    F --> H[GET without auth — 60 req/hr limit]
     G --> I[5,000 req/hr rate limit]
+    H2 --> H
 ```
 
 ### Token resolution order
@@ -206,14 +214,34 @@ flowchart TD
 When weave needs a token, it checks these sources in order:
 
 1. **`WEAVE_TOKEN` environment variable** — highest priority, never written to disk. Use this in CI/automation.
-2. **`~/.packweave/credentials` file** — written by `weave auth login`. Plain text, single token, restricted to owner-only permissions (0o600) on Unix.
-3. **`config.toml` → `auth_token_path`** — optional override for the credentials file path. Useful for custom setups or testing. Does not contain the token itself.
+2. **Credentials file** — a plain-text file containing a single token, restricted to owner-only permissions (0o600) on Unix. By default this is `~/.packweave/credentials` (written by `weave auth login`). If `auth_token_path` is set in `config.toml`, that path is used instead. The override path must be under `~/.packweave/` — paths outside this directory are rejected.
 
-If none of these exist, requests are sent without authentication (anonymous).
+The credentials file must be a regular file, not a symlink. Symlinks are rejected for security reasons, and the error message may not explain why — if you see an unexpected read failure, check for symlinks.
 
-### For alternative registries
+If neither source provides a token, requests are sent without authentication (anonymous).
 
-The token is sent as `Authorization: Bearer <token>` on every HTTP GET to the registry. Alternative registry operators can use this for access control. The `validate_github_token` check on login is GitHub-specific and advisory — it does not prevent storing tokens intended for other registries.
+### Trusted host allowlist
+
+Tokens are **not** sent to every host. The registry client maintains a trusted host allowlist that currently includes only GitHub hosts (`api.github.com` and `raw.githubusercontent.com`). The `Authorization: Bearer <token>` header is attached only to requests whose target host matches this allowlist.
+
+This means:
+- **The default GitHub-backed registry** receives the token (it is served from `raw.githubusercontent.com`).
+- **Alternative registries on non-GitHub hosts** do not receive the token, even if one is configured. Alternative registry operators cannot currently rely on weave sending Bearer tokens for access control.
+- **Community taps** never receive the token — tap fetches always pass `None` for authentication.
+
+The `validate_github_token` check on login is GitHub-specific and advisory — it does not prevent storing tokens intended for future use with other registries.
+
+### Security properties
+
+The authentication system enforces the following security properties:
+
+1. **Tokens only sent to trusted GitHub hosts.** The `Authorization: Bearer` header is attached only when the request target matches the trusted host allowlist (`api.github.com`, `raw.githubusercontent.com`). All other hosts receive unauthenticated requests.
+2. **Tokens never sent to community taps.** Tap fetches always pass `None` for authentication, regardless of whether a token is configured.
+3. **Symlink rejection.** The credentials file must be a regular file. Symlinks are rejected to prevent redirection attacks.
+4. **Restricted file permissions.** On Unix, the credentials file is written with mode `0o600` (owner read/write only).
+5. **`auth_token_path` constrained to `~/.packweave/`.** Custom credential file paths cannot escape the packweave directory, preventing reads of arbitrary files.
+6. **Token format validation.** The `weave auth login` command validates that the token matches expected GitHub PAT formats before storing it.
+7. **Environment variable override for CI.** `WEAVE_TOKEN` allows CI/automation to authenticate without writing tokens to disk.
 
 ---
 

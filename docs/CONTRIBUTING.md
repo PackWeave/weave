@@ -95,7 +95,7 @@ To publish packs, you need a GitHub personal access token:
 
 For CI/automation, set the `WEAVE_TOKEN` environment variable instead.
 
-Authentication is optional for installing, searching, and updating packs — the registry is public. However, authenticated requests get a higher rate limit (5,000/hr vs 60/hr).
+Authentication is optional for installing, searching, and updating packs — the registry is public. However, authenticated requests get a higher rate limit (5,000/hr vs 60/hr) for the default GitHub-backed registry.
 
 ### ⚡ Pack creation quickstart (5 minutes)
 
