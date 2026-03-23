@@ -331,6 +331,19 @@ fn is_env_var_reference(value: &str) -> bool {
     trimmed.starts_with("${") && trimmed.ends_with('}') && trimmed.len() > 3
 }
 
+/// Returns true if the value contains at least one `${VAR}` environment
+/// variable reference (possibly among other text, e.g. `Bearer ${TOKEN}`).
+fn contains_env_var_reference(value: &str) -> bool {
+    if let Some(start) = value.find("${") {
+        let rest = &value[start + 2..];
+        if let Some(end) = rest.find('}') {
+            // Ensure there is at least one character between `${` and `}`
+            return end > 0;
+        }
+    }
+    false
+}
+
 /// Header names that are known to carry secrets and must use `${VAR}` references.
 const SECRET_HEADER_NAMES: &[&str] = &[
     "authorization",
@@ -349,24 +362,28 @@ const SAFE_STATIC_HEADERS: &[&str] = &[
     "user-agent",
     "x-api-version",
     "x-request-id",
-    "x-custom",
 ];
 
 /// Returns true if the value looks like it contains a plaintext secret:
-/// - Starts with `Bearer ` or `Basic ` followed by a token
+/// - Starts with `Bearer` or `Basic` (case-insensitive) followed by a token
 /// - Looks like a long random string (potential API key)
 fn looks_like_secret(value: &str) -> bool {
     let trimmed = value.trim();
 
-    // Bearer or Basic auth tokens with actual token content
-    if let Some(token) = trimmed.strip_prefix("Bearer ") {
-        let token = token.trim();
-        // Allow env var references like `Bearer ${TOKEN}`
-        return !token.is_empty() && !is_env_var_reference(token);
+    // Bearer or Basic auth tokens with actual token content (case-insensitive).
+    // Accept any whitespace separator between the scheme and token.
+    let lower = trimmed.to_ascii_lowercase();
+    if let Some(rest) = lower.strip_prefix("bearer") {
+        if rest.starts_with(char::is_whitespace) {
+            let token = trimmed[6..].trim();
+            return !token.is_empty() && !contains_env_var_reference(token);
+        }
     }
-    if let Some(token) = trimmed.strip_prefix("Basic ") {
-        let token = token.trim();
-        return !token.is_empty() && !is_env_var_reference(token);
+    if let Some(rest) = lower.strip_prefix("basic") {
+        if rest.starts_with(char::is_whitespace) {
+            let token = trimmed[5..].trim();
+            return !token.is_empty() && !contains_env_var_reference(token);
+        }
     }
 
     // Long high-entropy strings that look like API keys (32+ chars, mostly
@@ -395,13 +412,17 @@ fn validate_server_headers(
     for (name, value) in headers {
         let lower_name = name.to_ascii_lowercase();
 
-        // Env var references are always allowed for any header.
+        // Values that are entirely an env var reference are always allowed.
         if is_env_var_reference(value) {
             continue;
         }
 
-        // Known secret headers must use env var references.
+        // Known secret headers must use env var references.  We also accept
+        // composite values that contain an env var (e.g. `Bearer ${TOKEN}`).
         if SECRET_HEADER_NAMES.contains(&lower_name.as_str()) {
+            if contains_env_var_reference(value) {
+                continue;
+            }
             return Err(WeaveError::InvalidManifest {
                 path: path.to_path_buf(),
                 reason: format!(
@@ -950,5 +971,76 @@ X-API-Key = "${API_KEY}"
         assert!(!looks_like_secret("us-east-1"));
         assert!(!looks_like_secret("Bearer ${TOKEN}"));
         assert!(!looks_like_secret("Basic ${CREDS}"));
+
+        // Case-insensitive auth scheme detection
+        assert!(looks_like_secret("bearer token123"));
+        assert!(looks_like_secret("BEARER token123"));
+        assert!(looks_like_secret("basic dXNlcjpwYXNz"));
+        assert!(looks_like_secret("BASIC dXNlcjpwYXNz"));
+        assert!(looks_like_secret("BeArEr mixed-case-token"));
+
+        // Extra whitespace between scheme and token
+        assert!(looks_like_secret("Bearer   token123"));
+        assert!(looks_like_secret("Basic\tbase64data"));
+    }
+
+    #[test]
+    fn contains_env_var_reference_works() {
+        assert!(contains_env_var_reference("${FOO}"));
+        assert!(contains_env_var_reference("Bearer ${TOKEN}"));
+        assert!(contains_env_var_reference("Basic ${CREDS}"));
+        assert!(contains_env_var_reference("prefix ${VAR} suffix"));
+        assert!(!contains_env_var_reference("plain-value"));
+        assert!(!contains_env_var_reference("${}"));
+        assert!(!contains_env_var_reference("$FOO"));
+    }
+
+    #[test]
+    fn x_custom_header_not_in_safe_list() {
+        // x-custom was removed from the safe list; a secret value should be detected.
+        let toml = r#"
+[pack]
+name = "test"
+version = "1.0.0"
+description = "Test"
+
+[[servers]]
+name = "api"
+transport = "http"
+url = "https://example.com/mcp"
+
+[servers.headers]
+X-Custom = "Bearer some-plaintext-token"
+"#;
+        let result = Pack::from_toml(toml, &PathBuf::from("test.toml"));
+        assert!(
+            result.is_err(),
+            "X-Custom with secret value should be rejected"
+        );
+    }
+
+    #[test]
+    fn allow_bearer_env_var_in_authorization_header() {
+        // Authorization: Bearer ${TOKEN} should be allowed (composite env var).
+        let toml = r#"
+[pack]
+name = "test"
+version = "1.0.0"
+description = "Test"
+
+[[servers]]
+name = "api"
+transport = "http"
+url = "https://example.com/mcp"
+
+[servers.headers]
+Authorization = "Bearer ${TOKEN}"
+"#;
+        let result = Pack::from_toml(toml, &PathBuf::from("test.toml"));
+        assert!(
+            result.is_ok(),
+            "Authorization with Bearer ${{TOKEN}} should pass: {:?}",
+            result.err()
+        );
     }
 }
