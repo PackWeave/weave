@@ -14,12 +14,19 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g., v0.4.2)'
+        required: true
 
 permissions:
   contents: read   # default for all jobs; release job overrides to write
 
 env:
   CARGO_TERM_COLOR: always
+  # Resolve tag from either push event or manual workflow_dispatch input.
+  RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
 jobs:
   build:
@@ -41,6 +48,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -73,7 +82,7 @@ jobs:
       - name: Package binary and generate checksum
         shell: bash
         run: |
-          ARCHIVE="packweave-${{ github.ref_name }}-${{ matrix.target }}.tar.gz"
+          ARCHIVE="packweave-${{ env.RELEASE_TAG }}-${{ matrix.target }}.tar.gz"
           tar -czf "$ARCHIVE" -C "target/${{ matrix.target }}/release" weave
           if command -v sha256sum >/dev/null 2>&1; then
             sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
@@ -117,6 +126,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -124,7 +135,7 @@ jobs:
       - name: Verify tag matches crate version
         run: |
           CRATE_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          TAG_VERSION="${RELEASE_TAG#v}"
           if [ "$CRATE_VERSION" != "$TAG_VERSION" ]; then
             echo "::error::Tag version ($TAG_VERSION) does not match Cargo.toml version ($CRATE_VERSION)"
             exit 1
@@ -145,7 +156,7 @@ jobs:
         env:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${RELEASE_TAG}"
           VERSION="${TAG#v}"
           TARBALL="https://github.com/PackWeave/weave/archive/refs/tags/${TAG}.tar.gz"
           SHA256=$(curl -sL "$TARBALL" | sha256sum | cut -d ' ' -f1)
