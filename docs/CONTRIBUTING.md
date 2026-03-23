@@ -39,6 +39,10 @@ cargo test
 > [!NOTE]
 > E2E tests require macOS or Linux — they are gated on Windows in CI. They use `wiremock` for mock HTTP, `assert_cmd` for subprocess assertions, and full isolation via environment variables (`HOME`, `WEAVE_TEST_STORE_DIR`, `WEAVE_REGISTRY_URL`).
 
+### 🎨 CLI output style
+
+All user-facing CLI output must use the style helpers in `src/cli/style.rs` (e.g. `style::pack_name()`, `style::version()`, `style::success()`). These respect `NO_COLOR`, `--color`, and TTY detection automatically. See `AGENTS.md` for the full list of semantic helpers.
+
 ### ✅ Before opening a PR
 
 - `cargo fmt --all` — code must be formatted
@@ -46,6 +50,7 @@ cargo test
 - `cargo test` — all tests must pass
 - New behaviour must have tests
 - Public types and functions must have doc comments
+- CLI output uses `src/cli/style.rs` helpers — no raw ANSI codes
 
 Once open, a maintainer will review within a few days. PRs addressing open issues are prioritised.
 

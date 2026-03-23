@@ -34,3 +34,4 @@ target
 
 # macOS metadata
 .DS_Store
+.claude/worktrees/
