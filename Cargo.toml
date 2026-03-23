@@ -3,7 +3,7 @@
 
 [package]
 name = "packweave"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2024"
 description = "A pack manager for AI CLI tools — weave together MCP servers, prompts, commands, and settings"
 license = "Apache-2.0"
