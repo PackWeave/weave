@@ -243,35 +243,46 @@ authors = ["e2e-tester"]
 
 ## Flow 12: Hooks (`--allow-hooks`)
 
-**Goal:** Verify hooks opt-in, application, badge display, and cleanup.
+**Goal:** Verify hooks opt-in, application across multiple event types, badge display, and cleanup.
 
-**Setup:** Create a local pack with hooks at `/tmp/weave-e2e-hooks/`
+Claude Code supports 18 hook events. The adapter uses `BTreeMap<String, Vec<HookEntry>>` so any event name is accepted. This flow tests multiple events to verify the adapter writes them all correctly.
+
+**Setup:** Create a local pack with multiple hook events at `/tmp/weave-e2e-hooks/`
 
 ```toml
 # /tmp/weave-e2e-hooks/pack.toml
 [pack]
 name = "e2e-hooks-test"
 version = "0.1.0"
-description = "E2E hooks test"
+description = "E2E hooks test — multiple event types"
 authors = ["e2e-tester"]
 
 [extensions.claude_code.hooks]
-PreToolUse = [{ matcher = "Bash", command = "echo e2e-hook-fired" }]
+PreToolUse = [{ matcher = "Bash", command = "echo pre-tool" }]
+PostToolUse = [{ matcher = "Bash", command = "echo post-tool" }]
+UserPromptSubmit = [{ matcher = "", command = "echo prompt-submit" }]
+Stop = [{ matcher = "", command = "echo stop" }]
 ```
 
 | Step | Command | Expected |
 |------|---------|----------|
 | 12.1 | Create pack dir + `pack.toml` as above | Files exist |
-| 12.2 | `weave install /tmp/weave-e2e-hooks` | Exits 0, output notes the pack declares hooks and instructs to pass `--allow-hooks` to apply them |
+| 12.2 | `weave install /tmp/weave-e2e-hooks` | Exits 0, notes hooks require `--allow-hooks` |
 | 12.3 | `weave list` | Shows `e2e-hooks-test` with `[hooks]` badge |
 | 12.4 | `cat ~/.claude/settings.json 2>/dev/null \| jq '.hooks // empty'` | No hooks key (skipped without flag) |
 | 12.5 | `weave remove e2e-hooks-test` | Clean removal |
 | 12.6 | `weave install /tmp/weave-e2e-hooks --allow-hooks` | Exits 0, hooks applied |
-| 12.7 | `cat ~/.claude/settings.json \| jq '.hooks'` | Contains `PreToolUse` array with matcher "Bash" and command |
-| 12.8 | `weave remove e2e-hooks-test` | Exits 0 |
-| 12.9 | `cat ~/.claude/settings.json \| jq '.hooks // "absent"'` | Hooks key removed or absent |
+| 12.7 | `cat ~/.claude/settings.json \| jq '.hooks.PreToolUse'` | Array with matcher "Bash" and command "echo pre-tool" |
+| 12.8 | `cat ~/.claude/settings.json \| jq '.hooks.PostToolUse'` | Array with matcher "Bash" and command "echo post-tool" |
+| 12.9 | `cat ~/.claude/settings.json \| jq '.hooks.UserPromptSubmit'` | Array with command "echo prompt-submit" |
+| 12.10 | `cat ~/.claude/settings.json \| jq '.hooks.Stop'` | Array with command "echo stop" |
+| 12.11 | `weave remove e2e-hooks-test` | Exits 0 |
+| 12.12 | `cat ~/.claude/settings.json \| jq '.hooks // "absent"'` | Hooks key removed or absent |
 
-**Pass criteria:** Hooks are skipped without flag, applied with flag, cleaned up on remove.
+**Supported Claude Code hook events** (all accepted by the adapter via BTreeMap):
+`PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, `SubAgentStop`, `SubAgentSessionStart`, `SessionStart`, `SessionStop`, `Notification`, `PreToolResult`, `PostToolResult`, `ModelResponse`, `ModelRequest`, `ErrorOccurred`, `ToolError`, `PreToolApproval`, `PostToolApproval`, `McpToolCall`
+
+**Pass criteria:** All four event types written correctly; hooks skipped without flag; cleaned up on remove.
 
 ---
 
