@@ -1,5 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "_comment": "release-type 'rust' automatically updates Cargo.toml and Cargo.lock. The manifest version (0.4.1) anchors Release Please to the v0.4.1 tag so it does not scan the full history.",
   "release-type": "rust",
   "include-component-in-tag": false,
   "include-v-in-tag": true,
