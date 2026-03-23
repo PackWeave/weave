@@ -314,10 +314,124 @@ impl Pack {
                     }
                 }
             }
+
+            // Validate HTTP headers for plaintext secrets.
+            if let Some(headers) = &server.headers {
+                validate_server_headers(&server.name, headers, path)?;
+            }
         }
 
         Ok(())
     }
+}
+
+/// Returns true if the value is an environment variable reference (`${...}`).
+fn is_env_var_reference(value: &str) -> bool {
+    let trimmed = value.trim();
+    trimmed.starts_with("${") && trimmed.ends_with('}') && trimmed.len() > 3
+}
+
+/// Header names that are known to carry secrets and must use `${VAR}` references.
+const SECRET_HEADER_NAMES: &[&str] = &[
+    "authorization",
+    "proxy-authorization",
+    "x-api-key",
+    "x-auth-token",
+];
+
+/// Header names that are safe to carry static (non-secret) values.
+const SAFE_STATIC_HEADERS: &[&str] = &[
+    "accept",
+    "accept-encoding",
+    "accept-language",
+    "cache-control",
+    "content-type",
+    "user-agent",
+    "x-api-version",
+    "x-request-id",
+    "x-custom",
+];
+
+/// Returns true if the value looks like it contains a plaintext secret:
+/// - Starts with `Bearer ` or `Basic ` followed by a token
+/// - Looks like a long random string (potential API key)
+fn looks_like_secret(value: &str) -> bool {
+    let trimmed = value.trim();
+
+    // Bearer or Basic auth tokens with actual token content
+    if let Some(token) = trimmed.strip_prefix("Bearer ") {
+        let token = token.trim();
+        // Allow env var references like `Bearer ${TOKEN}`
+        return !token.is_empty() && !is_env_var_reference(token);
+    }
+    if let Some(token) = trimmed.strip_prefix("Basic ") {
+        let token = token.trim();
+        return !token.is_empty() && !is_env_var_reference(token);
+    }
+
+    // Long high-entropy strings that look like API keys (32+ chars, mostly
+    // alphanumeric with common key punctuation like hyphens and underscores).
+    if trimmed.len() >= 32 {
+        let alnum_or_key_chars = trimmed
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_' || *c == '.')
+            .count();
+        let ratio = alnum_or_key_chars as f64 / trimmed.len() as f64;
+        if ratio > 0.85 {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Validate HTTP headers on a server definition. Rejects plaintext secrets
+/// and enforces `${VAR}` env-var references for known secret headers.
+fn validate_server_headers(
+    server_name: &str,
+    headers: &HashMap<String, String>,
+    path: &Path,
+) -> Result<()> {
+    for (name, value) in headers {
+        let lower_name = name.to_ascii_lowercase();
+
+        // Env var references are always allowed for any header.
+        if is_env_var_reference(value) {
+            continue;
+        }
+
+        // Known secret headers must use env var references.
+        if SECRET_HEADER_NAMES.contains(&lower_name.as_str()) {
+            return Err(WeaveError::InvalidManifest {
+                path: path.to_path_buf(),
+                reason: format!(
+                    "server '{}': header '{}' typically carries a secret — use an \
+                     environment variable reference like `${{MY_TOKEN}}` instead of a \
+                     plaintext value",
+                    server_name, name,
+                ),
+            });
+        }
+
+        // Safe static headers are always allowed with literal values.
+        if SAFE_STATIC_HEADERS.contains(&lower_name.as_str()) {
+            continue;
+        }
+
+        // For unknown headers, check if the value looks like a secret.
+        if looks_like_secret(value) {
+            return Err(WeaveError::InvalidManifest {
+                path: path.to_path_buf(),
+                reason: format!(
+                    "server '{}': header '{}' value looks like a plaintext secret \
+                     (Bearer/Basic token or API key) — use an environment variable \
+                     reference like `${{MY_SECRET}}` instead",
+                    server_name, name,
+                ),
+            });
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -576,5 +690,265 @@ X-Custom = "static-value"
         assert_eq!(headers["Authorization"], "${API_KEY}");
         assert_eq!(headers["X-Custom"], "static-value");
         assert!(server.command.is_none());
+    }
+
+    // ── Header validation tests ──────────────────────────────────────
+
+    #[test]
+    fn allow_env_var_reference_for_authorization() {
+        let toml = r#"
+[pack]
+name = "test"
+version = "1.0.0"
+description = "Test"
+
+[[servers]]
+name = "api"
+transport = "http"
+url = "https://example.com/mcp"
+
+[servers.headers]
+Authorization = "${MY_TOKEN}"
+"#;
+        let result = Pack::from_toml(toml, &PathBuf::from("test.toml"));
+        assert!(result.is_ok(), "env var ref for Authorization should pass");
+    }
+
+    #[test]
+    fn reject_plaintext_authorization_header() {
+        let toml = r#"
+[pack]
+name = "test"
+version = "1.0.0"
+description = "Test"
+
+[[servers]]
+name = "api"
+transport = "http"
+url = "https://example.com/mcp"
+
+[servers.headers]
+Authorization = "sk-1234567890abcdef"
+"#;
+        let result = Pack::from_toml(toml, &PathBuf::from("test.toml"));
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("secret"), "expected 'secret' in error: {msg}");
+    }
+
+    #[test]
+    fn reject_plaintext_x_api_key_header() {
+        let toml = r#"
+[pack]
+name = "test"
+version = "1.0.0"
+description = "Test"
+
+[[servers]]
+name = "api"
+transport = "http"
+url = "https://example.com/mcp"
+
+[servers.headers]
+X-API-Key = "my-secret-key"
+"#;
+        let result = Pack::from_toml(toml, &PathBuf::from("test.toml"));
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("secret"), "expected 'secret' in error: {msg}");
+    }
+
+    #[test]
+    fn allow_safe_static_headers() {
+        let toml = r#"
+[pack]
+name = "test"
+version = "1.0.0"
+description = "Test"
+
+[[servers]]
+name = "api"
+transport = "http"
+url = "https://example.com/mcp"
+
+[servers.headers]
+Content-Type = "application/json"
+Accept = "application/json"
+X-API-Version = "2024-01-01"
+"#;
+        let result = Pack::from_toml(toml, &PathBuf::from("test.toml"));
+        assert!(result.is_ok(), "safe static headers should pass");
+    }
+
+    #[test]
+    fn reject_bearer_token_in_custom_header() {
+        let toml = r#"
+[pack]
+name = "test"
+version = "1.0.0"
+description = "Test"
+
+[[servers]]
+name = "api"
+transport = "http"
+url = "https://example.com/mcp"
+
+[servers.headers]
+X-Forwarded-Auth = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.payload.signature"
+"#;
+        let result = Pack::from_toml(toml, &PathBuf::from("test.toml"));
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("plaintext secret"),
+            "expected 'plaintext secret' in error: {msg}"
+        );
+    }
+
+    #[test]
+    fn reject_basic_auth_in_custom_header() {
+        let toml = r#"
+[pack]
+name = "test"
+version = "1.0.0"
+description = "Test"
+
+[[servers]]
+name = "api"
+transport = "http"
+url = "https://example.com/mcp"
+
+[servers.headers]
+X-Proxy-Auth = "Basic dXNlcjpwYXNzd29yZA=="
+"#;
+        let result = Pack::from_toml(toml, &PathBuf::from("test.toml"));
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("plaintext secret"),
+            "expected 'plaintext secret' in error: {msg}"
+        );
+    }
+
+    #[test]
+    fn reject_long_random_string_in_custom_header() {
+        let toml = r#"
+[pack]
+name = "test"
+version = "1.0.0"
+description = "Test"
+
+[[servers]]
+name = "api"
+transport = "http"
+url = "https://example.com/mcp"
+
+[servers.headers]
+X-Secret = "aK9xZmQ2NzhhYjNjMTRlOGY5YjJkNWUwMWE4ZjRiNzMw"
+"#;
+        let result = Pack::from_toml(toml, &PathBuf::from("test.toml"));
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("plaintext secret"),
+            "expected 'plaintext secret' in error: {msg}"
+        );
+    }
+
+    #[test]
+    fn allow_env_var_in_bearer_prefix() {
+        let toml = r#"
+[pack]
+name = "test"
+version = "1.0.0"
+description = "Test"
+
+[[servers]]
+name = "api"
+transport = "http"
+url = "https://example.com/mcp"
+
+[servers.headers]
+X-Forwarded-Auth = "Bearer ${MY_TOKEN}"
+"#;
+        let result = Pack::from_toml(toml, &PathBuf::from("test.toml"));
+        // The value starts with "Bearer " but the token part is an env var ref — allowed.
+        assert!(
+            result.is_ok(),
+            "Bearer with env var reference should pass: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn allow_short_non_secret_custom_header() {
+        let toml = r#"
+[pack]
+name = "test"
+version = "1.0.0"
+description = "Test"
+
+[[servers]]
+name = "api"
+transport = "http"
+url = "https://example.com/mcp"
+
+[servers.headers]
+X-Trace-Id = "my-trace"
+X-Region = "us-east-1"
+"#;
+        let result = Pack::from_toml(toml, &PathBuf::from("test.toml"));
+        assert!(
+            result.is_ok(),
+            "short non-secret custom headers should pass: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn allow_env_var_for_x_api_key() {
+        let toml = r#"
+[pack]
+name = "test"
+version = "1.0.0"
+description = "Test"
+
+[[servers]]
+name = "api"
+transport = "http"
+url = "https://example.com/mcp"
+
+[servers.headers]
+X-API-Key = "${API_KEY}"
+"#;
+        let result = Pack::from_toml(toml, &PathBuf::from("test.toml"));
+        assert!(
+            result.is_ok(),
+            "env var ref for X-API-Key should pass: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn is_env_var_reference_works() {
+        assert!(is_env_var_reference("${FOO}"));
+        assert!(is_env_var_reference("${MY_API_KEY}"));
+        assert!(is_env_var_reference("  ${SPACED}  "));
+        assert!(!is_env_var_reference("$FOO"));
+        assert!(!is_env_var_reference("plain-value"));
+        assert!(!is_env_var_reference("${}"));
+    }
+
+    #[test]
+    fn looks_like_secret_detects_patterns() {
+        assert!(looks_like_secret("Bearer eyJhbGciOiJIUzI1NiJ9.payload.sig"));
+        assert!(looks_like_secret("Basic dXNlcjpwYXNzd29yZA=="));
+        assert!(looks_like_secret(
+            "aK9xZmQ2NzhhYjNjMTRlOGY5YjJkNWUwMWE4ZjRiNzMw"
+        ));
+        assert!(!looks_like_secret("application/json"));
+        assert!(!looks_like_secret("us-east-1"));
+        assert!(!looks_like_secret("Bearer ${TOKEN}"));
+        assert!(!looks_like_secret("Basic ${CREDS}"));
     }
 }
