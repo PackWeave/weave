@@ -93,6 +93,23 @@ pub enum WeaveError {
     #[error("tap '{name}' is not registered — run `weave tap list` to see registered taps")]
     TapNotFound { name: String },
 
+    // Install/update validation errors
+    #[error(
+        "pack manifest {field} '{actual}' does not match resolved {field} '{expected}'; \
+         the archive may be corrupt or tampered"
+    )]
+    ManifestMismatch {
+        field: &'static str,
+        expected: String,
+        actual: String,
+    },
+
+    #[error("invalid version requirement '{input}': {reason}")]
+    InvalidVersionReq { input: String, reason: String },
+
+    #[error("pack '{name}@{version}' not in local store and source is not a registry")]
+    PackNotAvailable { name: String, version: String },
+
     // Config errors
     #[error("could not determine home directory — set the HOME environment variable")]
     NoHomeDir,
