@@ -83,6 +83,10 @@ pub fn compute_diff(current: &Profile, target: &Profile) -> (Vec<String>, Vec<In
 }
 
 /// Try to load a pack from the store; if missing, attempt to fetch it from the registry.
+///
+/// Only registry-sourced packs can be fetched remotely. Local and Git packs must
+/// already be present in the store — calling this with a non-registry source when
+/// the pack is missing returns [`crate::error::WeaveError::PackNotAvailable`].
 pub fn load_or_fetch_pack(
     name: &str,
     version: &semver::Version,
@@ -96,7 +100,28 @@ pub fn load_or_fetch_pack(
         return Ok(pack);
     }
 
-    // Try fetching from registry
+    // Only registry-sourced packs can be fetched from the registry.
+    // Local/Git packs must already be in the store — prevent accidental
+    // registry lookups for non-registry sources.
+    match source {
+        PackSource::Registry { .. } => {}
+        PackSource::Local { path } => {
+            return Err(crate::error::WeaveError::PackNotAvailable {
+                name: name.to_string(),
+                source_type: format!("local ({})", path),
+            }
+            .into());
+        }
+        PackSource::Git { url, .. } => {
+            return Err(crate::error::WeaveError::PackNotAvailable {
+                name: name.to_string(),
+                source_type: format!("git ({})", url),
+            }
+            .into());
+        }
+    }
+
+    // Fetch from registry
     let release = registry
         .fetch_version(name, version)
         .map_err(anyhow::Error::from)
@@ -327,5 +352,76 @@ mod tests {
         assert_eq!(remove, vec!["old-pack"]);
         assert_eq!(add.len(), 1);
         assert_eq!(add[0].name, "new-pack");
+    }
+
+    /// A mock registry that panics on any call — used to verify that
+    /// `load_or_fetch_pack` never reaches the registry for non-registry sources.
+    struct MockRegistry;
+
+    impl Registry for MockRegistry {
+        fn search(
+            &self,
+            _query: &str,
+        ) -> crate::error::Result<Vec<crate::core::registry::PackSummary>> {
+            panic!("search should not be called");
+        }
+
+        fn fetch_metadata(
+            &self,
+            _name: &str,
+        ) -> crate::error::Result<crate::core::registry::PackMetadata> {
+            panic!("fetch_metadata should not be called");
+        }
+
+        fn fetch_version(
+            &self,
+            _name: &str,
+            _version: &semver::Version,
+        ) -> crate::error::Result<crate::core::registry::PackRelease> {
+            panic!("fetch_version should not be called — guard should prevent this");
+        }
+    }
+
+    #[test]
+    fn load_or_fetch_local_source_errors_when_not_in_store() {
+        let source = PackSource::Local {
+            path: "/tmp/nonexistent".to_string(),
+        };
+        let version = semver::Version::new(1, 0, 0);
+        let registry = MockRegistry;
+
+        let result = load_or_fetch_pack("my-pack", &version, &source, &registry);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("not available"),
+            "expected PackNotAvailable error, got: {err_msg}"
+        );
+        assert!(
+            err_msg.contains("local"),
+            "error should mention 'local' source type, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn load_or_fetch_git_source_errors_when_not_in_store() {
+        let source = PackSource::Git {
+            url: "https://github.com/example/repo".to_string(),
+            rev: Some("abc123".to_string()),
+        };
+        let version = semver::Version::new(1, 0, 0);
+        let registry = MockRegistry;
+
+        let result = load_or_fetch_pack("my-pack", &version, &source, &registry);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("not available"),
+            "expected PackNotAvailable error, got: {err_msg}"
+        );
+        assert!(
+            err_msg.contains("git"),
+            "error should mention 'git' source type, got: {err_msg}"
+        );
     }
 }
