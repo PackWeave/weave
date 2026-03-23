@@ -714,7 +714,7 @@ mod tests {
         let composite = CompositeRegistry::from_boxed(vec![Box::new(official), Box::new(tap)]);
         let err = composite.search("anything").unwrap_err();
         assert!(
-            err.to_string().contains("official down"),
+            matches!(err, WeaveError::Registry(ref msg) if msg.contains("official down")),
             "official registry error should propagate: {err}"
         );
     }
@@ -738,7 +738,7 @@ mod tests {
     }
 
     #[test]
-    fn composite_fetch_metadata_official_non_not_found_error_is_fatal() {
+    fn composite_fetch_metadata_official_registry_error_is_fatal() {
         // A non-PackNotFound error from the official registry should be fatal.
         let official = FailingRegistry::new("connection refused");
         let mut tap = MockRegistry::new();
@@ -747,13 +747,13 @@ mod tests {
         let composite = CompositeRegistry::from_boxed(vec![Box::new(official), Box::new(tap)]);
         let err = composite.fetch_metadata("some-pack").unwrap_err();
         assert!(
-            err.to_string().contains("connection refused"),
+            matches!(err, WeaveError::Registry(ref msg) if msg.contains("connection refused")),
             "official non-not-found error should propagate: {err}"
         );
     }
 
     #[test]
-    fn composite_fetch_metadata_tap_non_not_found_error_is_ignored() {
+    fn composite_fetch_metadata_tap_registry_error_is_ignored() {
         // A non-PackNotFound error from a tap should be warned/ignored,
         // not propagated as fatal.
         let official = MockRegistry::new(); // pack not here
@@ -796,7 +796,7 @@ mod tests {
     }
 
     #[test]
-    fn composite_fetch_version_official_non_not_found_error_is_fatal() {
+    fn composite_fetch_version_official_registry_error_is_fatal() {
         let official = FailingRegistry::new("server error");
         let mut tap = MockRegistry::new();
         tap.add_pack(sample_metadata_named("some-pack", "from tap"));
@@ -806,13 +806,13 @@ mod tests {
             .fetch_version("some-pack", &semver::Version::new(1, 0, 0))
             .unwrap_err();
         assert!(
-            err.to_string().contains("server error"),
+            matches!(err, WeaveError::Registry(ref msg) if msg.contains("server error")),
             "official non-not-found error should propagate: {err}"
         );
     }
 
     #[test]
-    fn composite_fetch_version_tap_non_not_found_error_is_ignored() {
+    fn composite_fetch_version_tap_registry_error_is_ignored() {
         let official = MockRegistry::new(); // pack not here
         let failing_tap = FailingRegistry::new("tap DNS failure");
         let mut good_tap = MockRegistry::new();
@@ -841,7 +841,10 @@ mod tests {
         let err = composite
             .publish(std::path::Path::new("/fake"), "token")
             .unwrap_err();
-        assert!(err.to_string().contains("publish is not yet supported"));
+        assert!(
+            matches!(err, WeaveError::Registry(ref msg) if msg.contains("publish is not yet supported")),
+            "publish should return Registry error: {err}"
+        );
     }
 
     // This test exercises a defensive branch in `publish()` that is unreachable
