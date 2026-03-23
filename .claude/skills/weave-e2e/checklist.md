@@ -272,6 +272,27 @@ X-Test = "static-value"
 
 ---
 
+## Flow 15: Authentication
+
+**Goal:** Verify `weave auth login/logout/status` commands handle token storage, overwrite, env-var precedence, and edge cases.
+
+| Step | Command | Expected |
+|------|---------|----------|
+| 15.1 | `weave auth status` | "Not authenticated" (clean slate) |
+| 15.2 | `echo "stdin-token-1234" | weave auth login` | Exits 0, reads token from stdin, prints "Token stored" |
+| 15.3 | `weave auth status` | "Authenticated", shows `stdi****` masked prefix |
+| 15.4 | `weave auth login --token "overwrite-token-5678"` | Exits 0, overwrites previous token |
+| 15.5 | `weave auth status` | Shows `over****` masked prefix (second token wins) |
+| 15.6 | `weave auth logout` | Exits 0, "Logged out" |
+| 15.7 | `weave auth logout` | Exits 0 (logout when already logged out is not an error) |
+| 15.8 | `weave auth status` | "Not authenticated" |
+| 15.9 | `weave auth login --token "file-token-abcd"` then `WEAVE_TOKEN="" weave auth status` | Shows file source, NOT env var (empty env var is ignored) |
+| 15.10 | `WEAVE_TOKEN="env-token-9999" weave auth status` | Shows `WEAVE_TOKEN` as source, `env-****` masked prefix (env overrides file) |
+
+**Pass criteria:** Login via stdin and flag both work; overwrite replaces cleanly; logout is idempotent; empty WEAVE_TOKEN is ignored; non-empty WEAVE_TOKEN overrides file.
+
+---
+
 ## Flow 14: Cleanup
 
 **Goal:** Restore machine to pre-test state.
@@ -289,8 +310,9 @@ X-Test = "static-value"
 | 14.9 | `weave profile delete e2e-validation 2>/dev/null \|\| true` | Profile removed |
 | 14.10 | `rm -rf /tmp/weave-e2e-local /tmp/weave-e2e-hooks /tmp/weave-e2e-http` | Temp dirs removed |
 | 14.11 | `rm -f .mcp.json` | Project-scope file removed if present |
-| 14.12 | `weave list` | Clean — no e2e test packs |
-| 14.13 | `weave diagnose` | No errors |
+| 14.12 | `weave auth logout 2>/dev/null || true` | Auth credentials removed |
+| 14.13 | `weave list` | Clean — no e2e test packs |
+| 14.14 | `weave diagnose` | No errors |
 
 **Pass criteria:** Machine state matches pre-test baseline.
 
@@ -312,4 +334,5 @@ X-Test = "static-value"
 | 11 — Community taps | ✓ / ✗ | |
 | 12 — Hooks | ✓ / ✗ | |
 | 13 — HTTP transport | ✓ / ✗ | |
+| 15 — Authentication | ✓ / ✗ | |
 | 14 — Cleanup | ✓ / ✗ | |

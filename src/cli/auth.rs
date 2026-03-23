@@ -3,6 +3,7 @@ use anyhow::{Context, Result};
 use crate::cli::style;
 use crate::core::config::Config;
 use crate::core::credentials;
+use crate::core::credentials::TokenSource;
 
 /// Authenticate with the registry by storing a token.
 ///
@@ -21,6 +22,7 @@ pub fn login(token: Option<&str>) -> Result<()> {
             buf.trim().to_string()
         }
     };
+    let token = token.trim().to_string();
 
     // Validate token format (printable ASCII, non-empty).
     credentials::validate_token_format(&token).map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -71,24 +73,17 @@ pub fn logout() -> Result<()> {
 /// Show current authentication state.
 pub fn status() -> Result<()> {
     let config = Config::load().context("loading weave config")?;
-    let token = credentials::resolve_token(&config)?;
+    let resolved = credentials::resolve_token(&config)?;
 
-    match token {
-        Some(ref t) => {
-            // Match resolve_token's logic: env var only counts if non-empty after trim.
-            let from_env = std::env::var("WEAVE_TOKEN")
-                .ok()
-                .filter(|v| !v.trim().is_empty())
-                .is_some();
-            let source = if from_env {
-                "environment variable WEAVE_TOKEN".to_string()
-            } else {
-                let path = credentials::credentials_path(&config)?;
-                path.display().to_string()
+    match resolved {
+        Some(ref r) => {
+            let source = match &r.source {
+                TokenSource::EnvVar => "environment variable WEAVE_TOKEN".to_string(),
+                TokenSource::File(path) => path.display().to_string(),
             };
 
-            let masked = if t.len() > 4 {
-                format!("{}****", &t[..4])
+            let masked = if r.token.len() > 4 {
+                format!("{}****", &r.token[..4])
             } else {
                 "****".to_string()
             };

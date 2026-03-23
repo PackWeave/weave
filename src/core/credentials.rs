@@ -17,6 +17,20 @@ use crate::core::config::Config;
 use crate::error::{Result, WeaveError};
 use crate::util;
 
+/// Where a resolved token came from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TokenSource {
+    EnvVar,
+    File(PathBuf),
+}
+
+/// A resolved token together with its source.
+#[derive(Debug, Clone)]
+pub struct ResolvedToken {
+    pub token: String,
+    pub source: TokenSource,
+}
+
 /// Return the path to the credentials file.
 ///
 /// Uses `Config::auth_token_path` if set (must be under `~/.packweave/`),
@@ -26,10 +40,31 @@ pub fn credentials_path(config: &Config) -> Result<PathBuf> {
         let custom_path = PathBuf::from(custom);
         // Validate the override is under the packweave directory to prevent
         // config.toml from redirecting credential reads/writes to arbitrary paths.
-        // Skip this check in test mode (WEAVE_TEST_STORE_DIR overrides the
+        // Skip this check in test builds (WEAVE_TEST_STORE_DIR overrides the
         // packweave dir to a temp directory).
-        if std::env::var("WEAVE_TEST_STORE_DIR").is_err() {
+        #[cfg(not(test))]
+        {
             let packweave = util::packweave_dir()?;
+
+            // Reject paths containing `..` components before attempting canonicalize,
+            // because canonicalize falls back to raw comparison on non-existent paths
+            // and `..` could bypass the containment check.
+            if custom_path
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
+            {
+                return Err(WeaveError::io(
+                    format!(
+                        "auth_token_path '{}' contains '..' components — refusing to use it",
+                        custom_path.display()
+                    ),
+                    std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "credential path must not contain '..' components",
+                    ),
+                ));
+            }
+
             let canonical_custom = custom_path
                 .canonicalize()
                 .unwrap_or_else(|_| custom_path.clone());
@@ -60,12 +95,20 @@ pub fn credentials_path(config: &Config) -> Result<PathBuf> {
 /// 1. `WEAVE_TOKEN` environment variable
 /// 2. Credentials file on disk (rejects symlinks)
 /// 3. `None` (not authenticated)
-pub fn resolve_token(config: &Config) -> Result<Option<String>> {
+pub fn resolve_token(config: &Config) -> Result<Option<ResolvedToken>> {
     // Environment variable takes precedence.
     if let Ok(token) = std::env::var("WEAVE_TOKEN") {
         let trimmed = token.trim().to_string();
         if !trimmed.is_empty() {
-            return Ok(Some(trimmed));
+            if validate_token_format(&trimmed).is_err() {
+                log::warn!("WEAVE_TOKEN contains invalid characters — ignoring it");
+                // Fall through to file-based resolution.
+            } else {
+                return Ok(Some(ResolvedToken {
+                    token: trimmed,
+                    source: TokenSource::EnvVar,
+                }));
+            }
         }
     }
 
@@ -76,7 +119,17 @@ pub fn resolve_token(config: &Config) -> Result<Option<String>> {
         let content = util::read_file(&path)?;
         let trimmed = content.trim().to_string();
         if !trimmed.is_empty() {
-            return Ok(Some(trimmed));
+            if validate_token_format(&trimmed).is_err() {
+                log::warn!(
+                    "credentials file '{}' contains invalid characters — ignoring it",
+                    path.display()
+                );
+                return Ok(None);
+            }
+            return Ok(Some(ResolvedToken {
+                token: trimmed,
+                source: TokenSource::File(path),
+            }));
         }
     }
 
@@ -133,21 +186,29 @@ pub fn store_token(config: &Config, token: &str) -> Result<()> {
         use std::io::Write;
         use std::os::unix::fs::OpenOptionsExt;
 
-        let tmp_path = path.with_extension("tmp");
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(&tmp_path)
-            .map_err(|e| WeaveError::io("creating credentials file", e))?;
-        file.write_all(token.as_bytes())
-            .map_err(|e| WeaveError::io("writing credentials", e))?;
-        file.sync_all()
-            .map_err(|e| WeaveError::io("syncing credentials", e))?;
-        drop(file);
-        std::fs::rename(&tmp_path, &path)
-            .map_err(|e| WeaveError::io("finalizing credentials file", e))?;
+        let tmp_path = path.with_file_name(format!("credentials.tmp.{}", std::process::id()));
+        let result = (|| -> Result<()> {
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&tmp_path)
+                .map_err(|e| WeaveError::io("creating credentials file", e))?;
+            file.write_all(token.as_bytes())
+                .map_err(|e| WeaveError::io("writing credentials", e))?;
+            file.sync_all()
+                .map_err(|e| WeaveError::io("syncing credentials", e))?;
+            drop(file);
+            std::fs::rename(&tmp_path, &path)
+                .map_err(|e| WeaveError::io("finalizing credentials file", e))?;
+            Ok(())
+        })();
+        if result.is_err() {
+            // Clean up temp file on failure.
+            let _ = std::fs::remove_file(&tmp_path);
+        }
+        result?;
     }
 
     // On non-Unix: write directly (NTFS ACLs protect the user's home directory).
@@ -162,6 +223,9 @@ pub fn store_token(config: &Config, token: &str) -> Result<()> {
 /// Remove the credentials file.
 pub fn remove_token(config: &Config) -> Result<()> {
     let path = credentials_path(config)?;
+    if path.exists() {
+        reject_symlink(&path)?;
+    }
     util::remove_file_if_exists(&path)
 }
 
@@ -191,7 +255,19 @@ pub fn validate_github_token(token: &str) -> Option<String> {
 
 /// Returns true if the registry URL points to GitHub (the default registry).
 pub fn is_github_registry(registry_url: &str) -> bool {
-    registry_url.contains("githubusercontent.com") || registry_url.contains("github.com")
+    let host_with_port = registry_url
+        .split("://")
+        .nth(1)
+        .and_then(|r| r.split('/').next())
+        .unwrap_or("");
+    let host = host_with_port.split(':').next().unwrap_or(host_with_port);
+
+    const GITHUB_DOMAINS: [&str; 2] = ["github.com", "githubusercontent.com"];
+    GITHUB_DOMAINS.iter().any(|domain| {
+        host == *domain
+            || (host.ends_with(domain)
+                && host.as_bytes().get(host.len() - domain.len() - 1) == Some(&b'.'))
+    })
 }
 
 /// Reject a path if it is a symlink.
@@ -268,8 +344,15 @@ mod tests {
 
         // Env var should win.
         let _guard = EnvGuard::set("WEAVE_TOKEN", "env-token");
-        let token = resolve_token(&config).unwrap();
-        assert_eq!(token.as_deref(), Some("env-token"));
+        let resolved = resolve_token(&config).unwrap();
+        assert_eq!(
+            resolved.as_ref().map(|r| r.token.as_str()),
+            Some("env-token")
+        );
+        assert_eq!(
+            resolved.as_ref().map(|r| &r.source),
+            Some(&TokenSource::EnvVar)
+        );
     }
 
     #[test]
@@ -280,8 +363,15 @@ mod tests {
         let _guard = EnvGuard::remove("WEAVE_TOKEN");
 
         store_token(&config, "file-token").unwrap();
-        let token = resolve_token(&config).unwrap();
-        assert_eq!(token.as_deref(), Some("file-token"));
+        let resolved = resolve_token(&config).unwrap();
+        assert_eq!(
+            resolved.as_ref().map(|r| r.token.as_str()),
+            Some("file-token")
+        );
+        assert!(matches!(
+            resolved.as_ref().map(|r| &r.source),
+            Some(TokenSource::File(_))
+        ));
     }
 
     #[test]
@@ -339,8 +429,11 @@ mod tests {
         util::write_file(&path, "  my-token  \n").unwrap();
 
         // resolve_token should return the trimmed value.
-        let token = resolve_token(&config).unwrap();
-        assert_eq!(token.as_deref(), Some("my-token"));
+        let resolved = resolve_token(&config).unwrap();
+        assert_eq!(
+            resolved.as_ref().map(|r| r.token.as_str()),
+            Some("my-token")
+        );
     }
 
     #[test]
@@ -378,6 +471,19 @@ mod tests {
     #[test]
     fn is_github_registry_rejects_non_github() {
         assert!(!is_github_registry("https://my-registry.example.com"));
+    }
+
+    #[test]
+    fn is_github_registry_rejects_substring_match() {
+        assert!(!is_github_registry("https://evil-github.com/repo"));
+    }
+
+    #[test]
+    fn is_github_registry_accepts_subdomains() {
+        // Subdomains of githubusercontent.com are legitimate GitHub hosts.
+        assert!(is_github_registry(
+            "https://objects.githubusercontent.com/repo"
+        ));
     }
 
     #[cfg(unix)]

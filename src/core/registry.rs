@@ -265,11 +265,12 @@ fn http_get_json<T: serde::de::DeserializeOwned>(
     // Only send the token to trusted GitHub hosts. If registry_url in config
     // points to a non-GitHub domain, the token must not be leaked to it.
     if let Some(token) = token {
-        let host = url
+        let host_with_port = url
             .split("://")
             .nth(1)
             .and_then(|rest| rest.split('/').next())
             .unwrap_or("");
+        let host = host_with_port.split(':').next().unwrap_or(host_with_port);
         const TRUSTED_HOSTS: [&str; 2] = ["api.github.com", "raw.githubusercontent.com"];
         if TRUSTED_HOSTS.iter().any(|h| host.eq_ignore_ascii_case(h)) {
             request = request.header("Authorization", format!("Bearer {token}"));
@@ -298,10 +299,12 @@ fn http_get_json<T: serde::de::DeserializeOwned>(
 /// If no taps are configured the composite still works correctly — it degrades to
 /// a single-registry wrapper with negligible overhead.
 pub fn registry_from_config(config: &crate::core::config::Config) -> CompositeRegistry {
-    let token = crate::core::credentials::resolve_token(config).unwrap_or_else(|e| {
-        log::warn!("failed to resolve auth token: {e}");
-        None
-    });
+    let token = crate::core::credentials::resolve_token(config)
+        .unwrap_or_else(|e| {
+            log::warn!("failed to resolve auth token: {e}");
+            None
+        })
+        .map(|r| r.token);
     // Token is only sent to the official registry, never to community taps.
     // A malicious tap operator could otherwise harvest the user's GitHub PAT.
     let official = GitHubRegistry::new(&config.registry_url, token);
@@ -904,5 +907,66 @@ mod tests {
             versions: vec![],
         };
         assert!(meta.latest_version().is_err());
+    }
+
+    // ── Host allowlist tests ─────────────────────────────────────────────
+
+    /// Helper to extract the host from a URL the same way http_get_json does.
+    fn extract_trusted_host(url: &str) -> &str {
+        let host_with_port = url
+            .split("://")
+            .nth(1)
+            .and_then(|rest| rest.split('/').next())
+            .unwrap_or("");
+        host_with_port.split(':').next().unwrap_or(host_with_port)
+    }
+
+    fn is_trusted(url: &str) -> bool {
+        let host = extract_trusted_host(url);
+        const TRUSTED_HOSTS: [&str; 2] = ["api.github.com", "raw.githubusercontent.com"];
+        TRUSTED_HOSTS.iter().any(|h| host.eq_ignore_ascii_case(h))
+    }
+
+    #[test]
+    fn trusted_host_matches_github_raw() {
+        assert!(is_trusted(
+            "https://raw.githubusercontent.com/PackWeave/registry/main/index.json"
+        ));
+    }
+
+    #[test]
+    fn trusted_host_matches_github_api() {
+        assert!(is_trusted("https://api.github.com/user"));
+    }
+
+    #[test]
+    fn trusted_host_matches_with_port() {
+        assert!(is_trusted(
+            "https://raw.githubusercontent.com:443/PackWeave/registry/main/index.json"
+        ));
+    }
+
+    #[test]
+    fn trusted_host_rejects_localhost() {
+        assert!(!is_trusted("http://127.0.0.1:8080/index.json"));
+    }
+
+    #[test]
+    fn trusted_host_rejects_evil_subdomain() {
+        assert!(!is_trusted(
+            "https://raw.githubusercontent.com.evil.com/index.json"
+        ));
+    }
+
+    #[test]
+    fn trusted_host_rejects_non_github() {
+        assert!(!is_trusted("https://my-registry.example.com/index.json"));
+    }
+
+    #[test]
+    fn trusted_host_case_insensitive() {
+        assert!(is_trusted(
+            "https://RAW.GITHUBUSERCONTENT.COM/PackWeave/registry/main/index.json"
+        ));
     }
 }
