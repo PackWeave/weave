@@ -6,6 +6,22 @@ use crate::core::registry::PackRelease;
 use crate::error::{Result, WeaveError};
 use crate::util;
 
+/// A cached pack entry returned by [`Store::list_cached`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CachedEntry {
+    pub name: String,
+    pub version: semver::Version,
+    /// `true` when the cache directory carries a `-local-{hash}` suffix,
+    /// indicating the entry was installed from a local path rather than a
+    /// registry.
+    pub is_local: bool,
+    /// The raw version directory name (e.g. `"1.0.0"` or
+    /// `"1.0.0-local-abcdef0123456789"`).  Used as a tiebreaker in the sort
+    /// so that multiple local entries of the same name+version (installed from
+    /// different paths) have a deterministic order.
+    pub cache_key: String,
+}
+
 /// Manages the local pack cache at `~/.packweave/packs/`.
 pub struct Store;
 
@@ -30,15 +46,132 @@ impl Store {
 
     /// FNV-1a 64-bit hash — deterministic across Rust versions, unlike
     /// `DefaultHasher` which explicitly does not guarantee stability.
+    ///
+    /// The path is normalized before hashing so that semantically equivalent
+    /// paths (e.g. `/foo/./bar` vs `/foo/bar`, `/foo/baz/../bar` vs `/foo/bar`)
+    /// produce the same hash. This is a defense-in-depth measure — the install
+    /// path already canonicalizes in most cases.
     fn stable_hash_path(path: &str) -> u64 {
+        let normalized = Self::normalize_path(path);
         const FNV_OFFSET: u64 = 0xcbf29ce484222325;
         const FNV_PRIME: u64 = 0x00000100000001B3;
         let mut hash = FNV_OFFSET;
-        for byte in path.as_bytes() {
+        for byte in normalized.as_bytes() {
             hash ^= *byte as u64;
             hash = hash.wrapping_mul(FNV_PRIME);
         }
         hash
+    }
+
+    /// Lexically normalize a path by resolving `.` and `..` segments without
+    /// touching the filesystem. Behaves like Go's `path.Clean()`: collapses
+    /// `.` and `..`, removes trailing slashes and double separators, and
+    /// absorbs `..` past the root (so `/../foo` becomes `/foo`).
+    ///
+    /// Examples:
+    /// - `/foo/./bar` -> `/foo/bar`
+    /// - `/foo/baz/../bar` -> `/foo/bar`
+    /// - `/../foo` -> `/foo`
+    /// - `/foo/bar/` -> `/foo/bar`
+    /// - `/foo//bar` -> `/foo/bar`
+    /// - `relative/./path` -> `relative/path`
+    fn normalize_path(path: &str) -> String {
+        use std::path::{Component, Path};
+
+        // Canonicalize separators: replace Windows-style backslashes with
+        // forward slashes so that the component-based normalization works
+        // correctly regardless of which OS compiled this binary.
+        let path = path.replace('\\', "/");
+
+        // Fast path: if the string has no segments that need normalization,
+        // return the original without allocating a new String.
+        if !path.is_empty() && !Self::path_needs_normalization(&path) {
+            return path.to_string();
+        }
+
+        let mut components: Vec<Component<'_>> = Vec::new();
+        for component in Path::new(path.as_str()).components() {
+            match component {
+                Component::CurDir => {} // skip `.`
+                Component::ParentDir => {
+                    match components.last() {
+                        // Pop the last normal component if possible.
+                        Some(Component::Normal(_)) => {
+                            components.pop();
+                        }
+                        // `..` past root is absorbed (like Go's path.Clean).
+                        Some(Component::RootDir) => {}
+                        // Preserve `..` at the start of relative paths.
+                        _ => {
+                            components.push(component);
+                        }
+                    }
+                }
+                _ => components.push(component),
+            }
+        }
+        if components.is_empty() {
+            return ".".to_string();
+        }
+        let result: PathBuf = components.iter().collect();
+        // On Windows, PathBuf joins components with backslashes. Since we
+        // canonicalized to forward slashes at the top, ensure the output
+        // is consistent regardless of the host OS.
+        result.to_string_lossy().replace('\\', "/")
+    }
+
+    /// Returns `true` if the path contains segments that need normalization:
+    /// `.` or `..` components, trailing separators, or double separators.
+    fn path_needs_normalization(path: &str) -> bool {
+        let bytes = path.as_bytes();
+
+        /// Returns `true` if `b` is a path separator (`/` or `\`).
+        fn is_sep(b: u8) -> bool {
+            b == b'/' || b == b'\\'
+        }
+
+        // Trailing separator (but not the root "/" or "\" itself).
+        if bytes.len() > 1 && is_sep(bytes[bytes.len() - 1]) {
+            return true;
+        }
+
+        // Scan for double separators or `/./` or `/../` patterns.
+        let mut i = 0;
+        while i < bytes.len() {
+            if is_sep(bytes[i]) {
+                // Double separator.
+                if i + 1 < bytes.len() && is_sep(bytes[i + 1]) {
+                    return true;
+                }
+                // Check for `/./` or `/.` at end, or `/../` or `/..` at end.
+                if i + 1 < bytes.len() && bytes[i + 1] == b'.' {
+                    if i + 2 >= bytes.len() || is_sep(bytes[i + 2]) {
+                        return true;
+                    }
+                    if bytes[i + 2] == b'.' && (i + 3 >= bytes.len() || is_sep(bytes[i + 3])) {
+                        return true;
+                    }
+                }
+            }
+            i += 1;
+        }
+
+        // Leading `.` or `..` segment.
+        if bytes[0] == b'.' {
+            if bytes.len() == 1 || is_sep(bytes[1]) {
+                return true;
+            }
+            if bytes.len() >= 2 && bytes[1] == b'.' && (bytes.len() == 2 || is_sep(bytes[2])) {
+                return true;
+            }
+        }
+
+        // Contains backslashes that should be normalized to forward slashes.
+        if bytes.contains(&b'\\') {
+            return true;
+        }
+
+        false
     }
 
     /// Path where a specific pack version is stored.
@@ -222,12 +355,25 @@ impl Store {
         Pack::load(&dir)
     }
 
-    /// List all cached packs as (name, version) pairs.
+    /// List all cached packs as [`CachedEntry`] values.
     ///
     /// Handles both plain version directories (`1.0.0`) and local-suffixed
     /// directories (`1.0.0-local-{hash}`). The suffix is stripped before
     /// parsing the version so local entries are reported correctly.
-    pub fn list_cached() -> Result<Vec<(String, semver::Version)>> {
+    ///
+    /// The `is_local` flag is `true` for entries whose directory name carries
+    /// the `-local-{hash}` suffix, allowing callers to distinguish registry
+    /// and local installs of the same name+version.
+    ///
+    /// Results are sorted by `(name, version, is_local)` so that registry
+    /// entries come before local entries for the same name+version.
+    ///
+    /// # Current callers
+    ///
+    /// As of this writing there are no callers outside of unit tests. The API
+    /// is prepared for future use by `weave list --cached` or similar CLI
+    /// commands.
+    pub fn list_cached() -> Result<Vec<CachedEntry>> {
         let root = Self::root()?;
         let mut result = Vec::new();
 
@@ -253,25 +399,39 @@ impl Store {
                     ver_entry.map_err(|e| WeaveError::io("reading version entry", e))?;
                 let ver_str = ver_entry.file_name().to_string_lossy().to_string();
 
-                // Strip `-local-{hex}` suffix if present so we can parse the
-                // semver portion.
-                let semver_str = Self::strip_local_suffix(&ver_str);
+                // Strip the local suffix (if present) in a single pass,
+                // returning both the semver portion and the is_local flag.
+                let (semver_str, is_local) = Self::split_local_suffix(&ver_str);
 
                 if let Ok(version) = semver::Version::parse(semver_str)
                     && ver_entry.path().join("pack.toml").exists()
                 {
-                    result.push((name.clone(), version));
+                    result.push(CachedEntry {
+                        name: name.clone(),
+                        version,
+                        is_local,
+                        cache_key: ver_str.clone(),
+                    });
                 }
             }
         }
 
-        result.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+        result.sort_by(|a, b| {
+            a.name
+                .cmp(&b.name)
+                .then(a.version.cmp(&b.version))
+                .then(a.is_local.cmp(&b.is_local))
+                .then(a.cache_key.cmp(&b.cache_key))
+        });
         Ok(result)
     }
 
-    /// Strip the `-local-{16-hex-digit}` suffix from a version directory name.
-    /// Returns the original string unchanged if the suffix is not present.
-    fn strip_local_suffix(dir_name: &str) -> &str {
+    /// Split a version directory name into its semver portion and a flag
+    /// indicating whether the `-local-{16-hex-digit}` suffix was present.
+    ///
+    /// Returns `(semver_str, true)` when the suffix is found, or
+    /// `(dir_name, false)` when it is not.
+    fn split_local_suffix(dir_name: &str) -> (&str, bool) {
         // The suffix is exactly "-local-" + 16 hex digits = 23 characters.
         const SUFFIX_LEN: usize = "-local-".len() + 16; // 23
         if dir_name.len() > SUFFIX_LEN {
@@ -280,10 +440,10 @@ impl Store {
                 && hex_part.len() == 16
                 && hex_part.chars().all(|c| c.is_ascii_hexdigit())
             {
-                return prefix;
+                return (prefix, true);
             }
         }
-        dir_name
+        (dir_name, false)
     }
 
     /// Remove a specific pack version from the store.
@@ -599,42 +759,353 @@ mod tests {
         );
     }
 
+    // ── split_local_suffix ─────────────────────────────────────────────────
+
     #[test]
-    fn strip_local_suffix_strips_valid_suffix() {
-        assert_eq!(
-            Store::strip_local_suffix("1.0.0-local-abcdef0123456789"),
-            "1.0.0"
-        );
+    fn split_local_suffix_strips_valid_suffix() {
+        let (semver_str, is_local) = Store::split_local_suffix("1.0.0-local-abcdef0123456789");
+        assert_eq!(semver_str, "1.0.0");
+        assert!(is_local);
     }
 
     #[test]
-    fn strip_local_suffix_preserves_plain_version() {
-        assert_eq!(Store::strip_local_suffix("1.0.0"), "1.0.0");
+    fn split_local_suffix_preserves_plain_version() {
+        let (semver_str, is_local) = Store::split_local_suffix("1.0.0");
+        assert_eq!(semver_str, "1.0.0");
+        assert!(!is_local);
     }
 
     #[test]
-    fn strip_local_suffix_preserves_invalid_suffix() {
+    fn split_local_suffix_preserves_invalid_suffix() {
         // Too short hex part.
-        assert_eq!(
-            Store::strip_local_suffix("1.0.0-local-abc"),
-            "1.0.0-local-abc"
-        );
+        let (s, local) = Store::split_local_suffix("1.0.0-local-abc");
+        assert_eq!(s, "1.0.0-local-abc");
+        assert!(!local);
         // Non-hex chars.
-        assert_eq!(
-            Store::strip_local_suffix("1.0.0-local-ghijklmnopqrstuv"),
-            "1.0.0-local-ghijklmnopqrstuv"
-        );
+        let (s, local) = Store::split_local_suffix("1.0.0-local-ghijklmnopqrstuv");
+        assert_eq!(s, "1.0.0-local-ghijklmnopqrstuv");
+        assert!(!local);
     }
 
     #[test]
     fn stable_hash_is_pinned() {
-        // Pinned value — if this assertion breaks, existing local cache
-        // directories become orphaned. Do NOT change the hash algorithm
-        // without a migration path for existing stores.
+        // Pinned value for a clean path — if this assertion breaks, existing
+        // local cache directories become orphaned. Do NOT change the hash
+        // algorithm without a migration path for existing stores.
         assert_eq!(
             Store::stable_hash_path("/home/user/my-pack"),
             0xc4f22075cdd996fa,
             "FNV-1a output must be stable across Rust versions"
         );
+    }
+
+    // ── list_cached source discrimination ───────────────────────────────────
+
+    #[test]
+    #[serial_test::serial]
+    fn list_cached_registry_only() {
+        let tmp = TempDir::new().unwrap();
+        let _guard = EnvGuard::set("WEAVE_TEST_STORE_DIR", tmp.path());
+
+        let name = "reg-pack";
+        let v = semver::Version::new(1, 0, 0);
+        let dir = Store::pack_dir(name, &v, None).unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("pack.toml"), "[pack]\nname = \"reg-pack\"").unwrap();
+
+        let cached = Store::list_cached().unwrap();
+        assert_eq!(cached.len(), 1);
+        assert_eq!(cached[0].name, "reg-pack");
+        assert_eq!(cached[0].version, semver::Version::new(1, 0, 0));
+        assert!(
+            !cached[0].is_local,
+            "registry entry should have is_local = false"
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn list_cached_local_only() {
+        let tmp = TempDir::new().unwrap();
+        let _guard = EnvGuard::set("WEAVE_TEST_STORE_DIR", tmp.path());
+
+        let name = "local-pack";
+        let v = semver::Version::new(2, 0, 0);
+        let local_source = PackSource::Local {
+            path: "/tmp/local-pack".into(),
+        };
+        let dir = Store::pack_dir(name, &v, Some(&local_source)).unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("pack.toml"), "[pack]\nname = \"local-pack\"").unwrap();
+
+        let cached = Store::list_cached().unwrap();
+        assert_eq!(cached.len(), 1);
+        assert_eq!(cached[0].name, "local-pack");
+        assert_eq!(cached[0].version, semver::Version::new(2, 0, 0));
+        assert!(
+            cached[0].is_local,
+            "local entry should have is_local = true"
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn list_cached_mixed_sources() {
+        let tmp = TempDir::new().unwrap();
+        let _guard = EnvGuard::set("WEAVE_TEST_STORE_DIR", tmp.path());
+
+        let name = "shared-pack";
+        let v = semver::Version::new(1, 0, 0);
+
+        // Create a registry entry.
+        let reg_dir = Store::pack_dir(name, &v, None).unwrap();
+        std::fs::create_dir_all(&reg_dir).unwrap();
+        std::fs::write(reg_dir.join("pack.toml"), "[pack]\nname = \"shared-pack\"").unwrap();
+
+        // Create a local entry for the same name+version.
+        let local_source = PackSource::Local {
+            path: "/tmp/shared-pack".into(),
+        };
+        let local_dir = Store::pack_dir(name, &v, Some(&local_source)).unwrap();
+        std::fs::create_dir_all(&local_dir).unwrap();
+        std::fs::write(
+            local_dir.join("pack.toml"),
+            "[pack]\nname = \"shared-pack\"",
+        )
+        .unwrap();
+
+        let cached = Store::list_cached().unwrap();
+        assert_eq!(
+            cached.len(),
+            2,
+            "both registry and local entries should appear"
+        );
+
+        // Both share the same name and version.
+        assert_eq!(cached[0].name, "shared-pack");
+        assert_eq!(cached[1].name, "shared-pack");
+        assert_eq!(cached[0].version, semver::Version::new(1, 0, 0));
+        assert_eq!(cached[1].version, semver::Version::new(1, 0, 0));
+
+        // Sort order: registry (is_local=false) before local (is_local=true).
+        assert!(
+            !cached[0].is_local && cached[1].is_local,
+            "registry entry must sort before local entry, got: [is_local={}, is_local={}]",
+            cached[0].is_local,
+            cached[1].is_local
+        );
+    }
+
+    #[test]
+    fn stable_hash_dirty_path_equals_clean() {
+        // Path normalization was introduced so that semantically equivalent
+        // paths hash identically. This is safe because the upstream install
+        // path canonicalizes before storing, so no pre-existing cache entries
+        // were created with dirty (non-canonical) paths.
+        let clean = Store::stable_hash_path("/home/user/my-pack");
+        let dirty = Store::stable_hash_path("/home/user/./my-pack");
+        assert_eq!(
+            dirty, clean,
+            "dirty path must hash to the same value as the clean path"
+        );
+    }
+
+    // ── path normalization ──────────────────────────────────────────────────
+
+    #[test]
+    fn normalize_path_removes_dot_segments() {
+        assert_eq!(Store::normalize_path("/foo/./bar"), "/foo/bar");
+    }
+
+    #[test]
+    fn normalize_path_resolves_dotdot_segments() {
+        assert_eq!(Store::normalize_path("/foo/baz/../bar"), "/foo/bar");
+    }
+
+    #[test]
+    fn normalize_path_preserves_clean_absolute() {
+        assert_eq!(
+            Store::normalize_path("/home/user/my-pack"),
+            "/home/user/my-pack"
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn list_cached_empty_store() {
+        let tmp = TempDir::new().unwrap();
+        let _guard = EnvGuard::set("WEAVE_TEST_STORE_DIR", tmp.path());
+
+        // The packs/ directory does not exist at all.
+        let cached = Store::list_cached().unwrap();
+        assert!(
+            cached.is_empty(),
+            "empty/nonexistent store should return empty vec"
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn list_cached_multiple_local_paths_both_returned() {
+        let tmp = TempDir::new().unwrap();
+        let _guard = EnvGuard::set("WEAVE_TEST_STORE_DIR", tmp.path());
+
+        let name = "multi-local";
+        let v = semver::Version::new(1, 0, 0);
+
+        // Create two local entries from different paths.
+        let local_a = PackSource::Local {
+            path: "/path/a".into(),
+        };
+        let local_b = PackSource::Local {
+            path: "/path/b".into(),
+        };
+        for source in &[&local_a, &local_b] {
+            let dir = Store::pack_dir(name, &v, Some(source)).unwrap();
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("pack.toml"), "[pack]\nname = \"multi-local\"").unwrap();
+        }
+
+        let cached = Store::list_cached().unwrap();
+        assert_eq!(cached.len(), 2, "both local entries should appear");
+        assert!(
+            cached.iter().all(|e| e.name == "multi-local" && e.is_local),
+            "all entries should be local with the same name"
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn list_cached_sort_order_deterministic() {
+        let tmp = TempDir::new().unwrap();
+        let _guard = EnvGuard::set("WEAVE_TEST_STORE_DIR", tmp.path());
+
+        // Create entries: beta@2.0.0 (registry), alpha@1.0.0 (local),
+        // alpha@1.0.0 (registry) — to verify full sort order.
+        let v1 = semver::Version::new(1, 0, 0);
+        let v2 = semver::Version::new(2, 0, 0);
+        let local_source = PackSource::Local {
+            path: "/tmp/alpha".into(),
+        };
+
+        // alpha@1.0.0 local
+        let dir = Store::pack_dir("alpha", &v1, Some(&local_source)).unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("pack.toml"), "[pack]\nname = \"alpha\"").unwrap();
+
+        // alpha@1.0.0 registry
+        let dir = Store::pack_dir("alpha", &v1, None).unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("pack.toml"), "[pack]\nname = \"alpha\"").unwrap();
+
+        // beta@2.0.0 registry
+        let dir = Store::pack_dir("beta", &v2, None).unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("pack.toml"), "[pack]\nname = \"beta\"").unwrap();
+
+        let cached = Store::list_cached().unwrap();
+        assert_eq!(cached.len(), 3);
+
+        // Expected order: alpha@1.0.0 (registry), alpha@1.0.0 (local), beta@2.0.0 (registry)
+        assert_eq!(cached[0].name, "alpha");
+        assert!(!cached[0].is_local, "registry alpha should come first");
+        assert_eq!(cached[1].name, "alpha");
+        assert!(cached[1].is_local, "local alpha should come second");
+        assert_eq!(cached[2].name, "beta");
+        assert!(!cached[2].is_local);
+    }
+
+    #[test]
+    fn normalize_path_removes_trailing_slash() {
+        assert_eq!(Store::normalize_path("/foo/bar/"), "/foo/bar");
+    }
+
+    #[test]
+    fn normalize_path_empty_becomes_dot() {
+        assert_eq!(Store::normalize_path(""), ".");
+    }
+
+    #[test]
+    fn normalize_path_relative_with_dot() {
+        assert_eq!(Store::normalize_path("./my-pack"), "my-pack");
+    }
+
+    #[test]
+    fn normalize_path_root() {
+        assert_eq!(Store::normalize_path("/"), "/");
+    }
+
+    #[test]
+    fn normalize_path_dotdot_past_root() {
+        assert_eq!(Store::normalize_path("/../foo"), "/foo");
+    }
+
+    #[test]
+    fn normalize_path_double_separators() {
+        assert_eq!(Store::normalize_path("/foo//bar"), "/foo/bar");
+    }
+
+    #[test]
+    fn normalize_path_only_dot() {
+        assert_eq!(Store::normalize_path("."), ".");
+    }
+
+    #[test]
+    fn normalize_path_relative_dotdot_at_start() {
+        assert_eq!(Store::normalize_path("../foo"), "../foo");
+    }
+
+    #[test]
+    fn normalize_path_trailing_slashes() {
+        assert_eq!(Store::normalize_path("/foo/bar/"), "/foo/bar");
+    }
+
+    #[test]
+    fn equivalent_paths_produce_same_hash() {
+        // These are all semantically equivalent to /foo/bar.
+        let canonical = Store::stable_hash_path("/foo/bar");
+        assert_eq!(Store::stable_hash_path("/foo/./bar"), canonical);
+        assert_eq!(Store::stable_hash_path("/foo/baz/../bar"), canonical);
+        assert_eq!(Store::stable_hash_path("/foo/bar/"), canonical);
+        assert_eq!(Store::stable_hash_path("/foo//bar"), canonical);
+    }
+
+    // ── cross-platform separator tests ─────────────────────────────────────
+
+    #[test]
+    fn normalize_path_windows_backslashes() {
+        // Windows-style path with `..` should normalize on all platforms.
+        assert_eq!(Store::normalize_path("C:\\foo\\..\\bar"), "C:/bar");
+    }
+
+    #[test]
+    fn normalize_path_mixed_separators() {
+        // Mixed forward and back slashes with `..` segment.
+        assert_eq!(Store::normalize_path("foo/bar\\..\\baz"), "foo/baz");
+    }
+
+    #[test]
+    fn normalize_path_backslash_dot_segments() {
+        assert_eq!(Store::normalize_path("foo\\.\\bar"), "foo/bar");
+    }
+
+    #[test]
+    fn normalize_path_pure_backslash_path() {
+        assert_eq!(Store::normalize_path("foo\\bar\\baz"), "foo/bar/baz");
+    }
+
+    #[test]
+    fn normalize_path_windows_double_backslash() {
+        assert_eq!(Store::normalize_path("foo\\\\bar"), "foo/bar");
+    }
+
+    #[test]
+    fn equivalent_paths_backslash_produce_same_hash() {
+        // Backslash-separated paths should hash identically to their
+        // forward-slash equivalents.
+        let canonical = Store::stable_hash_path("/foo/bar");
+        assert_eq!(Store::stable_hash_path("\\foo\\bar"), canonical);
+        assert_eq!(Store::stable_hash_path("/foo\\bar"), canonical);
+        assert_eq!(Store::stable_hash_path("\\foo/bar"), canonical);
     }
 }

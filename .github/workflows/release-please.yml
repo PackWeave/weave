@@ -1,0 +1,28 @@
+# Copyright 2026 Brenno Rangel Ferrari
+# SPDX-License-Identifier: Apache-2.0
+#
+# Automates changelog generation and release PRs using Release Please.
+#
+# When conventional commits land on main, Release Please opens (or updates)
+# a release PR that bumps the version in Cargo.toml, updates CHANGELOG.md,
+# and — once merged — creates a version tag (v*). The existing release.yml
+# workflow picks up the tag and builds binaries / publishes the release.
+
+name: Release Please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

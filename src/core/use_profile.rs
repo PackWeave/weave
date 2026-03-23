@@ -7,7 +7,7 @@ use crate::adapters::{ApplyOptions, CliAdapter};
 use crate::core::config::Config;
 use crate::core::pack::{Pack, PackSource, ResolvedPack};
 use crate::core::profile::{InstalledPack, Profile};
-use crate::core::registry::{GitHubRegistry, Registry};
+use crate::core::registry::Registry;
 use crate::core::store::Store;
 use crate::error::{Result, WeaveError};
 
@@ -84,28 +84,49 @@ pub fn compute_diff(current: &Profile, target: &Profile) -> (Vec<String>, Vec<In
 }
 
 /// Try to load a pack from the store; if missing, attempt to fetch it from the registry.
+///
+/// Only registry-sourced packs can be fetched remotely. Local and Git packs must
+/// already be present in the store — calling this with a non-registry source when
+/// the pack is missing returns [`crate::error::WeaveError::PackNotAvailable`].
 pub fn load_or_fetch_pack(
     name: &str,
     version: &semver::Version,
     source: &PackSource,
+    registry: &dyn Registry,
 ) -> Result<Pack> {
     // Try loading from store first
     if let Ok(pack) = Store::load_pack(name, version, Some(source)) {
         return Ok(pack);
     }
 
-    // Try fetching from registry
-    let registry_url = match source {
-        PackSource::Registry { registry_url } => registry_url,
-        _ => {
+    // Only registry-sourced packs can be fetched from the registry.
+    // Local/Git packs must already be in the store — prevent accidental
+    // registry lookups for non-registry sources.
+    match source {
+        PackSource::Registry { .. } => {}
+        PackSource::Local { path } => {
             return Err(WeaveError::PackNotAvailable {
                 name: name.to_string(),
-                version: version.to_string(),
+                source_type: format!("local ({})", path),
+                hint: format!(
+                    "reinstall from the original local path with `weave install --local {}`",
+                    path
+                ),
             });
         }
-    };
+        PackSource::Git { url, .. } => {
+            return Err(WeaveError::PackNotAvailable {
+                name: name.to_string(),
+                source_type: format!("git ({})", url),
+                hint: format!(
+                    "reinstall from the original URL with `weave install --git {}`",
+                    url
+                ),
+            });
+        }
+    }
 
-    let registry = GitHubRegistry::new(registry_url);
+    // Fetch from registry
     let release = registry.fetch_version(name, version)?;
     Store::fetch(name, &release, Some(source))?;
     Store::load_pack(name, version, Some(source))
@@ -124,6 +145,7 @@ pub fn switch(
     target_profile: &Profile,
     adapters: &[Box<dyn CliAdapter>],
     options: &ApplyOptions,
+    registry: &dyn Registry,
 ) -> Result<SwitchResult> {
     let (to_remove, to_add) = compute_diff(current_profile, target_profile);
 
@@ -132,7 +154,12 @@ pub fn switch(
     // loop could fail partway through, leaving adapter configs in a broken
     // state that is neither the old profile nor the new one.
     for installed in &to_add {
-        load_or_fetch_pack(&installed.name, &installed.version, &installed.source)?;
+        load_or_fetch_pack(
+            &installed.name,
+            &installed.version,
+            &installed.source,
+            registry,
+        )?;
     }
 
     let mut result = SwitchResult {
@@ -182,8 +209,12 @@ pub fn switch(
             load_error: None,
         };
 
-        let pack = match load_or_fetch_pack(&installed.name, &installed.version, &installed.source)
-        {
+        let pack = match load_or_fetch_pack(
+            &installed.name,
+            &installed.version,
+            &installed.source,
+            registry,
+        ) {
             Ok(p) => p,
             Err(e) => {
                 apply_result.load_error = Some(format!(
@@ -313,5 +344,110 @@ mod tests {
         assert_eq!(remove, vec!["old-pack"]);
         assert_eq!(add.len(), 1);
         assert_eq!(add[0].name, "new-pack");
+    }
+
+    /// RAII guard that sets an env var on creation and restores it on drop,
+    /// even if the test panics.
+    struct EnvGuard {
+        key: &'static str,
+        prev: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &std::path::Path) -> Self {
+            let prev = std::env::var(key).ok();
+            // SAFETY: test helper, serial execution
+            unsafe { std::env::set_var(key, value) };
+            Self { key, prev }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            // SAFETY: restoring env on drop in test
+            match &self.prev {
+                Some(v) => unsafe { std::env::set_var(self.key, v) },
+                None => unsafe { std::env::remove_var(self.key) },
+            }
+        }
+    }
+
+    /// A mock registry that panics on any call — used to verify that
+    /// `load_or_fetch_pack` never reaches the registry for non-registry sources.
+    struct MockRegistry;
+
+    impl Registry for MockRegistry {
+        fn search(
+            &self,
+            _query: &str,
+        ) -> crate::error::Result<Vec<crate::core::registry::PackSummary>> {
+            panic!("search should not be called");
+        }
+
+        fn fetch_metadata(
+            &self,
+            _name: &str,
+        ) -> crate::error::Result<crate::core::registry::PackMetadata> {
+            panic!("fetch_metadata should not be called");
+        }
+
+        fn fetch_version(
+            &self,
+            _name: &str,
+            _version: &semver::Version,
+        ) -> crate::error::Result<crate::core::registry::PackRelease> {
+            panic!("fetch_version should not be called — guard should prevent this");
+        }
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn load_or_fetch_local_source_errors_when_not_in_store() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let _guard = EnvGuard::set("WEAVE_TEST_STORE_DIR", tmp.path());
+
+        let source = PackSource::Local {
+            path: "/tmp/nonexistent".to_string(),
+        };
+        let version = semver::Version::new(1, 0, 0);
+        let registry = MockRegistry;
+
+        let result = load_or_fetch_pack("my-pack", &version, &source, &registry);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("not available"),
+            "expected PackNotAvailable error, got: {err_msg}"
+        );
+        assert!(
+            err_msg.contains("local"),
+            "error should mention 'local' source type, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn load_or_fetch_git_source_errors_when_not_in_store() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let _guard = EnvGuard::set("WEAVE_TEST_STORE_DIR", tmp.path());
+
+        let source = PackSource::Git {
+            url: "https://github.com/example/repo".to_string(),
+            rev: Some("abc123".to_string()),
+        };
+        let version = semver::Version::new(1, 0, 0);
+        let registry = MockRegistry;
+
+        let result = load_or_fetch_pack("my-pack", &version, &source, &registry);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("not available"),
+            "expected PackNotAvailable error, got: {err_msg}"
+        );
+        assert!(
+            err_msg.contains("git"),
+            "error should mention 'git' source type, got: {err_msg}"
+        );
     }
 }

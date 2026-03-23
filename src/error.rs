@@ -39,9 +39,13 @@ pub enum WeaveError {
     InvalidVersionReq { input: String, reason: String },
 
     #[error(
-        "pack '{name}@{version}' is not available locally — reinstall with `weave install {name}` or check the pack source"
+        "pack '{name}' is not available from {source_type} and is not in the local store — {hint}"
     )]
-    PackNotAvailable { name: String, version: String },
+    PackNotAvailable {
+        name: String,
+        source_type: String,
+        hint: String,
+    },
 
     // Profile errors
     #[error("profile '{name}' not found — run `weave profile list` to see available profiles")]
@@ -181,11 +185,13 @@ mod tests {
     fn pack_not_available_error_message() {
         let err = WeaveError::PackNotAvailable {
             name: "webdev".to_string(),
-            version: "1.0.0".to_string(),
+            source_type: "local (/tmp/webdev)".to_string(),
+            hint: "reinstall from the original local path with `weave install --local /tmp/webdev`"
+                .to_string(),
         };
         let msg = err.to_string();
-        assert!(msg.contains("'webdev@1.0.0'"));
-        assert!(msg.contains("not available locally"));
-        assert!(msg.contains("`weave install webdev`"));
+        assert!(msg.contains("'webdev'"));
+        assert!(msg.contains("not available from local"));
+        assert!(msg.contains("reinstall"));
     }
 }
