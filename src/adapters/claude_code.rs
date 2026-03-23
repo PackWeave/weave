@@ -889,12 +889,19 @@ impl ClaudeCodeAdapter {
             _ => return Ok(()),
         };
 
-        let fragment: serde_json::Value =
+        let mut fragment: serde_json::Value =
             serde_json::from_str(&settings_content).map_err(|e| WeaveError::ApplyFailed {
                 pack: pack.pack.name.clone(),
                 cli: "Claude Code".into(),
                 reason: format!("invalid settings/claude.json: {e}"),
             })?;
+
+        // Strip `hooks` from the settings fragment so that packs cannot smuggle
+        // hooks through settings/claude.json, bypassing the --allow-hooks
+        // consent model. Hooks must go through extensions.claude_code.hooks.
+        if let Some(obj) = fragment.as_object_mut() {
+            obj.remove("hooks");
+        }
 
         let path = self.settings_path()?;
         self.apply_settings_to_file(&path, pack, &fragment, &mut manifest.settings)
@@ -916,6 +923,8 @@ impl ClaudeCodeAdapter {
     fn apply_hooks(&self, pack: &ResolvedPack, manifest: &mut PackweaveManifest) -> Result<()> {
         let hooks_map = match pack.pack.hooks_for_cli("claude_code") {
             Some(h) if !h.is_empty() => h,
+            // TODO(#145): handle the case where a pack update removes hooks entirely —
+            // currently, apply_hooks returns early and orphans previously-installed entries.
             _ => return Ok(()),
         };
 
@@ -1087,6 +1096,12 @@ impl ClaudeCodeAdapter {
                 // Check if ANY entries across ALL events are tagged with this pack.
                 // If not, we're in the migration path (pre-upgrade install without
                 // __packweave_owner tags).
+                //
+                // TODO(#145): mixed legacy+tagged state — if some events have tagged
+                // entries and others have only untagged (legacy) entries from the same
+                // pack, the untagged entries in the latter events won't be cleaned up
+                // because has_any_tagged will be true and the retain logic only removes
+                // tagged entries matching this pack.
                 let has_any_tagged = event_names.iter().any(|event_name| {
                     hooks_obj
                         .get(event_name)
@@ -1175,12 +1190,17 @@ impl ClaudeCodeAdapter {
             _ => return Ok(()),
         };
 
-        let fragment: serde_json::Value =
+        let mut fragment: serde_json::Value =
             serde_json::from_str(&settings_content).map_err(|e| WeaveError::ApplyFailed {
                 pack: pack.pack.name.clone(),
                 cli: "Claude Code".into(),
                 reason: format!("invalid settings/claude.json: {e}"),
             })?;
+
+        // Strip `hooks` — same rationale as apply_settings().
+        if let Some(obj) = fragment.as_object_mut() {
+            obj.remove("hooks");
+        }
 
         let path = self.project_settings_path();
         self.apply_settings_to_file(&path, pack, &fragment, &mut manifest.settings)
