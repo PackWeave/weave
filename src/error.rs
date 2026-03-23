@@ -25,6 +25,15 @@ pub enum WeaveError {
     #[error("pack '{name}' is not installed — run `weave list` to see installed packs")]
     NotInstalled { name: String },
 
+    #[error(
+        "pack '{name}' is not available from {source_type} and is not in the local store — {hint}"
+    )]
+    PackNotAvailable {
+        name: String,
+        source_type: String,
+        hint: String,
+    },
+
     // Profile errors
     #[error("profile '{name}' not found — run `weave profile list` to see available profiles")]
     ProfileNotFound { name: String },
