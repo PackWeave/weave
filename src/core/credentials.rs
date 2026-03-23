@@ -3,20 +3,53 @@
 //! Tokens are stored in a dedicated file (`~/.packweave/credentials`) with
 //! restricted permissions (0o600 on Unix). The `WEAVE_TOKEN` environment
 //! variable takes precedence over the file at resolution time.
+//!
+//! ## Security properties
+//!
+//! - Credentials file is created with 0o600 before writing content (no TOCTOU window)
+//! - Symlinks are rejected on both read and write paths
+//! - Token is validated for printable ASCII (no header injection)
+//! - Token is only sent to the official registry, never to community taps
 
 use std::path::PathBuf;
 
 use crate::core::config::Config;
-use crate::error::Result;
+use crate::error::{Result, WeaveError};
 use crate::util;
 
 /// Return the path to the credentials file.
 ///
-/// Uses `Config::auth_token_path` if set, otherwise defaults to
-/// `~/.packweave/credentials`.
+/// Uses `Config::auth_token_path` if set (must be under `~/.packweave/`),
+/// otherwise defaults to `~/.packweave/credentials`.
 pub fn credentials_path(config: &Config) -> Result<PathBuf> {
     if let Some(ref custom) = config.auth_token_path {
-        return Ok(PathBuf::from(custom));
+        let custom_path = PathBuf::from(custom);
+        // Validate the override is under the packweave directory to prevent
+        // config.toml from redirecting credential reads/writes to arbitrary paths.
+        // Skip this check in test mode (WEAVE_TEST_STORE_DIR overrides the
+        // packweave dir to a temp directory).
+        if std::env::var("WEAVE_TEST_STORE_DIR").is_err() {
+            let packweave = util::packweave_dir()?;
+            let canonical_custom = custom_path
+                .canonicalize()
+                .unwrap_or_else(|_| custom_path.clone());
+            let canonical_packweave = packweave
+                .canonicalize()
+                .unwrap_or_else(|_| packweave.clone());
+            if !canonical_custom.starts_with(&canonical_packweave) {
+                return Err(WeaveError::io(
+                    format!(
+                        "auth_token_path '{}' is outside ~/.packweave/ — refusing to use it",
+                        custom_path.display()
+                    ),
+                    std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "credential path must be under ~/.packweave/",
+                    ),
+                ));
+            }
+        }
+        return Ok(custom_path);
     }
     Ok(util::packweave_dir()?.join("credentials"))
 }
@@ -25,7 +58,7 @@ pub fn credentials_path(config: &Config) -> Result<PathBuf> {
 ///
 /// Resolution order:
 /// 1. `WEAVE_TOKEN` environment variable
-/// 2. Credentials file on disk
+/// 2. Credentials file on disk (rejects symlinks)
 /// 3. `None` (not authenticated)
 pub fn resolve_token(config: &Config) -> Result<Option<String>> {
     // Environment variable takes precedence.
@@ -39,6 +72,7 @@ pub fn resolve_token(config: &Config) -> Result<Option<String>> {
     // Fall back to credentials file.
     let path = credentials_path(config)?;
     if path.exists() {
+        reject_symlink(&path)?;
         let content = util::read_file(&path)?;
         let trimmed = content.trim().to_string();
         if !trimmed.is_empty() {
@@ -49,14 +83,79 @@ pub fn resolve_token(config: &Config) -> Result<Option<String>> {
     Ok(None)
 }
 
+/// Validate that a token contains only printable ASCII characters.
+///
+/// Rejects tokens with newlines, control characters, or non-ASCII bytes that
+/// could cause header injection or other unexpected behavior.
+pub fn validate_token_format(token: &str) -> Result<()> {
+    if token.is_empty() {
+        return Err(WeaveError::io(
+            "validating token",
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "token cannot be empty"),
+        ));
+    }
+    if !token.bytes().all(|b| b.is_ascii_graphic() || b == b' ') {
+        return Err(WeaveError::io(
+            "validating token",
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "token contains non-printable or non-ASCII characters",
+            ),
+        ));
+    }
+    Ok(())
+}
+
 /// Store a token to the credentials file.
 ///
-/// Creates parent directories if needed and restricts file permissions to
-/// owner-only on Unix (0o600).
+/// Creates parent directories if needed. On Unix, the file is created with
+/// 0o600 permissions atomically (no TOCTOU window). Rejects symlinks at the
+/// target path.
 pub fn store_token(config: &Config, token: &str) -> Result<()> {
+    validate_token_format(token)?;
+
     let path = credentials_path(config)?;
-    util::write_file(&path, token)?;
-    set_owner_only_permissions(&path);
+
+    // Reject symlinks: if the path exists and is a symlink, refuse to write.
+    if path.exists() {
+        reject_symlink(&path)?;
+    }
+
+    // Ensure parent directory exists.
+    if let Some(parent) = path.parent() {
+        util::ensure_dir(parent)?;
+    }
+
+    // On Unix: create with restricted permissions atomically to avoid TOCTOU.
+    // Write to a temp file with 0o600, then rename into place.
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let tmp_path = path.with_extension("tmp");
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&tmp_path)
+            .map_err(|e| WeaveError::io("creating credentials file", e))?;
+        file.write_all(token.as_bytes())
+            .map_err(|e| WeaveError::io("writing credentials", e))?;
+        file.sync_all()
+            .map_err(|e| WeaveError::io("syncing credentials", e))?;
+        drop(file);
+        std::fs::rename(&tmp_path, &path)
+            .map_err(|e| WeaveError::io("finalizing credentials file", e))?;
+    }
+
+    // On non-Unix: write directly (NTFS ACLs protect the user's home directory).
+    #[cfg(not(unix))]
+    {
+        util::write_file(&path, token)?;
+    }
+
     Ok(())
 }
 
@@ -71,6 +170,8 @@ pub fn remove_token(config: &Config) -> Result<()> {
 /// Returns `Some(username)` if the token is valid, `None` on any failure.
 /// This is advisory — a `None` result does not prevent the token from being
 /// stored, because it may be intended for a non-GitHub registry.
+///
+/// Only called when the registry URL points to GitHub (raw.githubusercontent.com).
 pub fn validate_github_token(token: &str) -> Option<String> {
     let client = reqwest::blocking::Client::new();
     let response = client
@@ -88,17 +189,28 @@ pub fn validate_github_token(token: &str) -> Option<String> {
     body["login"].as_str().map(|s| s.to_string())
 }
 
-/// Set file permissions to 0o600 (owner read/write only) on Unix.
-/// No-op on other platforms.
-#[cfg(unix)]
-fn set_owner_only_permissions(path: &std::path::Path) {
-    use std::os::unix::fs::PermissionsExt;
-    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+/// Returns true if the registry URL points to GitHub (the default registry).
+pub fn is_github_registry(registry_url: &str) -> bool {
+    registry_url.contains("githubusercontent.com") || registry_url.contains("github.com")
 }
 
-#[cfg(not(unix))]
-fn set_owner_only_permissions(_path: &std::path::Path) {
-    // Windows NTFS ACLs already scope files to the owning user in home directories.
+/// Reject a path if it is a symlink.
+fn reject_symlink(path: &std::path::Path) -> Result<()> {
+    let meta =
+        std::fs::symlink_metadata(path).map_err(|e| WeaveError::io("checking credentials", e))?;
+    if meta.file_type().is_symlink() {
+        return Err(WeaveError::io(
+            format!(
+                "credentials path '{}' is a symlink — refusing for security",
+                path.display()
+            ),
+            std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "symlink credentials file rejected",
+            ),
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -134,18 +246,22 @@ mod tests {
         }
     }
 
-    fn test_config(dir: &std::path::Path) -> Config {
-        Config {
-            auth_token_path: Some(dir.join("credentials").to_string_lossy().to_string()),
+    /// Create a test config with credentials path under a temp dir.
+    /// Also sets WEAVE_TEST_STORE_DIR so path validation passes.
+    fn test_config_with_guard(tmp: &tempfile::TempDir) -> (Config, EnvGuard) {
+        let guard = EnvGuard::set("WEAVE_TEST_STORE_DIR", &tmp.path().to_string_lossy());
+        let config = Config {
+            auth_token_path: Some(tmp.path().join("credentials").to_string_lossy().to_string()),
             ..Config::default()
-        }
+        };
+        (config, guard)
     }
 
     #[test]
     #[serial_test::serial]
     fn resolve_prefers_env_var() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let config = test_config(tmp.path());
+        let (config, _store_guard) = test_config_with_guard(&tmp);
 
         // Write a file-based token.
         store_token(&config, "file-token").unwrap();
@@ -160,7 +276,7 @@ mod tests {
     #[serial_test::serial]
     fn resolve_reads_file() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let config = test_config(tmp.path());
+        let (config, _store_guard) = test_config_with_guard(&tmp);
         let _guard = EnvGuard::remove("WEAVE_TOKEN");
 
         store_token(&config, "file-token").unwrap();
@@ -172,7 +288,7 @@ mod tests {
     #[serial_test::serial]
     fn resolve_returns_none_when_absent() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let config = test_config(tmp.path());
+        let (config, _store_guard) = test_config_with_guard(&tmp);
         let _guard = EnvGuard::remove("WEAVE_TOKEN");
 
         let token = resolve_token(&config).unwrap();
@@ -180,9 +296,10 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn store_and_remove_roundtrip() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let config = test_config(tmp.path());
+        let (config, _store_guard) = test_config_with_guard(&tmp);
 
         store_token(&config, "my-secret-token").unwrap();
         let path = credentials_path(&config).unwrap();
@@ -197,11 +314,12 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn store_sets_permissions() {
+    #[serial_test::serial]
+    fn store_sets_permissions_atomically() {
         use std::os::unix::fs::PermissionsExt;
 
         let tmp = tempfile::TempDir::new().unwrap();
-        let config = test_config(tmp.path());
+        let (config, _store_guard) = test_config_with_guard(&tmp);
 
         store_token(&config, "secret").unwrap();
         let path = credentials_path(&config).unwrap();
@@ -210,16 +328,82 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn resolve_trims_whitespace() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let config = test_config(tmp.path());
+        let (config, _store_guard) = test_config_with_guard(&tmp);
 
         // Write token with trailing newline (common with echo).
         let path = credentials_path(&config).unwrap();
         util::write_file(&path, "  my-token  \n").unwrap();
 
-        // Should resolve to trimmed value (need to unset env var).
+        // Should resolve to trimmed value.
         let token_raw = util::read_file(&path).unwrap();
         assert_eq!(token_raw.trim(), "my-token");
+    }
+
+    #[test]
+    fn validate_token_rejects_empty() {
+        assert!(validate_token_format("").is_err());
+    }
+
+    #[test]
+    fn validate_token_rejects_newlines() {
+        assert!(validate_token_format("ghp_xxxx\r\nEvil: header").is_err());
+    }
+
+    #[test]
+    fn validate_token_rejects_control_chars() {
+        assert!(validate_token_format("ghp_xxxx\x00").is_err());
+    }
+
+    #[test]
+    fn validate_token_accepts_valid_pat() {
+        assert!(validate_token_format("ghp_ABCdef1234567890abcdef1234567890abcd").is_ok());
+    }
+
+    #[test]
+    fn is_github_registry_detects_default() {
+        assert!(is_github_registry(
+            "https://raw.githubusercontent.com/PackWeave/registry/main"
+        ));
+    }
+
+    #[test]
+    fn is_github_registry_detects_custom_github() {
+        assert!(is_github_registry("https://github.com/my-org/registry"));
+    }
+
+    #[test]
+    fn is_github_registry_rejects_non_github() {
+        assert!(!is_github_registry("https://my-registry.example.com"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[serial_test::serial]
+    fn reject_symlink_credentials() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let _store_guard = EnvGuard::set("WEAVE_TEST_STORE_DIR", &tmp.path().to_string_lossy());
+
+        let target = tmp.path().join("real-file");
+        let link = tmp.path().join("credentials");
+
+        std::fs::write(&target, "token").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let config = Config {
+            auth_token_path: Some(link.to_string_lossy().to_string()),
+            ..Config::default()
+        };
+
+        // resolve_token should reject the symlink.
+        let _guard = EnvGuard::remove("WEAVE_TOKEN");
+        let result = resolve_token(&config);
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().to_string().contains("symlink"),
+            "error should mention symlink"
+        );
     }
 }

@@ -292,11 +292,13 @@ pub fn registry_from_config(config: &crate::core::config::Config) -> CompositeRe
         log::warn!("failed to resolve auth token: {e}");
         None
     });
-    let official = GitHubRegistry::new(&config.registry_url, token.clone());
+    // Token is only sent to the official registry, never to community taps.
+    // A malicious tap operator could otherwise harvest the user's GitHub PAT.
+    let official = GitHubRegistry::new(&config.registry_url, token);
     let taps = config
         .taps
         .iter()
-        .map(|t| GitHubRegistry::new(&t.url, token.clone()))
+        .map(|t| GitHubRegistry::new(&t.url, None))
         .collect();
     CompositeRegistry::new(official, taps)
 }

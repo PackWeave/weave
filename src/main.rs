@@ -149,8 +149,12 @@ enum AuthAction {
     ///
     /// For CI/automation, set the WEAVE_TOKEN environment variable instead
     /// of running `weave auth login`.
+    ///
+    /// Security: prefer `weave auth login` (stdin prompt) or WEAVE_TOKEN
+    /// over --token, which is visible in process listings (`ps aux`).
     Login {
-        /// GitHub personal access token (reads from stdin if omitted)
+        /// GitHub personal access token. Visible in process listings —
+        /// prefer omitting this flag (stdin prompt) or WEAVE_TOKEN env var.
         #[arg(long)]
         token: Option<String>,
     },

@@ -22,25 +22,31 @@ pub fn login(token: Option<&str>) -> Result<()> {
         }
     };
 
-    if token.is_empty() {
-        anyhow::bail!("token cannot be empty");
-    }
+    // Validate token format (printable ASCII, non-empty).
+    credentials::validate_token_format(&token).map_err(|e| anyhow::anyhow!("{e}"))?;
 
-    // Best-effort validation against GitHub API.
-    match credentials::validate_github_token(&token) {
-        Some(username) => {
-            println!(
-                "{} Authenticated as {}",
-                style::success("✓"),
-                style::emphasis(&username)
-            );
+    // Best-effort validation — only for GitHub-backed registries.
+    if credentials::is_github_registry(&config.registry_url) {
+        match credentials::validate_github_token(&token) {
+            Some(username) => {
+                println!(
+                    "{} Authenticated as {}",
+                    style::success("✓"),
+                    style::emphasis(&username)
+                );
+            }
+            None => {
+                println!(
+                    "{} Token could not be verified with GitHub (may still be valid)",
+                    style::dim("⚠")
+                );
+            }
         }
-        None => {
-            println!(
-                "{} Token could not be verified with GitHub (may still be valid for other registries)",
-                style::dim("⚠")
-            );
-        }
+    } else {
+        println!(
+            "{} Using non-GitHub registry — skipping token validation",
+            style::dim("⚠")
+        );
     }
 
     credentials::store_token(&config, &token)?;
