@@ -300,6 +300,24 @@ impl CompositeRegistry {
         }
         Self { registries }
     }
+
+    /// Create a composite registry from pre-boxed trait objects.
+    ///
+    /// The first registry in `registries` is treated as the "official" registry
+    /// (index 0) and the rest are taps, searched in order. This mirrors the
+    /// invariant established by [`CompositeRegistry::new`].
+    ///
+    /// Test-only: allows injecting mock `Registry` implementations directly so
+    /// tests exercise the real `CompositeRegistry` fallthrough and error-handling
+    /// logic instead of reimplementing it.
+    #[cfg(test)]
+    pub fn from_boxed(registries: Vec<Box<dyn Registry>>) -> Self {
+        assert!(
+            !registries.is_empty(),
+            "at least one registry (official) is required"
+        );
+        Self { registries }
+    }
 }
 
 impl Registry for CompositeRegistry {
@@ -561,63 +579,40 @@ mod tests {
         }
     }
 
-    /// A composite of mock registries for testing priority order.
-    struct MockComposite {
-        registries: Vec<Box<dyn Registry>>,
+    /// First registry is treated as official; rest are taps.
+    fn composite_from_mocks(registries: Vec<MockRegistry>) -> CompositeRegistry {
+        CompositeRegistry::from_boxed(
+            registries
+                .into_iter()
+                .map(|r| Box::new(r) as Box<dyn Registry>)
+                .collect(),
+        )
     }
 
-    impl MockComposite {
-        fn new(registries: Vec<MockRegistry>) -> Self {
+    /// A mock registry that always returns an error, for testing error-handling paths.
+    struct FailingRegistry {
+        error: String,
+    }
+
+    impl FailingRegistry {
+        fn new(error: &str) -> Self {
             Self {
-                registries: registries
-                    .into_iter()
-                    .map(|r| Box::new(r) as Box<dyn Registry>)
-                    .collect(),
+                error: error.to_string(),
             }
         }
     }
 
-    impl Registry for MockComposite {
-        fn search(&self, query: &str) -> Result<Vec<PackSummary>> {
-            let mut seen = std::collections::HashSet::new();
-            let mut results = Vec::new();
-            for registry in &self.registries {
-                if let Ok(packs) = registry.search(query) {
-                    for pack in packs {
-                        if seen.insert(pack.name.clone()) {
-                            results.push(pack);
-                        }
-                    }
-                }
-            }
-            results.sort_by(|a, b| a.name.cmp(&b.name));
-            Ok(results)
+    impl Registry for FailingRegistry {
+        fn search(&self, _query: &str) -> Result<Vec<PackSummary>> {
+            Err(WeaveError::Registry(self.error.clone()))
         }
 
-        fn fetch_metadata(&self, name: &str) -> Result<PackMetadata> {
-            let mut last_err = None;
-            for registry in &self.registries {
-                match registry.fetch_metadata(name) {
-                    Ok(meta) => return Ok(meta),
-                    Err(e) => last_err = Some(e),
-                }
-            }
-            Err(last_err.unwrap_or_else(|| WeaveError::PackNotFound {
-                name: name.to_string(),
-            }))
+        fn fetch_metadata(&self, _name: &str) -> Result<PackMetadata> {
+            Err(WeaveError::Registry(self.error.clone()))
         }
 
-        fn fetch_version(&self, name: &str, version: &semver::Version) -> Result<PackRelease> {
-            let mut last_err = None;
-            for registry in &self.registries {
-                match registry.fetch_version(name, version) {
-                    Ok(release) => return Ok(release),
-                    Err(e) => last_err = Some(e),
-                }
-            }
-            Err(last_err.unwrap_or_else(|| WeaveError::PackNotFound {
-                name: name.to_string(),
-            }))
+        fn fetch_version(&self, _name: &str, _version: &semver::Version) -> Result<PackRelease> {
+            Err(WeaveError::Registry(self.error.clone()))
         }
     }
 
@@ -630,7 +625,7 @@ mod tests {
         tap.add_pack(sample_metadata_named("webdev", "tap webdev")); // duplicate
         tap.add_pack(sample_metadata_named("tap-only", "from tap"));
 
-        let composite = MockComposite::new(vec![official, tap]);
+        let composite = composite_from_mocks(vec![official, tap]);
         let results = composite.search("").unwrap();
 
         let names: Vec<&str> = results.iter().map(|p| p.name.as_str()).collect();
@@ -652,7 +647,7 @@ mod tests {
         let mut tap = MockRegistry::new();
         tap.add_pack(sample_metadata_named("webdev", "tap copy"));
 
-        let composite = MockComposite::new(vec![official, tap]);
+        let composite = composite_from_mocks(vec![official, tap]);
         let results = composite.search("webdev").unwrap();
 
         assert_eq!(results.len(), 1);
@@ -667,7 +662,7 @@ mod tests {
         let mut tap = MockRegistry::new();
         tap.add_pack(sample_metadata_named("webdev", "tap copy"));
 
-        let composite = MockComposite::new(vec![official, tap]);
+        let composite = composite_from_mocks(vec![official, tap]);
         let meta = composite.fetch_metadata("webdev").unwrap();
         assert_eq!(meta.description, "official");
     }
@@ -679,7 +674,7 @@ mod tests {
         let mut tap = MockRegistry::new();
         tap.add_pack(sample_metadata_named("tap-only", "from tap"));
 
-        let composite = MockComposite::new(vec![official, tap]);
+        let composite = composite_from_mocks(vec![official, tap]);
         let meta = composite.fetch_metadata("tap-only").unwrap();
         assert_eq!(meta.description, "from tap");
     }
@@ -689,7 +684,7 @@ mod tests {
         let official = MockRegistry::new();
         let tap = MockRegistry::new();
 
-        let composite = MockComposite::new(vec![official, tap]);
+        let composite = composite_from_mocks(vec![official, tap]);
         let err = composite.fetch_metadata("nonexistent");
         assert!(err.is_err());
     }
@@ -701,11 +696,166 @@ mod tests {
         let mut tap = MockRegistry::new();
         tap.add_pack(sample_metadata_named("tap-pack", "from tap"));
 
-        let composite = MockComposite::new(vec![official, tap]);
+        let composite = composite_from_mocks(vec![official, tap]);
         let release = composite
             .fetch_version("tap-pack", &semver::Version::new(1, 0, 0))
             .unwrap();
         assert_eq!(release.version, semver::Version::new(1, 0, 0));
+    }
+
+    // ── Error-handling path tests ────────────────────────────────────────
+
+    #[test]
+    fn composite_search_official_error_is_fatal() {
+        let official = FailingRegistry::new("official down");
+        let mut tap = MockRegistry::new();
+        tap.add_pack(sample_metadata_named("tap-pack", "from tap"));
+
+        let composite = CompositeRegistry::from_boxed(vec![Box::new(official), Box::new(tap)]);
+        let err = composite.search("anything").unwrap_err();
+        assert!(
+            matches!(err, WeaveError::Registry(ref msg) if msg.contains("official down")),
+            "official registry error should propagate: {err}"
+        );
+    }
+
+    #[test]
+    fn composite_search_tap_error_is_ignored() {
+        let mut official = MockRegistry::new();
+        official.add_pack(sample_metadata_named("webdev", "official"));
+
+        let failing_tap = FailingRegistry::new("tap unreachable");
+
+        let composite =
+            CompositeRegistry::from_boxed(vec![Box::new(official), Box::new(failing_tap)]);
+        // Search should succeed despite the tap error (warned but not fatal).
+        // NOTE: We verify the operation succeeds despite tap failure but do not
+        // currently assert that `log::warn!` was emitted. This is a known gap —
+        // no log-capture test harness is wired up in this project yet.
+        let results = composite.search("webdev").unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "webdev");
+    }
+
+    #[test]
+    fn composite_fetch_metadata_official_registry_error_is_fatal() {
+        // A non-PackNotFound error from the official registry should be fatal.
+        let official = FailingRegistry::new("connection refused");
+        let mut tap = MockRegistry::new();
+        tap.add_pack(sample_metadata_named("some-pack", "from tap"));
+
+        let composite = CompositeRegistry::from_boxed(vec![Box::new(official), Box::new(tap)]);
+        let err = composite.fetch_metadata("some-pack").unwrap_err();
+        assert!(
+            matches!(err, WeaveError::Registry(ref msg) if msg.contains("connection refused")),
+            "official non-not-found error should propagate: {err}"
+        );
+    }
+
+    #[test]
+    fn composite_fetch_metadata_tap_registry_error_is_ignored() {
+        // A non-PackNotFound error from a tap should be warned/ignored,
+        // not propagated as fatal.
+        let official = MockRegistry::new(); // pack not here
+        let failing_tap = FailingRegistry::new("tap connection timeout");
+        let mut good_tap = MockRegistry::new();
+        good_tap.add_pack(sample_metadata_named("deep-pack", "from good tap"));
+
+        let composite = CompositeRegistry::from_boxed(vec![
+            Box::new(official),
+            Box::new(failing_tap),
+            Box::new(good_tap),
+        ]);
+        // Should skip the failing tap and find the pack in the good tap.
+        // NOTE: We verify the operation succeeds despite tap failure but do not
+        // currently assert that `log::warn!` was emitted. This is a known gap —
+        // no log-capture test harness is wired up in this project yet.
+        let meta = composite.fetch_metadata("deep-pack").unwrap();
+        assert_eq!(meta.description, "from good tap");
+    }
+
+    #[test]
+    fn composite_fetch_metadata_three_registries_skip_erroring_tap() {
+        // 3-registry scenario: official (PackNotFound) -> tap1 (non-NotFound error,
+        // should be warned/skipped) -> tap2 (has the pack, should succeed).
+        let official = MockRegistry::new(); // returns PackNotFound
+        let erroring_tap = FailingRegistry::new("tap1 connection reset");
+        let mut good_tap = MockRegistry::new();
+        good_tap.add_pack(sample_metadata_named("rare-pack", "from third registry"));
+
+        let composite = CompositeRegistry::from_boxed(vec![
+            Box::new(official),
+            Box::new(erroring_tap),
+            Box::new(good_tap),
+        ]);
+
+        // The erroring tap should be skipped (warned) and the pack found in tap2.
+        let meta = composite.fetch_metadata("rare-pack").unwrap();
+        assert_eq!(meta.name, "rare-pack");
+        assert_eq!(meta.description, "from third registry");
+    }
+
+    #[test]
+    fn composite_fetch_version_official_registry_error_is_fatal() {
+        let official = FailingRegistry::new("server error");
+        let mut tap = MockRegistry::new();
+        tap.add_pack(sample_metadata_named("some-pack", "from tap"));
+
+        let composite = CompositeRegistry::from_boxed(vec![Box::new(official), Box::new(tap)]);
+        let err = composite
+            .fetch_version("some-pack", &semver::Version::new(1, 0, 0))
+            .unwrap_err();
+        assert!(
+            matches!(err, WeaveError::Registry(ref msg) if msg.contains("server error")),
+            "official non-not-found error should propagate: {err}"
+        );
+    }
+
+    #[test]
+    fn composite_fetch_version_tap_registry_error_is_ignored() {
+        let official = MockRegistry::new(); // pack not here
+        let failing_tap = FailingRegistry::new("tap DNS failure");
+        let mut good_tap = MockRegistry::new();
+        good_tap.add_pack(sample_metadata_named("tap-pack", "from good tap"));
+
+        let composite = CompositeRegistry::from_boxed(vec![
+            Box::new(official),
+            Box::new(failing_tap),
+            Box::new(good_tap),
+        ]);
+        // NOTE: We verify the operation succeeds despite tap failure but do not
+        // currently assert that `log::warn!` was emitted. This is a known gap —
+        // no log-capture test harness is wired up in this project yet.
+        let release = composite
+            .fetch_version("tap-pack", &semver::Version::new(1, 0, 0))
+            .unwrap();
+        assert_eq!(release.version, semver::Version::new(1, 0, 0));
+    }
+
+    #[test]
+    fn composite_publish_delegates_to_first_registry() {
+        let official = MockRegistry::new();
+        let composite = CompositeRegistry::from_boxed(vec![Box::new(official)]);
+        // publish is not yet supported on any registry, so we just verify
+        // it delegates to the first registry and returns its error.
+        let err = composite
+            .publish(std::path::Path::new("/fake"), "token")
+            .unwrap_err();
+        assert!(
+            matches!(err, WeaveError::Registry(ref msg) if msg.contains("publish is not yet supported")),
+            "publish should return Registry error: {err}"
+        );
+    }
+
+    // This test exercises a defensive branch in `publish()` that is unreachable
+    // through the production constructor (`CompositeRegistry::new`), which always
+    // includes at least the official registry. After the `from_boxed()` precondition
+    // was added, constructing an empty composite panics, so this test validates that
+    // the precondition fires correctly.
+    #[test]
+    #[should_panic(expected = "at least one registry (official) is required")]
+    fn composite_publish_no_registries() {
+        let _composite = CompositeRegistry::from_boxed(vec![]);
     }
 
     #[test]
