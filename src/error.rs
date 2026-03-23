@@ -22,8 +22,26 @@ pub enum WeaveError {
     #[error("pack '{name}' is already installed (version {version})")]
     AlreadyInstalled { name: String, version: String },
 
-    #[error("pack '{name}' is not installed — run `weave list` to see installed packs")]
+    #[error("pack '{name}' is not installed")]
     NotInstalled { name: String },
+
+    // Install/update validation errors
+    #[error(
+        "pack manifest {field} '{actual}' does not match resolved {field} '{expected}' — the archive may be corrupt or tampered"
+    )]
+    ManifestMismatch {
+        field: &'static str,
+        expected: String,
+        actual: String,
+    },
+
+    #[error("invalid version requirement '{input}' — {reason}")]
+    InvalidVersionReq { input: String, reason: String },
+
+    #[error(
+        "pack '{name}@{version}' is not available locally — reinstall with `weave install {name}` or check the pack source"
+    )]
+    PackNotAvailable { name: String, version: String },
 
     // Profile errors
     #[error("profile '{name}' not found — run `weave profile list` to see available profiles")]
@@ -93,23 +111,6 @@ pub enum WeaveError {
     #[error("tap '{name}' is not registered — run `weave tap list` to see registered taps")]
     TapNotFound { name: String },
 
-    // Install/update validation errors
-    #[error(
-        "pack manifest {field} '{actual}' does not match resolved {field} '{expected}'; \
-         the archive may be corrupt or tampered"
-    )]
-    ManifestMismatch {
-        field: &'static str,
-        expected: String,
-        actual: String,
-    },
-
-    #[error("invalid version requirement '{input}': {reason}")]
-    InvalidVersionReq { input: String, reason: String },
-
-    #[error("pack '{name}@{version}' not in local store and source is not a registry")]
-    PackNotAvailable { name: String, version: String },
-
     // Config errors
     #[error("could not determine home directory — set the HOME environment variable")]
     NoHomeDir,
@@ -146,3 +147,45 @@ impl WeaveError {
 }
 
 pub type Result<T> = std::result::Result<T, WeaveError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn manifest_mismatch_error_message() {
+        let err = WeaveError::ManifestMismatch {
+            field: "name",
+            expected: "webdev".to_string(),
+            actual: "other-pack".to_string(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("name"));
+        assert!(msg.contains("'other-pack'"));
+        assert!(msg.contains("'webdev'"));
+        assert!(msg.contains("corrupt or tampered"));
+    }
+
+    #[test]
+    fn invalid_version_req_error_message() {
+        let err = WeaveError::InvalidVersionReq {
+            input: "not-a-version".to_string(),
+            reason: "unexpected character 'n'".to_string(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("'not-a-version'"));
+        assert!(msg.contains("unexpected character 'n'"));
+    }
+
+    #[test]
+    fn pack_not_available_error_message() {
+        let err = WeaveError::PackNotAvailable {
+            name: "webdev".to_string(),
+            version: "1.0.0".to_string(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("'webdev@1.0.0'"));
+        assert!(msg.contains("not available locally"));
+        assert!(msg.contains("`weave install webdev`"));
+    }
+}
