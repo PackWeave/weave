@@ -454,7 +454,7 @@ async fn install_local_pack_refresh_eviction_failure() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("evicting cached"),
+        stderr.contains("evicting evict-pack@"),
         "stderr should mention eviction failure, got: {stderr}"
     );
 }
