@@ -62,14 +62,19 @@ impl Store {
     fn normalize_path(path: &str) -> String {
         use std::path::{Component, Path};
 
+        // Canonicalize separators: replace Windows-style backslashes with
+        // forward slashes so that the component-based normalization works
+        // correctly regardless of which OS compiled this binary.
+        let path = path.replace('\\', "/");
+
         // Fast path: if the string has no segments that need normalization,
         // return the original without allocating a new String.
-        if !path.is_empty() && !Self::path_needs_normalization(path) {
+        if !path.is_empty() && !Self::path_needs_normalization(&path) {
             return path.to_string();
         }
 
         let mut components: Vec<Component<'_>> = Vec::new();
-        for component in Path::new(path).components() {
+        for component in Path::new(path.as_str()).components() {
             match component {
                 Component::CurDir => {} // skip `.`
                 Component::ParentDir => {
@@ -93,34 +98,41 @@ impl Store {
             return ".".to_string();
         }
         let result: PathBuf = components.iter().collect();
-        result.to_string_lossy().into_owned()
+        // On Windows, PathBuf joins components with backslashes. Since we
+        // canonicalized to forward slashes at the top, ensure the output
+        // is consistent regardless of the host OS.
+        result.to_string_lossy().replace('\\', "/")
     }
 
     /// Returns `true` if the path contains segments that need normalization:
     /// `.` or `..` components, trailing separators, or double separators.
     fn path_needs_normalization(path: &str) -> bool {
         let bytes = path.as_bytes();
-        let sep = std::path::MAIN_SEPARATOR as u8;
 
-        // Trailing separator (but not the root "/" itself).
-        if bytes.len() > 1 && bytes[bytes.len() - 1] == sep {
+        /// Returns `true` if `b` is a path separator (`/` or `\`).
+        fn is_sep(b: u8) -> bool {
+            b == b'/' || b == b'\\'
+        }
+
+        // Trailing separator (but not the root "/" or "\" itself).
+        if bytes.len() > 1 && is_sep(bytes[bytes.len() - 1]) {
             return true;
         }
 
         // Scan for double separators or `/./` or `/../` patterns.
         let mut i = 0;
         while i < bytes.len() {
-            if bytes[i] == sep {
+            if is_sep(bytes[i]) {
                 // Double separator.
-                if i + 1 < bytes.len() && bytes[i + 1] == sep {
+                if i + 1 < bytes.len() && is_sep(bytes[i + 1]) {
                     return true;
                 }
                 // Check for `/./` or `/.` at end, or `/../` or `/..` at end.
                 if i + 1 < bytes.len() && bytes[i + 1] == b'.' {
-                    if i + 2 >= bytes.len() || bytes[i + 2] == sep {
+                    if i + 2 >= bytes.len() || is_sep(bytes[i + 2]) {
                         return true;
                     }
-                    if bytes[i + 2] == b'.' && (i + 3 >= bytes.len() || bytes[i + 3] == sep) {
+                    if bytes[i + 2] == b'.' && (i + 3 >= bytes.len() || is_sep(bytes[i + 3])) {
                         return true;
                     }
                 }
@@ -130,12 +142,17 @@ impl Store {
 
         // Leading `.` or `..` segment.
         if bytes[0] == b'.' {
-            if bytes.len() == 1 || bytes[1] == sep {
+            if bytes.len() == 1 || is_sep(bytes[1]) {
                 return true;
             }
-            if bytes.len() >= 2 && bytes[1] == b'.' && (bytes.len() == 2 || bytes[2] == sep) {
+            if bytes.len() >= 2 && bytes[1] == b'.' && (bytes.len() == 2 || is_sep(bytes[2])) {
                 return true;
             }
+        }
+
+        // Contains backslashes that should be normalized to forward slashes.
+        if bytes.contains(&b'\\') {
+            return true;
         }
 
         false
@@ -825,5 +842,44 @@ mod tests {
         assert_eq!(Store::stable_hash_path("/foo/baz/../bar"), canonical);
         assert_eq!(Store::stable_hash_path("/foo/bar/"), canonical);
         assert_eq!(Store::stable_hash_path("/foo//bar"), canonical);
+    }
+
+    // ── cross-platform separator tests ─────────────────────────────────────
+
+    #[test]
+    fn normalize_path_windows_backslashes() {
+        // Windows-style path with `..` should normalize on all platforms.
+        assert_eq!(Store::normalize_path("C:\\foo\\..\\bar"), "C:/bar");
+    }
+
+    #[test]
+    fn normalize_path_mixed_separators() {
+        // Mixed forward and back slashes with `..` segment.
+        assert_eq!(Store::normalize_path("foo/bar\\..\\baz"), "foo/baz");
+    }
+
+    #[test]
+    fn normalize_path_backslash_dot_segments() {
+        assert_eq!(Store::normalize_path("foo\\.\\bar"), "foo/bar");
+    }
+
+    #[test]
+    fn normalize_path_pure_backslash_path() {
+        assert_eq!(Store::normalize_path("foo\\bar\\baz"), "foo/bar/baz");
+    }
+
+    #[test]
+    fn normalize_path_windows_double_backslash() {
+        assert_eq!(Store::normalize_path("foo\\\\bar"), "foo/bar");
+    }
+
+    #[test]
+    fn equivalent_paths_backslash_produce_same_hash() {
+        // Backslash-separated paths should hash identically to their
+        // forward-slash equivalents.
+        let canonical = Store::stable_hash_path("/foo/bar");
+        assert_eq!(Store::stable_hash_path("\\foo\\bar"), canonical);
+        assert_eq!(Store::stable_hash_path("/foo\\bar"), canonical);
+        assert_eq!(Store::stable_hash_path("\\foo/bar"), canonical);
     }
 }
