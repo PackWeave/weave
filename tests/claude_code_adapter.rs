@@ -1340,6 +1340,10 @@ fn apply_hooks_when_allowed() {
     assert_eq!(pre[0]["matcher"], "Bash");
     assert_eq!(pre[0]["hooks"][0]["command"], "echo pre-bash");
     assert_eq!(pre[0]["hooks"][0]["type"], "command");
+    assert_eq!(
+        pre[0]["__packweave_owner"], "hooks-pack",
+        "hook entry should be tagged with ownership"
+    );
 
     let post = hooks
         .get("PostToolUse")
@@ -1348,6 +1352,7 @@ fn apply_hooks_when_allowed() {
         .unwrap();
     assert_eq!(post.len(), 1);
     assert_eq!(post[0]["hooks"][0]["command"], "echo post-all");
+    assert_eq!(post[0]["__packweave_owner"], "hooks-pack");
 }
 
 #[test]
@@ -1406,5 +1411,279 @@ fn has_hooks_detects_extension_hooks() {
     assert!(
         !no_hooks.pack.has_hooks(),
         "pack without hooks should return false"
+    );
+}
+
+// ── Multi-pack hook coexistence tests ────────────────────────────────────────
+
+/// Build a pack with custom hooks for specific events and matchers.
+fn pack_with_custom_hooks(name: &str, hooks: serde_json::Value) -> ResolvedPack {
+    let ext = serde_json::json!({ "hooks": hooks });
+    ResolvedPack {
+        pack: Pack {
+            name: name.to_string(),
+            version: semver::Version::new(1, 0, 0),
+            description: format!("Pack {name} with custom hooks"),
+            authors: vec![],
+            license: None,
+            repository: None,
+            keywords: vec![],
+            min_tool_version: None,
+            servers: vec![],
+            dependencies: HashMap::new(),
+            extensions: PackExtensions {
+                claude_code: Some(ext),
+                gemini_cli: None,
+                codex_cli: None,
+            },
+            targets: PackTargets::default(),
+        },
+        source: PackSource::Registry {
+            registry_url: "https://example.com".into(),
+        },
+    }
+}
+
+#[test]
+fn two_packs_contribute_hooks_to_same_event() {
+    let home = TempDir::new().unwrap();
+    let adapter = make_adapter(&home);
+    setup_claude_home(&home);
+
+    let pack_a = pack_with_custom_hooks(
+        "pack-a",
+        serde_json::json!({
+            "PreToolUse": [
+                { "matcher": "Bash", "command": "echo pack-a-pre" }
+            ]
+        }),
+    );
+    let pack_b = pack_with_custom_hooks(
+        "pack-b",
+        serde_json::json!({
+            "PreToolUse": [
+                { "matcher": "Read", "command": "echo pack-b-pre" }
+            ]
+        }),
+    );
+
+    let options = ApplyOptions { allow_hooks: true };
+    adapter.apply(&pack_a, &options).unwrap();
+    adapter.apply(&pack_b, &options).unwrap();
+
+    // Both packs' hooks should coexist in the PreToolUse array
+    let settings_path = home.path().join(".claude").join("settings.json");
+    let settings = read_json(&settings_path);
+    let hooks = settings.get("hooks").expect("hooks key should exist");
+    let pre = hooks
+        .get("PreToolUse")
+        .expect("PreToolUse should exist")
+        .as_array()
+        .unwrap();
+
+    assert_eq!(pre.len(), 2, "both packs should contribute one entry each");
+
+    // Verify pack-a's entry
+    let pack_a_entries: Vec<&serde_json::Value> = pre
+        .iter()
+        .filter(|e| e.get("__packweave_owner").and_then(|v| v.as_str()) == Some("pack-a"))
+        .collect();
+    assert_eq!(
+        pack_a_entries.len(),
+        1,
+        "pack-a should own exactly one entry"
+    );
+    assert_eq!(pack_a_entries[0]["matcher"], "Bash");
+    assert_eq!(pack_a_entries[0]["hooks"][0]["command"], "echo pack-a-pre");
+
+    // Verify pack-b's entry
+    let pack_b_entries: Vec<&serde_json::Value> = pre
+        .iter()
+        .filter(|e| e.get("__packweave_owner").and_then(|v| v.as_str()) == Some("pack-b"))
+        .collect();
+    assert_eq!(
+        pack_b_entries.len(),
+        1,
+        "pack-b should own exactly one entry"
+    );
+    assert_eq!(pack_b_entries[0]["matcher"], "Read");
+    assert_eq!(pack_b_entries[0]["hooks"][0]["command"], "echo pack-b-pre");
+}
+
+#[test]
+fn removing_one_pack_hooks_preserves_others() {
+    let home = TempDir::new().unwrap();
+    let adapter = make_adapter(&home);
+    setup_claude_home(&home);
+
+    let pack_a = pack_with_custom_hooks(
+        "pack-a",
+        serde_json::json!({
+            "PreToolUse": [
+                { "matcher": "Bash", "command": "echo pack-a-pre" }
+            ],
+            "PostToolUse": [
+                { "command": "echo pack-a-post" }
+            ]
+        }),
+    );
+    let pack_b = pack_with_custom_hooks(
+        "pack-b",
+        serde_json::json!({
+            "PreToolUse": [
+                { "matcher": "Read", "command": "echo pack-b-pre" }
+            ]
+        }),
+    );
+
+    let options = ApplyOptions { allow_hooks: true };
+    adapter.apply(&pack_a, &options).unwrap();
+    adapter.apply(&pack_b, &options).unwrap();
+
+    // Remove pack-a
+    adapter.remove("pack-a").unwrap();
+
+    let settings_path = home.path().join(".claude").join("settings.json");
+    let settings = read_json(&settings_path);
+    let hooks = settings.get("hooks").expect("hooks key should still exist");
+
+    // pack-b's PreToolUse hook should remain
+    let pre = hooks
+        .get("PreToolUse")
+        .expect("PreToolUse should still exist")
+        .as_array()
+        .unwrap();
+    assert_eq!(pre.len(), 1, "only pack-b's entry should remain");
+    assert_eq!(
+        pre[0].get("__packweave_owner").and_then(|v| v.as_str()),
+        Some("pack-b")
+    );
+    assert_eq!(pre[0]["hooks"][0]["command"], "echo pack-b-pre");
+
+    // pack-a's PostToolUse event should be cleaned up entirely
+    assert!(
+        hooks.get("PostToolUse").is_none(),
+        "PostToolUse should be removed since only pack-a contributed to it"
+    );
+}
+
+#[test]
+fn removing_all_packs_removes_hooks_key() {
+    let home = TempDir::new().unwrap();
+    let adapter = make_adapter(&home);
+    setup_claude_home(&home);
+
+    let pack_a = pack_with_custom_hooks(
+        "pack-a",
+        serde_json::json!({
+            "PreToolUse": [
+                { "matcher": "Bash", "command": "echo pack-a" }
+            ]
+        }),
+    );
+    let pack_b = pack_with_custom_hooks(
+        "pack-b",
+        serde_json::json!({
+            "PreToolUse": [
+                { "matcher": "Read", "command": "echo pack-b" }
+            ]
+        }),
+    );
+
+    let options = ApplyOptions { allow_hooks: true };
+    adapter.apply(&pack_a, &options).unwrap();
+    adapter.apply(&pack_b, &options).unwrap();
+
+    adapter.remove("pack-a").unwrap();
+    adapter.remove("pack-b").unwrap();
+
+    let settings_path = home.path().join(".claude").join("settings.json");
+    if settings_path.exists() {
+        let settings = read_json(&settings_path);
+        assert!(
+            settings.get("hooks").is_none(),
+            "hooks key should be removed when all packs are removed"
+        );
+    }
+}
+
+#[test]
+fn apply_hooks_is_idempotent() {
+    let home = TempDir::new().unwrap();
+    let adapter = make_adapter(&home);
+    setup_claude_home(&home);
+
+    let pack = pack_with_custom_hooks(
+        "idem-pack",
+        serde_json::json!({
+            "PreToolUse": [
+                { "matcher": "Bash", "command": "echo hello" }
+            ]
+        }),
+    );
+
+    let options = ApplyOptions { allow_hooks: true };
+    adapter.apply(&pack, &options).unwrap();
+    adapter.apply(&pack, &options).unwrap();
+
+    let settings_path = home.path().join(".claude").join("settings.json");
+    let settings = read_json(&settings_path);
+    let pre = settings["hooks"]["PreToolUse"].as_array().unwrap();
+    assert_eq!(
+        pre.len(),
+        1,
+        "applying the same pack twice should not duplicate entries"
+    );
+}
+
+#[test]
+fn multi_pack_hooks_different_events() {
+    let home = TempDir::new().unwrap();
+    let adapter = make_adapter(&home);
+    setup_claude_home(&home);
+
+    let pack_a = pack_with_custom_hooks(
+        "pack-a",
+        serde_json::json!({
+            "PreToolUse": [
+                { "matcher": "Bash", "command": "echo pre-a" }
+            ]
+        }),
+    );
+    let pack_b = pack_with_custom_hooks(
+        "pack-b",
+        serde_json::json!({
+            "PostToolUse": [
+                { "command": "echo post-b" }
+            ]
+        }),
+    );
+
+    let options = ApplyOptions { allow_hooks: true };
+    adapter.apply(&pack_a, &options).unwrap();
+    adapter.apply(&pack_b, &options).unwrap();
+
+    let settings_path = home.path().join(".claude").join("settings.json");
+    let settings = read_json(&settings_path);
+    let hooks = settings.get("hooks").expect("hooks key should exist");
+
+    assert!(hooks.get("PreToolUse").is_some(), "PreToolUse from pack-a");
+    assert!(
+        hooks.get("PostToolUse").is_some(),
+        "PostToolUse from pack-b"
+    );
+
+    let pre = hooks["PreToolUse"].as_array().unwrap();
+    assert_eq!(pre.len(), 1);
+    assert_eq!(
+        pre[0].get("__packweave_owner").and_then(|v| v.as_str()),
+        Some("pack-a")
+    );
+
+    let post = hooks["PostToolUse"].as_array().unwrap();
+    assert_eq!(post.len(), 1);
+    assert_eq!(
+        post[0].get("__packweave_owner").and_then(|v| v.as_str()),
+        Some("pack-b")
     );
 }

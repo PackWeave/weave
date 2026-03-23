@@ -908,20 +908,61 @@ impl ClaudeCodeAdapter {
 
     /// Apply hooks from pack extensions to `~/.claude/settings.json` (user scope).
     ///
-    /// Hooks are deep-merged into the `hooks` key of settings.json. Each hook
-    /// event (e.g. PreToolUse) becomes a top-level key under `hooks`, containing
-    /// an array of matcher+hooks entries.
+    /// Hooks are additively merged into the `hooks` key of settings.json. Each
+    /// hook event (e.g. `PreToolUse`) contains an array of matcher+hooks entries.
+    /// When multiple packs contribute hooks to the same event, their entries are
+    /// appended (not replaced). Each entry is tagged with `__packweave_owner` so
+    /// it can be surgically removed later without affecting other packs' hooks.
     fn apply_hooks(&self, pack: &ResolvedPack, manifest: &mut PackweaveManifest) -> Result<()> {
         let hooks_map = match pack.pack.hooks_for_cli("claude_code") {
             Some(h) if !h.is_empty() => h,
             _ => return Ok(()),
         };
 
-        // Build the hooks fragment in Claude Code format:
-        // { "hooks": { "PreToolUse": [ { "matcher": "...", "hooks": [{ "type": "command", "command": "..." }] } ] } }
-        let mut hooks_obj = serde_json::Map::new();
+        let path = self.settings_path()?;
+
+        let mut config: serde_json::Value = if path.exists() {
+            let content = util::read_file(&path)?;
+            serde_json::from_str(&content).map_err(|e| WeaveError::Json {
+                path: path.clone(),
+                source: e,
+            })?
+        } else {
+            serde_json::json!({})
+        };
+
+        // Ensure config.hooks exists as an object.
+        if config.get("hooks").is_none() || !config["hooks"].is_object() {
+            config
+                .as_object_mut()
+                .expect("config must be an object")
+                .insert("hooks".into(), serde_json::json!({}));
+        }
+        let hooks_obj = config["hooks"]
+            .as_object_mut()
+            .expect("hooks must be object");
+
         for (event_name, entries) in &hooks_map {
-            let mut event_entries = Vec::new();
+            // Ensure the event array exists.
+            if !hooks_obj.contains_key(event_name) {
+                hooks_obj.insert(event_name.clone(), serde_json::Value::Array(vec![]));
+            }
+            let event_arr = hooks_obj
+                .get_mut(event_name)
+                .and_then(|v| v.as_array_mut())
+                .expect("event entry must be array");
+
+            // First, remove any existing entries owned by this pack for this
+            // event to ensure idempotency (applying twice = applying once).
+            event_arr.retain(|entry| {
+                entry
+                    .get("__packweave_owner")
+                    .and_then(|v| v.as_str())
+                    .map(|owner| owner != pack.pack.name)
+                    .unwrap_or(true) // keep non-owned entries
+            });
+
+            // Append new entries from this pack, each tagged with ownership.
             for entry in entries {
                 let mut hook_item = serde_json::Map::new();
                 hook_item.insert(
@@ -942,15 +983,18 @@ impl ClaudeCodeAdapter {
                     "hooks".into(),
                     serde_json::Value::Array(vec![serde_json::Value::Object(hook_item)]),
                 );
-                event_entries.push(serde_json::Value::Object(matcher_entry));
+                // Tag with ownership for surgical removal.
+                matcher_entry.insert(
+                    "__packweave_owner".into(),
+                    serde_json::Value::String(pack.pack.name.clone()),
+                );
+                event_arr.push(serde_json::Value::Object(matcher_entry));
             }
-            hooks_obj.insert(event_name.clone(), serde_json::Value::Array(event_entries));
         }
 
-        let fragment = serde_json::json!({ "hooks": serde_json::Value::Object(hooks_obj) });
-
-        let path = self.settings_path()?;
-        self.apply_settings_to_file(&path, pack, &fragment, &mut manifest.settings)?;
+        // JSON serialization of a valid serde_json::Value cannot fail.
+        let output = serde_json::to_string_pretty(&config).expect("JSON serialization cannot fail");
+        util::write_file(&path, &output)?;
 
         if !manifest.hooks.contains(&pack.pack.name) {
             manifest.hooks.push(pack.pack.name.clone());
@@ -960,15 +1004,64 @@ impl ClaudeCodeAdapter {
     }
 
     /// Remove hooks written by a pack from `~/.claude/settings.json` (user scope).
+    ///
+    /// Surgically removes only the hook entries tagged with `__packweave_owner`
+    /// matching the given pack name, leaving other packs' hooks intact.
     fn remove_hooks(&self, pack_name: &str, manifest: &mut PackweaveManifest) -> Result<()> {
         if !manifest.hooks.contains(&pack_name.to_string()) {
             return Ok(());
         }
 
-        // The hooks were applied as a settings fragment under the "hooks" key,
-        // so removing the settings record will also remove the hooks contribution.
-        // The settings removal is already handled by remove_settings(), but we
-        // need to clean up the hooks tracking in the manifest.
+        let path = self.settings_path()?;
+        if path.exists() {
+            let content = util::read_file(&path)?;
+            let mut config: serde_json::Value =
+                serde_json::from_str(&content).map_err(|e| WeaveError::Json {
+                    path: path.clone(),
+                    source: e,
+                })?;
+
+            if let Some(hooks_obj) = config.get_mut("hooks").and_then(|v| v.as_object_mut()) {
+                let event_names: Vec<String> = hooks_obj.keys().cloned().collect();
+                for event_name in event_names {
+                    if let Some(arr) = hooks_obj
+                        .get_mut(&event_name)
+                        .and_then(|v| v.as_array_mut())
+                    {
+                        arr.retain(|entry| {
+                            entry
+                                .get("__packweave_owner")
+                                .and_then(|v| v.as_str())
+                                .map(|owner| owner != pack_name)
+                                .unwrap_or(true)
+                        });
+                    }
+                }
+
+                // Clean up empty event arrays.
+                let empty_events: Vec<String> = hooks_obj
+                    .iter()
+                    .filter(|(_, v)| v.as_array().map(|a| a.is_empty()).unwrap_or(false))
+                    .map(|(k, _)| k.clone())
+                    .collect();
+                for event_name in empty_events {
+                    hooks_obj.remove(&event_name);
+                }
+
+                // Remove the hooks key entirely if it's now empty.
+                if hooks_obj.is_empty() {
+                    config
+                        .as_object_mut()
+                        .expect("config must be object")
+                        .remove("hooks");
+                }
+            }
+
+            let output =
+                serde_json::to_string_pretty(&config).expect("JSON serialization cannot fail");
+            util::write_file(&path, &output)?;
+        }
+
         manifest.hooks.retain(|n| n != pack_name);
         Ok(())
     }
@@ -1241,6 +1334,51 @@ impl CliAdapter for ClaudeCodeAdapter {
                                     });
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Check tracked hook packs have entries in settings.json hooks key
+        if !manifest.hooks.is_empty() {
+            let settings_path = self.settings_path()?;
+            if settings_path.exists() {
+                let content = util::read_file(&settings_path)?;
+                if let Ok(config) = serde_json::from_str::<serde_json::Value>(&content) {
+                    for pack_name in &manifest.hooks {
+                        let has_entries = config
+                            .get("hooks")
+                            .and_then(|h| h.as_object())
+                            .map(|hooks_obj| {
+                                hooks_obj.values().any(|event_arr| {
+                                    event_arr
+                                        .as_array()
+                                        .map(|arr| {
+                                            arr.iter().any(|entry| {
+                                                entry
+                                                    .get("__packweave_owner")
+                                                    .and_then(|v| v.as_str())
+                                                    .map(|o| o == pack_name)
+                                                    .unwrap_or(false)
+                                            })
+                                        })
+                                        .unwrap_or(false)
+                                })
+                            })
+                            .unwrap_or(false);
+
+                        if !has_entries {
+                            issues.push(DiagnosticIssue {
+                                severity: Severity::Warning,
+                                message: format!(
+                                    "hooks for pack '{pack_name}' are tracked but missing from settings.json"
+                                ),
+                                suggestion: Some(format!(
+                                    "run `weave install {pack_name} --allow-hooks` to re-apply"
+                                )),
+                                pack: Some(pack_name.clone()),
+                            });
                         }
                     }
                 }
