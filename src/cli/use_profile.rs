@@ -4,6 +4,7 @@ use crate::adapters::{self, ApplyOptions};
 use crate::cli::style;
 use crate::core::config::Config;
 use crate::core::profile::Profile;
+use crate::core::registry::registry_from_config;
 use crate::core::use_profile;
 use crate::error::WeaveError;
 
@@ -42,6 +43,7 @@ pub fn run(profile_name: Option<&str>, allow_hooks: bool) -> Result<()> {
 
     let installed_adapters = adapters::installed_adapters();
     let apply_options = ApplyOptions { allow_hooks };
+    let registry = registry_from_config(&config);
 
     let result = use_profile::switch(
         target_name,
@@ -50,6 +52,7 @@ pub fn run(profile_name: Option<&str>, allow_hooks: bool) -> Result<()> {
         &target_profile,
         &installed_adapters,
         &apply_options,
+        &registry,
     )?;
 
     // Format output for removals

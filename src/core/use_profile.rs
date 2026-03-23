@@ -7,7 +7,7 @@ use crate::adapters::{ApplyOptions, CliAdapter};
 use crate::core::config::Config;
 use crate::core::pack::{Pack, PackSource, ResolvedPack};
 use crate::core::profile::{InstalledPack, Profile};
-use crate::core::registry::{GitHubRegistry, Registry};
+use crate::core::registry::Registry;
 use crate::core::store::Store;
 
 /// A pack removal result for a single adapter.
@@ -87,8 +87,9 @@ pub fn load_or_fetch_pack(
     name: &str,
     version: &semver::Version,
     source: &PackSource,
+    registry: &dyn Registry,
 ) -> std::result::Result<Pack, anyhow::Error> {
-    use anyhow::{Context, bail};
+    use anyhow::Context;
 
     // Try loading from store first
     if let Ok(pack) = Store::load_pack(name, version, Some(source)) {
@@ -96,12 +97,6 @@ pub fn load_or_fetch_pack(
     }
 
     // Try fetching from registry
-    let registry_url = match source {
-        PackSource::Registry { registry_url } => registry_url,
-        _ => bail!("pack {name}@{version} not in local store and source is not a registry"),
-    };
-
-    let registry = GitHubRegistry::new(registry_url);
     let release = registry
         .fetch_version(name, version)
         .map_err(anyhow::Error::from)
@@ -127,6 +122,7 @@ pub fn switch(
     target_profile: &Profile,
     adapters: &[Box<dyn CliAdapter>],
     options: &ApplyOptions,
+    registry: &dyn Registry,
 ) -> std::result::Result<SwitchResult, anyhow::Error> {
     use anyhow::Context;
 
@@ -137,7 +133,7 @@ pub fn switch(
     // loop could fail partway through, leaving adapter configs in a broken
     // state that is neither the old profile nor the new one.
     for installed in &to_add {
-        load_or_fetch_pack(&installed.name, &installed.version, &installed.source)
+        load_or_fetch_pack(&installed.name, &installed.version, &installed.source, registry)
             .with_context(|| {
                 format!(
                     "cannot switch: pack {}@{} is not available — resolve this before switching profiles",
@@ -193,8 +189,12 @@ pub fn switch(
             load_error: None,
         };
 
-        let pack = match load_or_fetch_pack(&installed.name, &installed.version, &installed.source)
-        {
+        let pack = match load_or_fetch_pack(
+            &installed.name,
+            &installed.version,
+            &installed.source,
+            registry,
+        ) {
             Ok(p) => p,
             Err(e) => {
                 apply_result.load_error = Some(format!(
