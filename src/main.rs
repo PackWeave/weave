@@ -119,6 +119,12 @@ enum Commands {
         action: TapAction,
     },
 
+    /// Publish a pack to the registry (creates a PR on the registry repo)
+    Publish {
+        /// Path to the pack directory (defaults to current directory)
+        path: Option<String>,
+    },
+
     /// Manage registry authentication (for pack publishing and rate limits)
     Auth {
         #[command(subcommand)]
@@ -265,6 +271,7 @@ fn main() {
         Commands::Update { name } => cli::update::run(name.as_deref()),
         Commands::Sync { allow_hooks } => cli::sync::run(allow_hooks),
         Commands::Diagnose { json } => cli::diagnose::run(json),
+        Commands::Publish { path } => cli::publish::run(path.as_deref()),
         Commands::Auth { action } => match action {
             AuthAction::Login { token } => cli::auth::login(token.as_deref()),
             AuthAction::Logout => cli::auth::logout(),

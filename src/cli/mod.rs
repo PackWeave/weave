@@ -4,6 +4,7 @@ pub mod init;
 pub mod install;
 pub mod list;
 pub mod profile;
+pub mod publish;
 pub mod remove;
 pub mod search;
 pub mod style;

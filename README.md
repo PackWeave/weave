@@ -197,6 +197,7 @@ weave remove web-dev        # clean undo
 | `weave search --mcp <query>` | Search the official MCP Registry for servers |
 | `weave update [pack]` | Update one or all packs to the latest compatible version |
 | `weave init [name]` | Scaffold a new pack directory |
+| `weave publish [path]` | Publish a pack to the registry (creates a PR). Requires authentication via `weave auth login`. |
 | `weave diagnose [--json]` | Check for config drift and health issues across all CLIs |
 | `weave profile create <name>` | Create a new named profile |
 | `weave profile list` | List all profiles (marks the active one) |
