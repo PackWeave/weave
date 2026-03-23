@@ -262,8 +262,18 @@ fn http_get_json<T: serde::de::DeserializeOwned>(
     let mut request = client
         .get(url)
         .header("User-Agent", format!("weave/{}", env!("CARGO_PKG_VERSION")));
+    // Only send the token to trusted GitHub hosts. If registry_url in config
+    // points to a non-GitHub domain, the token must not be leaked to it.
     if let Some(token) = token {
-        request = request.header("Authorization", format!("Bearer {token}"));
+        let host = url
+            .split("://")
+            .nth(1)
+            .and_then(|rest| rest.split('/').next())
+            .unwrap_or("");
+        const TRUSTED_HOSTS: [&str; 2] = ["api.github.com", "raw.githubusercontent.com"];
+        if TRUSTED_HOSTS.iter().any(|h| host.eq_ignore_ascii_case(h)) {
+            request = request.header("Authorization", format!("Bearer {token}"));
+        }
     }
     let response = request
         .send()

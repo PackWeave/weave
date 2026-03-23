@@ -75,7 +75,12 @@ pub fn status() -> Result<()> {
 
     match token {
         Some(ref t) => {
-            let source = if std::env::var("WEAVE_TOKEN").is_ok() {
+            // Match resolve_token's logic: env var only counts if non-empty after trim.
+            let from_env = std::env::var("WEAVE_TOKEN")
+                .ok()
+                .filter(|v| !v.trim().is_empty())
+                .is_some();
+            let source = if from_env {
                 "environment variable WEAVE_TOKEN".to_string()
             } else {
                 let path = credentials::credentials_path(&config)?;

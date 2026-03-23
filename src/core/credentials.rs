@@ -332,14 +332,15 @@ mod tests {
     fn resolve_trims_whitespace() {
         let tmp = tempfile::TempDir::new().unwrap();
         let (config, _store_guard) = test_config_with_guard(&tmp);
+        let _guard = EnvGuard::remove("WEAVE_TOKEN");
 
         // Write token with trailing newline (common with echo).
         let path = credentials_path(&config).unwrap();
         util::write_file(&path, "  my-token  \n").unwrap();
 
-        // Should resolve to trimmed value.
-        let token_raw = util::read_file(&path).unwrap();
-        assert_eq!(token_raw.trim(), "my-token");
+        // resolve_token should return the trimmed value.
+        let token = resolve_token(&config).unwrap();
+        assert_eq!(token.as_deref(), Some("my-token"));
     }
 
     #[test]
