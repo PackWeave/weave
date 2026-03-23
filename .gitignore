@@ -32,6 +32,9 @@ target
 .claude/.packweave_manifest.json
 .mcp.json
 
+# Claude Code agent worktrees
+.claude/worktrees/
+
 # macOS metadata
 .DS_Store
 .claude/worktrees/
