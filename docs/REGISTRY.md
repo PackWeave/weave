@@ -185,10 +185,10 @@ sequenceDiagram
 **Step by step:**
 
 1. **User creates a GitHub PAT** at [github.com/settings/tokens](https://github.com/settings/tokens)
-   - For publishing: needs `contents:write` on `PackWeave/registry`
-   - For rate limits only: any valid token works (no special scopes needed)
-2. **`weave auth login --token ghp_xxxxx`** — validates against GitHub API (best-effort), writes to `~/.packweave/credentials`
-3. **All subsequent commands** automatically include `Authorization: Bearer` in registry HTTP requests
+   - For read-only operations (install, search, update): any valid token works — no special scopes needed
+   - For publishing (not yet implemented): will require write access to the registry repo, limited to maintainers/collaborators
+2. **`weave auth login`** — prompts for the token on stdin, validates against GitHub API (best-effort), writes to `~/.packweave/credentials`
+3. **All subsequent commands** automatically include `Authorization: Bearer` in requests to trusted GitHub hosts
 4. **`weave auth logout`** — deletes the credentials file
 
 ### Token resolution and request flow

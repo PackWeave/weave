@@ -140,12 +140,12 @@ enum Commands {
 enum AuthAction {
     /// Authenticate with the registry using a GitHub personal access token.
     ///
-    /// Required for `weave publish`. Also raises the GitHub API rate limit
-    /// from 60 to 5,000 requests/hour for install, search, and update.
+    /// Raises the GitHub API rate limit from 60 to 5,000 requests/hour for
+    /// install, search, and update. Will also be required for `weave publish`
+    /// (not yet implemented).
     ///
-    /// Create a token at https://github.com/settings/tokens with the
-    /// `contents:write` scope on the PackWeave/registry repository (for
-    /// publishing). Read-only operations work with any valid GitHub token.
+    /// Create a token at https://github.com/settings/tokens — no special
+    /// scopes are needed for read-only operations (install, search, update).
     ///
     /// For CI/automation, set the WEAVE_TOKEN environment variable instead
     /// of running `weave auth login`.
