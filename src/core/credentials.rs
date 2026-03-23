@@ -179,36 +179,34 @@ pub fn store_token(config: &Config, token: &str) -> Result<()> {
         util::ensure_dir(parent)?;
     }
 
-    // On Unix: create with restricted permissions atomically to avoid TOCTOU.
-    // Write to a temp file with 0o600, then rename into place.
+    // On Unix: create a securely random temp file with 0o600, then atomically
+    // rename into place. Uses tempfile crate to avoid predictable filenames
+    // (a predictable path could be pre-created as a symlink by an attacker).
     #[cfg(unix)]
     {
         use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
+        use std::os::unix::fs::PermissionsExt;
 
-        let tmp_path = path.with_file_name(format!("credentials.tmp.{}", std::process::id()));
-        let result = (|| -> Result<()> {
-            let mut file = std::fs::OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .mode(0o600)
-                .open(&tmp_path)
-                .map_err(|e| WeaveError::io("creating credentials file", e))?;
-            file.write_all(token.as_bytes())
-                .map_err(|e| WeaveError::io("writing credentials", e))?;
-            file.sync_all()
-                .map_err(|e| WeaveError::io("syncing credentials", e))?;
-            drop(file);
-            std::fs::rename(&tmp_path, &path)
-                .map_err(|e| WeaveError::io("finalizing credentials file", e))?;
-            Ok(())
-        })();
-        if result.is_err() {
-            // Clean up temp file on failure.
-            let _ = std::fs::remove_file(&tmp_path);
-        }
-        result?;
+        let parent = path
+            .parent()
+            .expect("credentials file path must have a parent directory");
+        let mut tmp = tempfile::Builder::new()
+            .prefix(".credentials.")
+            .tempfile_in(parent)
+            .map_err(|e| WeaveError::io("creating temporary credentials file", e))?;
+
+        // Set 0o600 before writing content via the open file handle.
+        tmp.as_file()
+            .set_permissions(std::fs::Permissions::from_mode(0o600))
+            .map_err(|e| WeaveError::io("setting credentials file permissions", e))?;
+        tmp.write_all(token.as_bytes())
+            .map_err(|e| WeaveError::io("writing credentials", e))?;
+        tmp.as_file()
+            .sync_all()
+            .map_err(|e| WeaveError::io("syncing credentials", e))?;
+
+        tmp.persist(&path)
+            .map_err(|e| WeaveError::io("finalizing credentials file", e.error))?;
     }
 
     // On non-Unix: write directly (NTFS ACLs protect the user's home directory).
