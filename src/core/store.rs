@@ -15,6 +15,11 @@ pub struct CachedEntry {
     /// indicating the entry was installed from a local path rather than a
     /// registry.
     pub is_local: bool,
+    /// The raw version directory name (e.g. `"1.0.0"` or
+    /// `"1.0.0-local-abcdef0123456789"`).  Used as a tiebreaker in the sort
+    /// so that multiple local entries of the same name+version (installed from
+    /// different paths) have a deterministic order.
+    pub cache_key: String,
 }
 
 /// Manages the local pack cache at `~/.packweave/packs/`.
@@ -288,6 +293,7 @@ impl Store {
                         name: name.clone(),
                         version,
                         is_local,
+                        cache_key: ver_str.clone(),
                     });
                 }
             }
@@ -298,6 +304,7 @@ impl Store {
                 .cmp(&b.name)
                 .then(a.version.cmp(&b.version))
                 .then(a.is_local.cmp(&b.is_local))
+                .then(a.cache_key.cmp(&b.cache_key))
         });
         Ok(result)
     }
@@ -726,7 +733,7 @@ mod tests {
 
     #[test]
     #[serial_test::serial]
-    fn list_cached_mixed_entries_distinguished() {
+    fn list_cached_mixed_sources() {
         let tmp = TempDir::new().unwrap();
         let _guard = EnvGuard::set("WEAVE_TEST_STORE_DIR", tmp.path());
 
@@ -788,7 +795,7 @@ mod tests {
 
     #[test]
     #[serial_test::serial]
-    fn list_cached_multiple_local_entries_same_name() {
+    fn list_cached_multiple_local_paths_both_returned() {
         let tmp = TempDir::new().unwrap();
         let _guard = EnvGuard::set("WEAVE_TEST_STORE_DIR", tmp.path());
 
