@@ -104,7 +104,10 @@ The client caches this per-pack after the first fetch for the lifetime of the co
 ```
 weave install filesystem
         │
+        ├─ resolve token (WEAVE_TOKEN env → credentials file → None)
+        │
         ├─ GET {base}/packs/filesystem.json
+        │   ├─ Authorization: Bearer <token>  (if authenticated)
         │   └─ {versions: [{version, files, dependencies}]}
         │
         ├─ resolve: pick version satisfying constraints
@@ -120,7 +123,10 @@ weave install filesystem
 ```
 weave search filesystem
         │
+        ├─ resolve token (WEAVE_TOKEN env → credentials file → None)
+        │
         ├─ GET {base}/index.json  [cached after first call]
+        │   ├─ Authorization: Bearer <token>  (if authenticated)
         │   └─ {filesystem: {description, latest_version}, ...}
         │
         ├─ filter by "filesystem" (name, description, keywords)
@@ -137,6 +143,77 @@ The client reads `registry_url` from `~/.packweave/config.toml`. This is the **b
 The `WEAVE_REGISTRY_URL` environment variable overrides `registry_url` (used by E2E tests).
 
 Default: `https://raw.githubusercontent.com/PackWeave/registry/main`
+
+---
+
+## Authentication
+
+### When is authentication needed?
+
+| Use case | Auth required? | Why |
+|----------|---------------|-----|
+| `weave install`, `search`, `update` | No (recommended) | The registry is public, but authenticated requests get 5,000 req/hr instead of 60 |
+| `weave publish` | **Yes** | Pushes pack content to the registry repository via the GitHub API |
+| Private/self-hosted registries | Depends | The registry operator decides; weave sends the token as a `Bearer` header on all requests |
+
+### Token lifecycle
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant CLI as weave auth login
+    participant GH as GitHub API
+    participant FS as ~/.packweave/credentials
+
+    User->>CLI: weave auth login --token ghp_xxxxx
+    CLI->>GH: GET /user (Bearer ghp_xxxxx)
+    alt Token valid
+        GH-->>CLI: 200 {login: "username"}
+        CLI-->>User: ✓ Authenticated as username
+    else Token invalid or network error
+        GH-->>CLI: 401 / timeout
+        CLI-->>User: ⚠ Could not verify (stored anyway)
+    end
+    CLI->>FS: Write token (chmod 600)
+```
+
+**Step by step:**
+
+1. **User creates a GitHub PAT** at [github.com/settings/tokens](https://github.com/settings/tokens)
+   - For publishing: needs `contents:write` on `PackWeave/registry`
+   - For rate limits only: any valid token works (no special scopes needed)
+2. **`weave auth login --token ghp_xxxxx`** — validates against GitHub API (best-effort), writes to `~/.packweave/credentials`
+3. **All subsequent commands** automatically include `Authorization: Bearer` in registry HTTP requests
+4. **`weave auth logout`** — deletes the credentials file
+
+### Token resolution and request flow
+
+```mermaid
+flowchart TD
+    A[weave install / search / update] --> B{WEAVE_TOKEN env var set?}
+    B -->|Yes| D[Use env token]
+    B -->|No| C{~/.packweave/credentials exists?}
+    C -->|Yes| E[Read file token]
+    C -->|No| F[No token — anonymous]
+    D --> G[GET registry with Authorization: Bearer header]
+    E --> G
+    F --> H[GET registry without auth — 60 req/hr limit]
+    G --> I[5,000 req/hr rate limit]
+```
+
+### Token resolution order
+
+When weave needs a token, it checks these sources in order:
+
+1. **`WEAVE_TOKEN` environment variable** — highest priority, never written to disk. Use this in CI/automation.
+2. **`~/.packweave/credentials` file** — written by `weave auth login`. Plain text, single token, restricted to owner-only permissions (0o600) on Unix.
+3. **`config.toml` → `auth_token_path`** — optional override for the credentials file path. Useful for custom setups or testing. Does not contain the token itself.
+
+If none of these exist, requests are sent without authentication (anonymous).
+
+### For alternative registries
+
+The token is sent as `Authorization: Bearer <token>` on every HTTP GET to the registry. Alternative registry operators can use this for access control. The `validate_github_token` check on login is GitHub-specific and advisory — it does not prevent storing tokens intended for other registries.
 
 ---
 

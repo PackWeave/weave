@@ -85,6 +85,18 @@ Use the issue templates in `.github/ISSUE_TEMPLATE/`. For bugs, include your OS,
 
 Packs are published to the `PackWeave/registry` repo via pull request.
 
+### 🔑 Authentication
+
+To publish packs, you need a GitHub personal access token:
+
+1. Go to [github.com/settings/tokens](https://github.com/settings/tokens) and create a fine-grained PAT with `contents:write` permission on the `PackWeave/registry` repository
+2. Run `weave auth login --token ghp_xxxxx` to store it
+3. Run `weave auth status` to verify
+
+For CI/automation, set the `WEAVE_TOKEN` environment variable instead.
+
+Authentication is optional for installing, searching, and updating packs — the registry is public. However, authenticated requests get a higher rate limit (5,000/hr vs 60/hr).
+
 ### ⚡ Pack creation quickstart (5 minutes)
 
 1. Create a new folder and add a `pack.toml` with basic metadata and `[[servers]]` entries.

@@ -119,7 +119,7 @@ enum Commands {
         action: TapAction,
     },
 
-    /// Manage registry authentication
+    /// Manage registry authentication (for pack publishing and rate limits)
     Auth {
         #[command(subcommand)]
         action: AuthAction,
@@ -138,17 +138,27 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum AuthAction {
-    /// Authenticate with the registry (GitHub personal access token)
+    /// Authenticate with the registry using a GitHub personal access token.
+    ///
+    /// Required for `weave publish`. Also raises the GitHub API rate limit
+    /// from 60 to 5,000 requests/hour for install, search, and update.
+    ///
+    /// Create a token at https://github.com/settings/tokens with the
+    /// `contents:write` scope on the PackWeave/registry repository (for
+    /// publishing). Read-only operations work with any valid GitHub token.
+    ///
+    /// For CI/automation, set the WEAVE_TOKEN environment variable instead
+    /// of running `weave auth login`.
     Login {
-        /// Token value (reads from stdin if omitted)
+        /// GitHub personal access token (reads from stdin if omitted)
         #[arg(long)]
         token: Option<String>,
     },
 
-    /// Remove stored credentials
+    /// Remove stored credentials from ~/.packweave/credentials
     Logout,
 
-    /// Show current authentication state
+    /// Show current authentication state (token source and masked value)
     Status,
 }
 

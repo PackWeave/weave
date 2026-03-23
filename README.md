@@ -204,6 +204,9 @@ weave remove web-dev        # clean undo
 | `weave profile add <pack> -p <name>` | Add a pack to a named profile |
 | `weave use [profile]` | Switch to a named profile, or print the active one |
 | `weave sync` | Reapply the active profile to all adapters |
+| `weave auth login [--token <TOKEN>]` | Authenticate with the registry (GitHub PAT). Required for publishing; raises rate limits for all commands. Reads from stdin if `--token` is omitted. Set `WEAVE_TOKEN` env var for CI. |
+| `weave auth status` | Show current authentication state (token source and masked value) |
+| `weave auth logout` | Remove stored credentials |
 | `weave tap add <user/repo>` | Add a community tap (third-party pack registry) |
 | `weave tap list` | Show registered taps |
 | `weave tap remove <user/repo>` | Remove a community tap |

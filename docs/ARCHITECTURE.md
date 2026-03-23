@@ -89,6 +89,7 @@ src/
   core/                    Business logic — no I/O to CLI config files here.
     mod.rs                 Module re-exports.
     config.rs              Global weave config (~/.packweave/config.toml).
+    credentials.rs         Token storage, retrieval, and validation.
     conflict.rs            Tool-level conflict detection across installed packs.
     install.rs             Install orchestration (registry + local).
     lockfile.rs            Lock file: read/write, version pinning.
@@ -535,6 +536,7 @@ no SHA256 ceremony.
 |File                                 |Purpose                                           |
 |-------------------------------------|--------------------------------------------------|
 |`~/.packweave/config.toml`           |Active profile name, registry URL, auth token path|
+|`~/.packweave/credentials`          |Registry auth token (written by `weave auth login`, 0o600)|
 |`~/.packweave/profiles/<n>.toml`     |Installed pack list for a profile                 |
 |`~/.packweave/locks/<n>.lock`        |Pinned exact versions for a profile               |
 |`~/.packweave/packs/<name>/<ver>/`   |Inline pack file contents written on install      |
