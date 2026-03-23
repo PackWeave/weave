@@ -8,6 +8,7 @@ mod e2e {
     mod cli_install;
     mod cli_list;
     mod cli_profile;
+    mod cli_publish;
     mod cli_remove;
     mod cli_search;
     mod cli_sync;

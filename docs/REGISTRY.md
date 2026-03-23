@@ -134,6 +134,30 @@ weave search filesystem
         └─ print results
 ```
 
+### Data Flow — `weave publish`
+
+```
+weave publish [path]
+        │
+        ├─ Pack::load(dir) — validate pack.toml
+        │
+        ├─ resolve token (required — error if not authenticated)
+        │
+        ├─ GET {base}/packs/{name}.json — check version not already published
+        │   └─ PackNotFound = new pack, OK
+        │
+        ├─ collect files from allowlisted dirs (pack.toml, prompts/, commands/,
+        │   skills/, settings/, README.md)
+        │
+        ├─ GitHub API: GET /git/ref/heads/main → main SHA
+        ├─ GitHub API: POST /git/refs → create branch publish/{name}-{version}
+        ├─ GitHub API: PUT /contents/src/{name}/{path} for each file (base64)
+        │   └─ on failure: DELETE branch (cleanup)
+        ├─ GitHub API: POST /pulls → create PR
+        │
+        └─ print PR URL
+```
+
 ---
 
 ## Configuration
@@ -186,7 +210,7 @@ sequenceDiagram
 
 1. **User creates a GitHub PAT** at [github.com/settings/tokens](https://github.com/settings/tokens)
    - For read-only operations (install, search, update): any valid token works — no special scopes needed
-   - For publishing (not yet implemented): will require write access to the registry repo, limited to maintainers/collaborators
+   - For publishing (`weave publish`): requires push access to `PackWeave/registry` (maintainers/collaborators only)
 2. **`weave auth login`** — prompts for the token on stdin, validates against GitHub API (best-effort), writes to `~/.packweave/credentials`
 3. **All subsequent commands** automatically include `Authorization: Bearer` in requests to trusted GitHub hosts
 4. **`weave auth logout`** — deletes the credentials file

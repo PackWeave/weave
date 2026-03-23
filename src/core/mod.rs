@@ -6,6 +6,7 @@ pub mod lockfile;
 pub mod mcp_registry;
 pub mod pack;
 pub mod profile;
+pub mod publish;
 pub mod registry;
 pub mod resolver;
 pub mod store;

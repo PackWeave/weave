@@ -52,6 +52,19 @@ pub enum WeaveError {
     #[error("not authenticated — run `weave auth login` to authenticate")]
     NotAuthenticated,
 
+    // Publish errors
+    #[error(
+        "version {version} of pack '{name}' is already published — bump the version in pack.toml"
+    )]
+    VersionAlreadyPublished { name: String, version: String },
+
+    #[error("failed to publish '{name}@{version}': {reason}")]
+    PublishFailed {
+        name: String,
+        version: String,
+        reason: String,
+    },
+
     // Profile errors
     #[error("profile '{name}' not found — run `weave profile list` to see available profiles")]
     ProfileNotFound { name: String },

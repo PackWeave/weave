@@ -98,7 +98,7 @@ To authenticate:
 For CI/automation, set the `WEAVE_TOKEN` environment variable instead.
 
 > [!NOTE]
-> `weave publish` is not yet implemented. When it ships, pack publishing will require a token with write access to the registry repository — only maintainers and collaborators with write permission on `PackWeave/registry` will be able to publish. Regular users contribute packs via pull request (see [Process](#-process) below).
+> `weave publish` creates a PR on the registry repo. Publishing requires push access to `PackWeave/registry` — only maintainers and collaborators can use it. Regular users contribute packs via pull request (see [Process](#-process) below).
 
 ### ⚡ Pack creation quickstart (5 minutes)
 

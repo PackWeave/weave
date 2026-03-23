@@ -125,8 +125,12 @@ authors = ["e2e-tester"]
 | 6.4 | `weave list` | filesystem no longer listed |
 | 6.5 | Check other mcpServers keys unchanged | No regressions in user config |
 | 6.6 | `weave remove filesystem` | Exits 1, "not installed" error |
+| 6.7 | Re-install then add a manual server: `weave install filesystem && cat ~/.claude.json \| jq '.mcpServers.my-manual-server = {"command":"echo","args":["hi"]}' > /tmp/cj && cp /tmp/cj ~/.claude.json` | Manual server added alongside weave-managed ones |
+| 6.8 | `weave remove filesystem` | Exits 0 |
+| 6.9 | `cat ~/.claude.json \| jq '.mcpServers["my-manual-server"]'` | Manual server still present — user edits survived |
+| 6.10 | `cat ~/.claude.json \| jq 'del(.mcpServers["my-manual-server"])' > /tmp/cj && cp /tmp/cj ~/.claude.json` | Cleanup manual server |
 
-**Pass criteria:** filesystem removed cleanly; no other config sections modified; removing again errors.
+**Pass criteria:** filesystem removed cleanly; no other config sections modified; removing again errors; user's manual edits survive removal.
 
 ---
 
@@ -175,6 +179,43 @@ authors = ["e2e-tester"]
 | 9.4 | `weave list` | Pack versions match latest available |
 
 **Pass criteria:** Update checks all installed packs without errors.
+
+---
+
+## Flow 10: Init
+
+**Goal:** Verify `weave init` scaffolds a valid pack directory.
+
+| Step | Command | Expected |
+|------|---------|----------|
+| 10.1 | `weave init /tmp/weave-e2e-init-test` | Exits 0, creates directory with pack.toml |
+| 10.2 | `cat /tmp/weave-e2e-init-test/pack.toml` | Valid TOML with `[pack]` section, name matches dir name |
+| 10.3 | `weave install /tmp/weave-e2e-init-test` | Exits 0 — the generated pack is valid enough to install |
+| 10.4 | `weave remove weave-e2e-init-test` | Exits 0, clean removal |
+| 10.5 | `rm -rf /tmp/weave-e2e-init-test` | Cleanup |
+| 10.6 | `cd /tmp && mkdir weave-e2e-init-cwd && cd weave-e2e-init-cwd && weave init` | Exits 0, initializes current directory |
+| 10.7 | `cat /tmp/weave-e2e-init-cwd/pack.toml` | Valid TOML with name `weave-e2e-init-cwd` |
+| 10.8 | `rm -rf /tmp/weave-e2e-init-cwd` | Cleanup |
+
+**Pass criteria:** Both named and current-directory init produce valid, installable packs.
+
+---
+
+## Flow 17: Diagnose project-scope gap detection
+
+**Goal:** Verify that `weave diagnose` detects when a pack is installed user-scope but a project `.claude/` directory exists without project-scope config.
+
+| Step | Command | Expected |
+|------|---------|----------|
+| 17.1 | `weave install filesystem` | Exits 0, installed user-scope |
+| 17.2 | `mkdir -p .claude` | Create project-scope directory |
+| 17.3 | `weave diagnose` | Reports a project-scope gap (pack installed user-scope but .claude/ exists without project config) |
+| 17.4 | `weave install filesystem --project` | Exits 0, applies project-scope config |
+| 17.5 | `weave diagnose` | No project-scope gap reported |
+| 17.6 | `weave remove filesystem` | Clean removal |
+| 17.7 | `rm -rf .claude .mcp.json` | Cleanup project-scope files |
+
+**Pass criteria:** Diagnose correctly detects and reports project-scope gaps; `--project` resolves them.
 
 ---
 
@@ -293,6 +334,25 @@ X-Test = "static-value"
 
 ---
 
+## Flow 16: Publish
+
+**Goal:** Verify `weave publish` validates packs, requires auth, detects duplicates, and provides clear errors for unsupported scenarios.
+
+| Step | Command | Expected |
+|------|---------|----------|
+| 16.1 | `weave publish /nonexistent` | Error mentioning path resolution |
+| 16.2 | `cd /tmp && weave publish` | Error: "pack.toml not found" (no pack in /tmp) |
+| 16.3 | `mkdir -p /tmp/weave-e2e-publish && echo '[pack]\nname = "e2e-publish-test"\nversion = "0.1.0"\ndescription = "test"\nauthors = ["tester"]' > /tmp/weave-e2e-publish/pack.toml` | Pack directory created |
+| 16.4 | `weave auth logout 2>/dev/null; weave publish /tmp/weave-e2e-publish` | Error: "not authenticated" |
+| 16.5 | `weave auth login --token test-token-1234` | Token stored |
+| 16.6 | `weave publish /tmp/weave-e2e-publish` | Should attempt to check registry for duplicates (may fail at GitHub API if token is fake — that's expected) |
+| 16.7 | `weave publish --help` | Shows usage with optional `[PATH]` argument |
+| 16.8 | `rm -rf /tmp/weave-e2e-publish` | Temp dir cleaned |
+
+**Pass criteria:** Missing pack.toml, missing auth, and invalid path all produce clear errors. Help text shows correct usage. Actual PR creation is not tested here (requires real GitHub access).
+
+---
+
 ## Flow 14: Cleanup
 
 **Goal:** Restore machine to pre-test state.
@@ -331,8 +391,11 @@ X-Test = "static-value"
 | 7 — Search | ✓ / ✗ | |
 | 8 — Project-scope | ✓ / ✗ | |
 | 9 — Update | ✓ / ✗ | |
+| 10 — Init | ✓ / ✗ | |
+| 17 — Diagnose gap | ✓ / ✗ | |
 | 11 — Community taps | ✓ / ✗ | |
 | 12 — Hooks | ✓ / ✗ | |
 | 13 — HTTP transport | ✓ / ✗ | |
 | 15 — Authentication | ✓ / ✗ | |
+| 16 — Publish | ✓ / ✗ | |
 | 14 — Cleanup | ✓ / ✗ | |

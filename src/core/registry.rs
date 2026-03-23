@@ -58,11 +58,17 @@ pub trait Registry: Send + Sync {
     /// Fetch a specific version of a pack.
     fn fetch_version(&self, name: &str, version: &semver::Version) -> Result<PackRelease>;
 
-    /// Publish a pack archive to the registry. Deferred to Milestone 3 (v0.2).
-    fn publish(&self, _archive: &std::path::Path, _token: &str) -> Result<()> {
+    /// Publish a pack to the registry by creating a PR with the pack files.
+    ///
+    /// Returns a [`PublishResult`](crate::core::publish::PublishResult) with the PR URL.
+    fn publish(
+        &self,
+        _pack: &crate::core::pack::Pack,
+        _files: &std::collections::BTreeMap<String, Vec<u8>>,
+        _token: &str,
+    ) -> Result<crate::core::publish::PublishResult> {
         Err(crate::error::WeaveError::Registry(
-            "publish is not yet supported — see https://github.com/PackWeave/weave for updates"
-                .into(),
+            "this registry does not support publishing".into(),
         ))
     }
 }
@@ -231,6 +237,16 @@ impl Registry for GitHubRegistry {
                     .collect::<Vec<_>>()
                     .join(", "),
             })
+    }
+
+    fn publish(
+        &self,
+        pack: &crate::core::pack::Pack,
+        files: &std::collections::BTreeMap<String, Vec<u8>>,
+        token: &str,
+    ) -> Result<crate::core::publish::PublishResult> {
+        let (owner, repo) = crate::core::publish::parse_github_registry_url(&self.base_url)?;
+        crate::core::publish::create_registry_pr(&owner, &repo, pack, files, token)
     }
 }
 
@@ -433,10 +449,15 @@ impl Registry for CompositeRegistry {
         }))
     }
 
-    fn publish(&self, archive: &std::path::Path, token: &str) -> Result<()> {
+    fn publish(
+        &self,
+        pack: &crate::core::pack::Pack,
+        files: &std::collections::BTreeMap<String, Vec<u8>>,
+        token: &str,
+    ) -> Result<crate::core::publish::PublishResult> {
         // Publish always goes to the official (first) registry.
         if let Some(primary) = self.registries.first() {
-            primary.publish(archive, token)
+            primary.publish(pack, files, token)
         } else {
             Err(WeaveError::Registry("no registries configured".to_string()))
         }
@@ -873,13 +894,26 @@ mod tests {
     fn composite_publish_delegates_to_first_registry() {
         let official = MockRegistry::new();
         let composite = CompositeRegistry::from_boxed(vec![Box::new(official)]);
-        // publish is not yet supported on any registry, so we just verify
-        // it delegates to the first registry and returns its error.
+        // MockRegistry uses the default publish impl which returns "does not support".
+        let dummy_pack = crate::core::pack::Pack {
+            name: "test".into(),
+            version: semver::Version::new(0, 1, 0),
+            description: "test".into(),
+            authors: vec![],
+            license: None,
+            repository: None,
+            keywords: vec![],
+            min_tool_version: None,
+            servers: vec![],
+            dependencies: HashMap::new(),
+            extensions: Default::default(),
+            targets: Default::default(),
+        };
         let err = composite
-            .publish(std::path::Path::new("/fake"), "token")
+            .publish(&dummy_pack, &std::collections::BTreeMap::new(), "token")
             .unwrap_err();
         assert!(
-            matches!(err, WeaveError::Registry(ref msg) if msg.contains("publish is not yet supported")),
+            matches!(err, WeaveError::Registry(_)),
             "publish should return Registry error: {err}"
         );
     }
