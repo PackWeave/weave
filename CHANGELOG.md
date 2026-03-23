@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.3](https://github.com/PackWeave/weave/compare/v0.4.2...v0.4.3) (2026-03-23)
+
+
+### Bug Fixes
+
+* **release:** make workflow_dispatch tag optional and pass explicit tag_name ([#211](https://github.com/PackWeave/weave/issues/211)) ([77c5783](https://github.com/PackWeave/weave/commit/77c5783b9beb39322e60442f3ce49a3e0a4d1d1d))
+* **release:** use PAT for Release Please to trigger release pipeline ([#209](https://github.com/PackWeave/weave/issues/209)) ([4a34f3f](https://github.com/PackWeave/weave/commit/4a34f3f18829fdf689a9dc9259373f6a405e4376))
+
 ## [0.4.2](https://github.com/PackWeave/weave/compare/v0.4.1...v0.4.2) (2026-03-23)
 
 
