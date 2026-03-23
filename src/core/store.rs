@@ -48,29 +48,43 @@ impl Store {
     }
 
     /// Lexically normalize a path by resolving `.` and `..` segments without
-    /// touching the filesystem. This is similar to Go's `path.Clean()`.
+    /// touching the filesystem. Behaves like Go's `path.Clean()`: collapses
+    /// `.` and `..`, removes trailing slashes and double separators, and
+    /// absorbs `..` past the root (so `/../foo` becomes `/foo`).
     ///
     /// Examples:
     /// - `/foo/./bar` -> `/foo/bar`
     /// - `/foo/baz/../bar` -> `/foo/bar`
+    /// - `/../foo` -> `/foo`
     /// - `/foo/bar/` -> `/foo/bar`
+    /// - `/foo//bar` -> `/foo/bar`
     /// - `relative/./path` -> `relative/path`
     fn normalize_path(path: &str) -> String {
         use std::path::{Component, Path};
-        let mut components = Vec::new();
+
+        // Fast path: if the string has no segments that need normalization,
+        // return the original without allocating a new String.
+        if !path.is_empty() && !Self::path_needs_normalization(path) {
+            return path.to_string();
+        }
+
+        let mut components: Vec<Component<'_>> = Vec::new();
         for component in Path::new(path).components() {
             match component {
                 Component::CurDir => {} // skip `.`
                 Component::ParentDir => {
-                    // Pop the last normal component if possible; preserve `..`
-                    // at the start of relative paths.
-                    if let Some(last) = components.last()
-                        && matches!(last, Component::Normal(_))
-                    {
-                        components.pop();
-                        continue;
+                    match components.last() {
+                        // Pop the last normal component if possible.
+                        Some(Component::Normal(_)) => {
+                            components.pop();
+                        }
+                        // `..` past root is absorbed (like Go's path.Clean).
+                        Some(Component::RootDir) => {}
+                        // Preserve `..` at the start of relative paths.
+                        _ => {
+                            components.push(component);
+                        }
                     }
-                    components.push(component);
                 }
                 _ => components.push(component),
             }
@@ -80,6 +94,51 @@ impl Store {
         }
         let result: PathBuf = components.iter().collect();
         result.to_string_lossy().into_owned()
+    }
+
+    /// Returns `true` if the path contains segments that need normalization:
+    /// `.` or `..` components, trailing separators, or double separators.
+    fn path_needs_normalization(path: &str) -> bool {
+        let bytes = path.as_bytes();
+        let sep = std::path::MAIN_SEPARATOR as u8;
+
+        // Trailing separator (but not the root "/" itself).
+        if bytes.len() > 1 && bytes[bytes.len() - 1] == sep {
+            return true;
+        }
+
+        // Scan for double separators or `/./` or `/../` patterns.
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == sep {
+                // Double separator.
+                if i + 1 < bytes.len() && bytes[i + 1] == sep {
+                    return true;
+                }
+                // Check for `/./` or `/.` at end, or `/../` or `/..` at end.
+                if i + 1 < bytes.len() && bytes[i + 1] == b'.' {
+                    if i + 2 >= bytes.len() || bytes[i + 2] == sep {
+                        return true;
+                    }
+                    if bytes[i + 2] == b'.' && (i + 3 >= bytes.len() || bytes[i + 3] == sep) {
+                        return true;
+                    }
+                }
+            }
+            i += 1;
+        }
+
+        // Leading `.` or `..` segment.
+        if bytes[0] == b'.' {
+            if bytes.len() == 1 || bytes[1] == sep {
+                return true;
+            }
+            if bytes.len() >= 2 && bytes[1] == b'.' && (bytes.len() == 2 || bytes[2] == sep) {
+                return true;
+            }
+        }
+
+        false
     }
 
     /// Path where a specific pack version is stored.
@@ -669,13 +728,27 @@ mod tests {
 
     #[test]
     fn stable_hash_is_pinned() {
-        // Pinned value — if this assertion breaks, existing local cache
-        // directories become orphaned. Do NOT change the hash algorithm
-        // without a migration path for existing stores.
+        // Pinned value for a clean path — if this assertion breaks, existing
+        // local cache directories become orphaned. Do NOT change the hash
+        // algorithm without a migration path for existing stores.
         assert_eq!(
             Store::stable_hash_path("/home/user/my-pack"),
             0xc4f22075cdd996fa,
             "FNV-1a output must be stable across Rust versions"
+        );
+    }
+
+    #[test]
+    fn stable_hash_dirty_path_equals_clean() {
+        // Path normalization was introduced so that semantically equivalent
+        // paths hash identically. This is safe because the upstream install
+        // path canonicalizes before storing, so no pre-existing cache entries
+        // were created with dirty (non-canonical) paths.
+        let clean = Store::stable_hash_path("/home/user/my-pack");
+        let dirty = Store::stable_hash_path("/home/user/./my-pack");
+        assert_eq!(
+            dirty, clean,
+            "dirty path must hash to the same value as the clean path"
         );
     }
 
@@ -715,11 +788,42 @@ mod tests {
     }
 
     #[test]
+    fn normalize_path_root() {
+        assert_eq!(Store::normalize_path("/"), "/");
+    }
+
+    #[test]
+    fn normalize_path_dotdot_past_root() {
+        assert_eq!(Store::normalize_path("/../foo"), "/foo");
+    }
+
+    #[test]
+    fn normalize_path_double_separators() {
+        assert_eq!(Store::normalize_path("/foo//bar"), "/foo/bar");
+    }
+
+    #[test]
+    fn normalize_path_only_dot() {
+        assert_eq!(Store::normalize_path("."), ".");
+    }
+
+    #[test]
+    fn normalize_path_relative_dotdot_at_start() {
+        assert_eq!(Store::normalize_path("../foo"), "../foo");
+    }
+
+    #[test]
+    fn normalize_path_trailing_slashes() {
+        assert_eq!(Store::normalize_path("/foo/bar/"), "/foo/bar");
+    }
+
+    #[test]
     fn equivalent_paths_produce_same_hash() {
         // These are all semantically equivalent to /foo/bar.
         let canonical = Store::stable_hash_path("/foo/bar");
         assert_eq!(Store::stable_hash_path("/foo/./bar"), canonical);
         assert_eq!(Store::stable_hash_path("/foo/baz/../bar"), canonical);
         assert_eq!(Store::stable_hash_path("/foo/bar/"), canonical);
+        assert_eq!(Store::stable_hash_path("/foo//bar"), canonical);
     }
 }
