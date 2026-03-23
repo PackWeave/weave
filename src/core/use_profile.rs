@@ -109,6 +109,10 @@ pub fn load_or_fetch_pack(
             return Err(crate::error::WeaveError::PackNotAvailable {
                 name: name.to_string(),
                 source_type: format!("local ({})", path),
+                hint: format!(
+                    "reinstall from the original local path with `weave install --local {}`",
+                    path
+                ),
             }
             .into());
         }
@@ -116,6 +120,10 @@ pub fn load_or_fetch_pack(
             return Err(crate::error::WeaveError::PackNotAvailable {
                 name: name.to_string(),
                 source_type: format!("git ({})", url),
+                hint: format!(
+                    "reinstall from the original URL with `weave install --git {}`",
+                    url
+                ),
             }
             .into());
         }
@@ -354,6 +362,32 @@ mod tests {
         assert_eq!(add[0].name, "new-pack");
     }
 
+    /// RAII guard that sets an env var on creation and restores it on drop,
+    /// even if the test panics.
+    struct EnvGuard {
+        key: &'static str,
+        prev: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &std::path::Path) -> Self {
+            let prev = std::env::var(key).ok();
+            // SAFETY: test helper, serial execution
+            unsafe { std::env::set_var(key, value) };
+            Self { key, prev }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            // SAFETY: restoring env on drop in test
+            match &self.prev {
+                Some(v) => unsafe { std::env::set_var(self.key, v) },
+                None => unsafe { std::env::remove_var(self.key) },
+            }
+        }
+    }
+
     /// A mock registry that panics on any call — used to verify that
     /// `load_or_fetch_pack` never reaches the registry for non-registry sources.
     struct MockRegistry;
@@ -383,7 +417,11 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn load_or_fetch_local_source_errors_when_not_in_store() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let _guard = EnvGuard::set("WEAVE_TEST_STORE_DIR", tmp.path());
+
         let source = PackSource::Local {
             path: "/tmp/nonexistent".to_string(),
         };
@@ -404,7 +442,11 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn load_or_fetch_git_source_errors_when_not_in_store() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let _guard = EnvGuard::set("WEAVE_TEST_STORE_DIR", tmp.path());
+
         let source = PackSource::Git {
             url: "https://github.com/example/repo".to_string(),
             rev: Some("abc123".to_string()),

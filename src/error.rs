@@ -26,9 +26,13 @@ pub enum WeaveError {
     NotInstalled { name: String },
 
     #[error(
-        "pack '{name}' is not available from {source_type} and is not in the local store — reinstall with `weave install {name}` or check the pack source"
+        "pack '{name}' is not available from {source_type} and is not in the local store — {hint}"
     )]
-    PackNotAvailable { name: String, source_type: String },
+    PackNotAvailable {
+        name: String,
+        source_type: String,
+        hint: String,
+    },
 
     // Profile errors
     #[error("profile '{name}' not found — run `weave profile list` to see available profiles")]
