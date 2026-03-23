@@ -222,12 +222,16 @@ impl Store {
         Pack::load(&dir)
     }
 
-    /// List all cached packs as (name, version) pairs.
+    /// List all cached packs as `(name, version, is_local)` tuples.
     ///
     /// Handles both plain version directories (`1.0.0`) and local-suffixed
     /// directories (`1.0.0-local-{hash}`). The suffix is stripped before
     /// parsing the version so local entries are reported correctly.
-    pub fn list_cached() -> Result<Vec<(String, semver::Version)>> {
+    ///
+    /// The `is_local` flag is `true` for entries whose directory name carries
+    /// the `-local-{hash}` suffix, allowing callers to distinguish registry
+    /// and local installs of the same name+version.
+    pub fn list_cached() -> Result<Vec<(String, semver::Version, bool)>> {
         let root = Self::root()?;
         let mut result = Vec::new();
 
@@ -253,6 +257,9 @@ impl Store {
                     ver_entry.map_err(|e| WeaveError::io("reading version entry", e))?;
                 let ver_str = ver_entry.file_name().to_string_lossy().to_string();
 
+                // Detect local entries before stripping the suffix.
+                let is_local = Self::has_local_suffix(&ver_str);
+
                 // Strip `-local-{hex}` suffix if present so we can parse the
                 // semver portion.
                 let semver_str = Self::strip_local_suffix(&ver_str);
@@ -260,7 +267,7 @@ impl Store {
                 if let Ok(version) = semver::Version::parse(semver_str)
                     && ver_entry.path().join("pack.toml").exists()
                 {
-                    result.push((name.clone(), version));
+                    result.push((name.clone(), version, is_local));
                 }
             }
         }
@@ -284,6 +291,11 @@ impl Store {
             }
         }
         dir_name
+    }
+
+    /// Returns `true` if the directory name carries a `-local-{16-hex-digit}` suffix.
+    fn has_local_suffix(dir_name: &str) -> bool {
+        Self::strip_local_suffix(dir_name) != dir_name
     }
 
     /// Remove a specific pack version from the store.
@@ -635,6 +647,108 @@ mod tests {
             Store::stable_hash_path("/home/user/my-pack"),
             0xc4f22075cdd996fa,
             "FNV-1a output must be stable across Rust versions"
+        );
+    }
+
+    // ── has_local_suffix ────────────────────────────────────────────────────
+
+    #[test]
+    fn has_local_suffix_detects_local_dir() {
+        assert!(Store::has_local_suffix("1.0.0-local-abcdef0123456789"));
+    }
+
+    #[test]
+    fn has_local_suffix_rejects_plain_version() {
+        assert!(!Store::has_local_suffix("1.0.0"));
+    }
+
+    // ── list_cached source discrimination ───────────────────────────────────
+
+    #[test]
+    #[serial_test::serial]
+    fn list_cached_registry_only() {
+        let tmp = TempDir::new().unwrap();
+        let _guard = EnvGuard::set("WEAVE_TEST_STORE_DIR", tmp.path());
+
+        let name = "reg-pack";
+        let v = semver::Version::new(1, 0, 0);
+        let dir = Store::pack_dir(name, &v, None).unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("pack.toml"), "[pack]\nname = \"reg-pack\"").unwrap();
+
+        let cached = Store::list_cached().unwrap();
+        assert_eq!(cached.len(), 1);
+        assert_eq!(cached[0].0, "reg-pack");
+        assert_eq!(cached[0].1, semver::Version::new(1, 0, 0));
+        assert!(!cached[0].2, "registry entry should have is_local = false");
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn list_cached_local_only() {
+        let tmp = TempDir::new().unwrap();
+        let _guard = EnvGuard::set("WEAVE_TEST_STORE_DIR", tmp.path());
+
+        let name = "local-pack";
+        let v = semver::Version::new(2, 0, 0);
+        let local_source = PackSource::Local {
+            path: "/tmp/local-pack".into(),
+        };
+        let dir = Store::pack_dir(name, &v, Some(&local_source)).unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("pack.toml"), "[pack]\nname = \"local-pack\"").unwrap();
+
+        let cached = Store::list_cached().unwrap();
+        assert_eq!(cached.len(), 1);
+        assert_eq!(cached[0].0, "local-pack");
+        assert_eq!(cached[0].1, semver::Version::new(2, 0, 0));
+        assert!(cached[0].2, "local entry should have is_local = true");
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn list_cached_mixed_entries_distinguished() {
+        let tmp = TempDir::new().unwrap();
+        let _guard = EnvGuard::set("WEAVE_TEST_STORE_DIR", tmp.path());
+
+        let name = "shared-pack";
+        let v = semver::Version::new(1, 0, 0);
+
+        // Create a registry entry.
+        let reg_dir = Store::pack_dir(name, &v, None).unwrap();
+        std::fs::create_dir_all(&reg_dir).unwrap();
+        std::fs::write(reg_dir.join("pack.toml"), "[pack]\nname = \"shared-pack\"").unwrap();
+
+        // Create a local entry for the same name+version.
+        let local_source = PackSource::Local {
+            path: "/tmp/shared-pack".into(),
+        };
+        let local_dir = Store::pack_dir(name, &v, Some(&local_source)).unwrap();
+        std::fs::create_dir_all(&local_dir).unwrap();
+        std::fs::write(
+            local_dir.join("pack.toml"),
+            "[pack]\nname = \"shared-pack\"",
+        )
+        .unwrap();
+
+        let cached = Store::list_cached().unwrap();
+        assert_eq!(
+            cached.len(),
+            2,
+            "both registry and local entries should appear"
+        );
+
+        // Both share the same name and version.
+        assert_eq!(cached[0].0, "shared-pack");
+        assert_eq!(cached[1].0, "shared-pack");
+        assert_eq!(cached[0].1, semver::Version::new(1, 0, 0));
+        assert_eq!(cached[1].1, semver::Version::new(1, 0, 0));
+
+        // But their is_local flags differ — one must be true, one false.
+        let locals: Vec<bool> = cached.iter().map(|e| e.2).collect();
+        assert!(
+            locals.contains(&true) && locals.contains(&false),
+            "mixed entries must have distinct is_local flags, got: {locals:?}"
         );
     }
 }
