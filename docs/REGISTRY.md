@@ -240,7 +240,7 @@ The authentication system enforces the following security properties:
 3. **Symlink rejection.** The credentials file must be a regular file. Symlinks are rejected to prevent redirection attacks.
 4. **Restricted file permissions.** On Unix, the credentials file is written with mode `0o600` (owner read/write only).
 5. **`auth_token_path` constrained to `~/.packweave/`.** Custom credential file paths cannot escape the packweave directory, preventing reads of arbitrary files.
-6. **Token format validation.** The `weave auth login` command validates that the token matches expected GitHub PAT formats before storing it.
+6. **Token format validation.** Tokens are validated for printable ASCII characters only — control characters, newlines, and non-ASCII bytes are rejected to prevent HTTP header injection.
 7. **Environment variable override for CI.** `WEAVE_TOKEN` allows CI/automation to authenticate without writing tokens to disk.
 
 ---

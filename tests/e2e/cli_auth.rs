@@ -111,15 +111,15 @@ async fn auth_login_via_stdin() {
 async fn auth_login_overwrite() {
     let env = TestEnv::new().await;
 
-    // Login with token A.
+    // Login with token A (prefix: "aaaa").
     env.weave_cmd()
-        .args(["auth", "login", "--token", "tokenA-first1234"])
+        .args(["auth", "login", "--token", "aaaa-first-token"])
         .assert()
         .success();
 
-    // Login with token B (overwrites A).
+    // Login with token B (prefix: "bbbb") — overwrites A.
     env.weave_cmd()
-        .args(["auth", "login", "--token", "tokenB-second5678"])
+        .args(["auth", "login", "--token", "bbbb-second-token"])
         .assert()
         .success();
 
@@ -128,7 +128,8 @@ async fn auth_login_overwrite() {
         .args(["auth", "status"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("toke****").from_utf8());
+        .stdout(predicate::str::contains("bbbb****").from_utf8())
+        .stdout(predicate::str::contains("aaaa****").from_utf8().not());
 }
 
 #[tokio::test]

@@ -250,9 +250,9 @@ impl PackMetadata {
 
 /// Perform a blocking HTTP GET and deserialize the JSON response body.
 ///
-/// When `token` is `Some`, an `Authorization: Bearer` header is included in
-/// the request. This raises the GitHub API rate limit from 60/hr to 5000/hr
-/// and is required for accessing private registries.
+/// When `token` is `Some` and the target URL host is in the trusted allowlist
+/// (`api.github.com`, `raw.githubusercontent.com`), an `Authorization: Bearer`
+/// header is included. Requests to other hosts never receive the token.
 fn http_get_json<T: serde::de::DeserializeOwned>(
     url: &str,
     label: &str,
