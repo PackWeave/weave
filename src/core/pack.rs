@@ -373,17 +373,17 @@ fn looks_like_secret(value: &str) -> bool {
     // Bearer or Basic auth tokens with actual token content (case-insensitive).
     // Accept any whitespace separator between the scheme and token.
     let lower = trimmed.to_ascii_lowercase();
-    if let Some(rest) = lower.strip_prefix("bearer") {
-        if rest.starts_with(char::is_whitespace) {
-            let token = trimmed[6..].trim();
-            return !token.is_empty() && !contains_env_var_reference(token);
-        }
+    if let Some(rest) = lower.strip_prefix("bearer")
+        && rest.starts_with(char::is_whitespace)
+    {
+        let token = trimmed[6..].trim();
+        return !token.is_empty() && !contains_env_var_reference(token);
     }
-    if let Some(rest) = lower.strip_prefix("basic") {
-        if rest.starts_with(char::is_whitespace) {
-            let token = trimmed[5..].trim();
-            return !token.is_empty() && !contains_env_var_reference(token);
-        }
+    if let Some(rest) = lower.strip_prefix("basic")
+        && rest.starts_with(char::is_whitespace)
+    {
+        let token = trimmed[5..].trim();
+        return !token.is_empty() && !contains_env_var_reference(token);
     }
 
     // Long high-entropy strings that look like API keys (32+ chars, mostly
