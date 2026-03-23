@@ -65,6 +65,12 @@ docs: update adapter trait documentation
 chore: bump clap to 4.5
 ```
 
+### 🚀 Releases
+
+Releases are automated with [Release Please](https://github.com/googleapis/release-please). When commits land on `main`, Release Please opens (or updates) a release PR that bumps the version in `Cargo.toml` and generates a `CHANGELOG.md` entry from conventional commit messages. Merging that PR creates a version tag (`v*`), which triggers the release workflow to build binaries and publish to crates.io.
+
+Contributors do not need to bump versions or edit the changelog manually — just use conventional commit prefixes (`feat:`, `fix:`, `chore:`, etc.) and the automation handles the rest.
+
 ### 💡 Proposing features
 
 For non-trivial features, open an issue first to discuss scope and approach before writing code. Check [docs/ROADMAP.md](https://github.com/PackWeave/weave/blob/main/docs/ROADMAP.md) to see whether the feature is already planned or explicitly deferred.

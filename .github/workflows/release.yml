@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Runs on version tags (v*). Builds release binaries for all supported
-# targets, packages them as .tar.gz archives, and publishes a GitHub Release
-# with auto-generated release notes.
+# targets, packages them as .tar.gz archives, and uploads them to the
+# GitHub Release created by Release Please.
 #
 # cargo-binstall uses these assets automatically. The asset naming convention
 # and [package.metadata.binstall] in Cargo.toml must stay in sync.
@@ -109,7 +109,6 @@ jobs:
           files: |
             *.tar.gz
             *.tar.gz.sha256
-          generate_release_notes: true
 
   publish:
     name: Publish to crates.io
