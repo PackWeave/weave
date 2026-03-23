@@ -30,15 +30,56 @@ impl Store {
 
     /// FNV-1a 64-bit hash — deterministic across Rust versions, unlike
     /// `DefaultHasher` which explicitly does not guarantee stability.
+    ///
+    /// The path is normalized before hashing so that semantically equivalent
+    /// paths (e.g. `/foo/./bar` vs `/foo/bar`, `/foo/baz/../bar` vs `/foo/bar`)
+    /// produce the same hash. This is a defense-in-depth measure — the install
+    /// path already canonicalizes in most cases.
     fn stable_hash_path(path: &str) -> u64 {
+        let normalized = Self::normalize_path(path);
         const FNV_OFFSET: u64 = 0xcbf29ce484222325;
         const FNV_PRIME: u64 = 0x00000100000001B3;
         let mut hash = FNV_OFFSET;
-        for byte in path.as_bytes() {
+        for byte in normalized.as_bytes() {
             hash ^= *byte as u64;
             hash = hash.wrapping_mul(FNV_PRIME);
         }
         hash
+    }
+
+    /// Lexically normalize a path by resolving `.` and `..` segments without
+    /// touching the filesystem. This is similar to Go's `path.Clean()`.
+    ///
+    /// Examples:
+    /// - `/foo/./bar` -> `/foo/bar`
+    /// - `/foo/baz/../bar` -> `/foo/bar`
+    /// - `/foo/bar/` -> `/foo/bar`
+    /// - `relative/./path` -> `relative/path`
+    fn normalize_path(path: &str) -> String {
+        use std::path::{Component, Path};
+        let mut components = Vec::new();
+        for component in Path::new(path).components() {
+            match component {
+                Component::CurDir => {} // skip `.`
+                Component::ParentDir => {
+                    // Pop the last normal component if possible; preserve `..`
+                    // at the start of relative paths.
+                    if let Some(last) = components.last()
+                        && matches!(last, Component::Normal(_))
+                    {
+                        components.pop();
+                        continue;
+                    }
+                    components.push(component);
+                }
+                _ => components.push(component),
+            }
+        }
+        if components.is_empty() {
+            return ".".to_string();
+        }
+        let result: PathBuf = components.iter().collect();
+        result.to_string_lossy().into_owned()
     }
 
     /// Path where a specific pack version is stored.
@@ -636,5 +677,49 @@ mod tests {
             0xc4f22075cdd996fa,
             "FNV-1a output must be stable across Rust versions"
         );
+    }
+
+    // ── path normalization ──────────────────────────────────────────────────
+
+    #[test]
+    fn normalize_path_removes_dot_segments() {
+        assert_eq!(Store::normalize_path("/foo/./bar"), "/foo/bar");
+    }
+
+    #[test]
+    fn normalize_path_resolves_dotdot_segments() {
+        assert_eq!(Store::normalize_path("/foo/baz/../bar"), "/foo/bar");
+    }
+
+    #[test]
+    fn normalize_path_preserves_clean_absolute() {
+        assert_eq!(
+            Store::normalize_path("/home/user/my-pack"),
+            "/home/user/my-pack"
+        );
+    }
+
+    #[test]
+    fn normalize_path_removes_trailing_slash() {
+        assert_eq!(Store::normalize_path("/foo/bar/"), "/foo/bar");
+    }
+
+    #[test]
+    fn normalize_path_empty_becomes_dot() {
+        assert_eq!(Store::normalize_path(""), ".");
+    }
+
+    #[test]
+    fn normalize_path_relative_with_dot() {
+        assert_eq!(Store::normalize_path("./my-pack"), "my-pack");
+    }
+
+    #[test]
+    fn equivalent_paths_produce_same_hash() {
+        // These are all semantically equivalent to /foo/bar.
+        let canonical = Store::stable_hash_path("/foo/bar");
+        assert_eq!(Store::stable_hash_path("/foo/./bar"), canonical);
+        assert_eq!(Store::stable_hash_path("/foo/baz/../bar"), canonical);
+        assert_eq!(Store::stable_hash_path("/foo/bar/"), canonical);
     }
 }
