@@ -303,11 +303,19 @@ impl CompositeRegistry {
 
     /// Create a composite registry from pre-boxed trait objects.
     ///
+    /// The first registry in `registries` is treated as the "official" registry
+    /// (index 0) and the rest are taps, searched in order. This mirrors the
+    /// invariant established by [`CompositeRegistry::new`].
+    ///
     /// Test-only: allows injecting mock `Registry` implementations directly so
     /// tests exercise the real `CompositeRegistry` fallthrough and error-handling
     /// logic instead of reimplementing it.
     #[cfg(test)]
     pub fn from_boxed(registries: Vec<Box<dyn Registry>>) -> Self {
+        assert!(
+            !registries.is_empty(),
+            "at least one registry (official) is required"
+        );
         Self { registries }
     }
 }
@@ -571,7 +579,7 @@ mod tests {
         }
     }
 
-    /// Helper to build a `CompositeRegistry` from mock registries.
+    /// First registry is treated as official; rest are taps.
     fn composite_from_mocks(registries: Vec<MockRegistry>) -> CompositeRegistry {
         CompositeRegistry::from_boxed(
             registries
@@ -721,6 +729,9 @@ mod tests {
         let composite =
             CompositeRegistry::from_boxed(vec![Box::new(official), Box::new(failing_tap)]);
         // Search should succeed despite the tap error (warned but not fatal).
+        // NOTE: We verify the operation succeeds despite tap failure but do not
+        // currently assert that `log::warn!` was emitted. This is a known gap —
+        // no log-capture test harness is wired up in this project yet.
         let results = composite.search("webdev").unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].name, "webdev");
@@ -756,8 +767,32 @@ mod tests {
             Box::new(good_tap),
         ]);
         // Should skip the failing tap and find the pack in the good tap.
+        // NOTE: We verify the operation succeeds despite tap failure but do not
+        // currently assert that `log::warn!` was emitted. This is a known gap —
+        // no log-capture test harness is wired up in this project yet.
         let meta = composite.fetch_metadata("deep-pack").unwrap();
         assert_eq!(meta.description, "from good tap");
+    }
+
+    #[test]
+    fn composite_fetch_metadata_three_registries_skip_erroring_tap() {
+        // 3-registry scenario: official (PackNotFound) -> tap1 (non-NotFound error,
+        // should be warned/skipped) -> tap2 (has the pack, should succeed).
+        let official = MockRegistry::new(); // returns PackNotFound
+        let erroring_tap = FailingRegistry::new("tap1 connection reset");
+        let mut good_tap = MockRegistry::new();
+        good_tap.add_pack(sample_metadata_named("rare-pack", "from third registry"));
+
+        let composite = CompositeRegistry::from_boxed(vec![
+            Box::new(official),
+            Box::new(erroring_tap),
+            Box::new(good_tap),
+        ]);
+
+        // The erroring tap should be skipped (warned) and the pack found in tap2.
+        let meta = composite.fetch_metadata("rare-pack").unwrap();
+        assert_eq!(meta.name, "rare-pack");
+        assert_eq!(meta.description, "from third registry");
     }
 
     #[test]
@@ -788,6 +823,9 @@ mod tests {
             Box::new(failing_tap),
             Box::new(good_tap),
         ]);
+        // NOTE: We verify the operation succeeds despite tap failure but do not
+        // currently assert that `log::warn!` was emitted. This is a known gap —
+        // no log-capture test harness is wired up in this project yet.
         let release = composite
             .fetch_version("tap-pack", &semver::Version::new(1, 0, 0))
             .unwrap();
@@ -806,13 +844,15 @@ mod tests {
         assert!(err.to_string().contains("publish is not yet supported"));
     }
 
+    // This test exercises a defensive branch in `publish()` that is unreachable
+    // through the production constructor (`CompositeRegistry::new`), which always
+    // includes at least the official registry. After the `from_boxed()` precondition
+    // was added, constructing an empty composite panics, so this test validates that
+    // the precondition fires correctly.
     #[test]
+    #[should_panic(expected = "at least one registry (official) is required")]
     fn composite_publish_no_registries() {
-        let composite = CompositeRegistry::from_boxed(vec![]);
-        let err = composite
-            .publish(std::path::Path::new("/fake"), "token")
-            .unwrap_err();
-        assert!(err.to_string().contains("no registries configured"));
+        let _composite = CompositeRegistry::from_boxed(vec![]);
     }
 
     #[test]
