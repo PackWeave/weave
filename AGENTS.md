@@ -177,6 +177,8 @@ gh pr list --head <branch-name> --state merged
 
 If the PR is merged, do not commit to that branch. Create a fresh branch from `main` instead. Committing to a merged branch creates orphaned history that must be untangled with cherry-picks.
 
+**Always squash-merge PRs.** When merging, use `gh pr merge <number> --squash --delete-branch`. Never use `--merge` or `--rebase`. Release Please generates changelog entries from commits on main — squash ensures one clean entry per PR instead of noisy duplicates from every branch commit.
+
 **Always commit and push changes immediately.** After editing a file, commit it to the appropriate branch and push before moving on to the next task. Never leave changes uncommitted in the working tree — they get lost on branch switches or session ends.
 
 -----
