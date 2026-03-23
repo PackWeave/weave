@@ -7,7 +7,7 @@ use crate::core::config::Config;
 use crate::core::credentials;
 use crate::core::pack::Pack;
 use crate::core::publish;
-use crate::core::registry::registry_from_config;
+use crate::core::registry::{Registry, registry_from_config};
 
 /// Publish a pack to the registry by creating a PR.
 pub fn run(path: Option<&str>) -> Result<()> {
@@ -57,14 +57,13 @@ pub fn run(path: Option<&str>) -> Result<()> {
     let files = publish::collect_pack_files(&pack_dir).context("collecting pack files")?;
     println!("  Collected {} file(s)", files.len());
 
-    // 7. Parse registry URL and create PR.
-    let (owner, repo) = publish::parse_github_registry_url(&config.registry_url)?;
+    // 7. Publish via the Registry trait (routes through CompositeRegistry → GitHubRegistry).
     println!(
-        "  Publishing to {}/{}...",
-        style::emphasis(&owner),
-        style::emphasis(&repo)
+        "  Publishing {}@{}...",
+        style::pack_name(&pack.name),
+        style::version(pack.version.to_string())
     );
-    let result = publish::create_registry_pr(&owner, &repo, &pack, &files, &token.token)?;
+    let result = registry.publish(&pack, &files, &token.token)?;
 
     // 8. Success output.
     println!();

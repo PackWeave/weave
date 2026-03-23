@@ -196,10 +196,13 @@ pub fn check_version_not_published(
 fn resolve_api_base() -> Result<String> {
     if let Ok(url) = std::env::var("WEAVE_GITHUB_API_URL") {
         // Allow http for localhost/127.0.0.1 (test mock servers)
-        if url.starts_with("https://")
-            || url.starts_with("http://127.0.0.1")
-            || url.starts_with("http://localhost")
-        {
+        let is_localhost = url.starts_with("http://127.0.0.1:")
+            || url.starts_with("http://127.0.0.1/")
+            || url == "http://127.0.0.1"
+            || url.starts_with("http://localhost:")
+            || url.starts_with("http://localhost/")
+            || url == "http://localhost";
+        if url.starts_with("https://") || is_localhost {
             return Ok(url);
         }
         return Err(WeaveError::Registry(
@@ -295,7 +298,13 @@ pub fn create_registry_pr(
     // Step 4: Create PR
     // Truncate description to prevent GitHub API rejection (64KB limit).
     let desc = if pack.description.len() > 1000 {
-        format!("{}...", &pack.description[..1000])
+        // Find a safe UTF-8 boundary at or before byte 1000.
+        let end = pack.description[..1000]
+            .char_indices()
+            .last()
+            .map(|(i, c)| i + c.len_utf8())
+            .unwrap_or(1000);
+        format!("{}...", &pack.description[..end])
     } else {
         pack.description.clone()
     };
