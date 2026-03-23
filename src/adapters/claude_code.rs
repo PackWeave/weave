@@ -921,6 +921,7 @@ impl ClaudeCodeAdapter {
 
         let path = self.settings_path()?;
 
+        // TODO: file locking for concurrent access (pre-existing issue)
         let mut config: serde_json::Value = if path.exists() {
             let content = util::read_file(&path)?;
             serde_json::from_str(&content).map_err(|e| WeaveError::Json {
@@ -931,16 +932,65 @@ impl ClaudeCodeAdapter {
             serde_json::json!({})
         };
 
-        // Ensure config.hooks exists as an object.
-        if config.get("hooks").is_none() || !config["hooks"].is_object() {
-            config
-                .as_object_mut()
-                .expect("config must be an object")
-                .insert("hooks".into(), serde_json::json!({}));
-        }
-        let hooks_obj = config["hooks"]
+        let config_obj = config
             .as_object_mut()
-            .expect("hooks must be object");
+            .ok_or_else(|| WeaveError::ApplyFailed {
+                pack: pack.pack.name.clone(),
+                cli: "Claude Code".into(),
+                reason: "settings.json root is not a JSON object".into(),
+            })?;
+
+        // If `hooks` exists but is not an object, refuse to continue rather
+        // than silently destroying the user's data.
+        if let Some(existing_hooks) = config_obj.get("hooks")
+            && !existing_hooks.is_object()
+        {
+            return Err(WeaveError::ApplyFailed {
+                pack: pack.pack.name.clone(),
+                cli: "Claude Code".into(),
+                reason: "hooks key in settings.json is not an object".into(),
+            });
+        }
+
+        // Ensure config.hooks exists as an object.
+        if !config_obj.contains_key("hooks") {
+            config_obj.insert("hooks".into(), serde_json::json!({}));
+        }
+        let hooks_obj = config_obj
+            .get_mut("hooks")
+            .and_then(|v| v.as_object_mut())
+            .ok_or_else(|| WeaveError::ApplyFailed {
+                pack: pack.pack.name.clone(),
+                cli: "Claude Code".into(),
+                reason: "hooks key in settings.json is not an object".into(),
+            })?;
+
+        // Clean slate: remove ALL entries tagged with this pack across ALL
+        // events, not just events in the new hooks_map. This handles the case
+        // where a pack update changes which events it contributes to — stale
+        // entries in old events are cleaned up.
+        let all_event_names: Vec<String> = hooks_obj.keys().cloned().collect();
+        for event_name in &all_event_names {
+            if let Some(arr) = hooks_obj.get_mut(event_name).and_then(|v| v.as_array_mut()) {
+                arr.retain(|entry| {
+                    entry
+                        .get("__packweave_owner")
+                        .and_then(|v| v.as_str())
+                        .map(|owner| owner != pack.pack.name)
+                        .unwrap_or(true) // keep non-owned entries
+                });
+            }
+        }
+
+        // Clean up any event arrays that became empty after removing stale entries.
+        let empty_events: Vec<String> = hooks_obj
+            .iter()
+            .filter(|(_, v)| v.as_array().map(|a| a.is_empty()).unwrap_or(false))
+            .map(|(k, _)| k.clone())
+            .collect();
+        for event_name in empty_events {
+            hooks_obj.remove(&event_name);
+        }
 
         for (event_name, entries) in &hooks_map {
             // Ensure the event array exists.
@@ -950,17 +1000,11 @@ impl ClaudeCodeAdapter {
             let event_arr = hooks_obj
                 .get_mut(event_name)
                 .and_then(|v| v.as_array_mut())
-                .expect("event entry must be array");
-
-            // First, remove any existing entries owned by this pack for this
-            // event to ensure idempotency (applying twice = applying once).
-            event_arr.retain(|entry| {
-                entry
-                    .get("__packweave_owner")
-                    .and_then(|v| v.as_str())
-                    .map(|owner| owner != pack.pack.name)
-                    .unwrap_or(true) // keep non-owned entries
-            });
+                .ok_or_else(|| WeaveError::ApplyFailed {
+                    pack: pack.pack.name.clone(),
+                    cli: "Claude Code".into(),
+                    reason: format!("hooks event '{event_name}' in settings.json is not an array"),
+                })?;
 
             // Append new entries from this pack, each tagged with ownership.
             for entry in entries {
@@ -983,7 +1027,10 @@ impl ClaudeCodeAdapter {
                     "hooks".into(),
                     serde_json::Value::Array(vec![serde_json::Value::Object(hook_item)]),
                 );
-                // Tag with ownership for surgical removal.
+                // Tag with ownership for surgical removal. Claude Code's
+                // settings.json schema tolerates unknown keys in hook entries
+                // (standard JSON config behavior), so this extra field is
+                // ignored by the CLI but lets weave track ownership.
                 matcher_entry.insert(
                     "__packweave_owner".into(),
                     serde_json::Value::String(pack.pack.name.clone()),
@@ -998,6 +1045,19 @@ impl ClaudeCodeAdapter {
 
         if !manifest.hooks.contains(&pack.pack.name) {
             manifest.hooks.push(pack.pack.name.clone());
+        }
+
+        // Strip the "hooks" key from any SettingsRecord for this pack so that
+        // the `remove_settings` path (which restores snapshots) does not
+        // accidentally restore stale hooks. Hooks are now managed exclusively
+        // by `apply_hooks`/`remove_hooks`.
+        if let Some(record) = manifest.settings.get_mut(&pack.pack.name) {
+            if let Some(applied_obj) = record.applied.as_object_mut() {
+                applied_obj.remove("hooks");
+            }
+            if let Some(original_obj) = record.original.as_object_mut() {
+                original_obj.remove("hooks");
+            }
         }
 
         Ok(())
@@ -1023,18 +1083,50 @@ impl ClaudeCodeAdapter {
 
             if let Some(hooks_obj) = config.get_mut("hooks").and_then(|v| v.as_object_mut()) {
                 let event_names: Vec<String> = hooks_obj.keys().cloned().collect();
-                for event_name in event_names {
-                    if let Some(arr) = hooks_obj
-                        .get_mut(&event_name)
-                        .and_then(|v| v.as_array_mut())
+
+                // Check if ANY entries across ALL events are tagged with this pack.
+                // If not, we're in the migration path (pre-upgrade install without
+                // __packweave_owner tags).
+                let has_any_tagged = event_names.iter().any(|event_name| {
+                    hooks_obj
+                        .get(event_name)
+                        .and_then(|v| v.as_array())
+                        .is_some_and(|arr| {
+                            arr.iter().any(|entry| {
+                                entry
+                                    .get("__packweave_owner")
+                                    .and_then(|v| v.as_str())
+                                    .is_some_and(|owner| owner == pack_name)
+                            })
+                        })
+                });
+
+                for event_name in &event_names {
+                    if let Some(arr) = hooks_obj.get_mut(event_name).and_then(|v| v.as_array_mut())
                     {
-                        arr.retain(|entry| {
-                            entry
-                                .get("__packweave_owner")
-                                .and_then(|v| v.as_str())
-                                .map(|owner| owner != pack_name)
-                                .unwrap_or(true)
-                        });
+                        if has_any_tagged {
+                            // Normal path: remove entries tagged with this pack.
+                            arr.retain(|entry| {
+                                entry
+                                    .get("__packweave_owner")
+                                    .and_then(|v| v.as_str())
+                                    .map(|owner| owner != pack_name)
+                                    .unwrap_or(true)
+                            });
+                        } else {
+                            // Migration path: pre-upgrade installs wrote hook
+                            // entries without __packweave_owner tags. Fall back
+                            // to removing ALL untagged entries that have the
+                            // weave hook structure (objects with a "hooks" array
+                            // containing "type"="command" items). Tagged entries
+                            // from other packs are always preserved.
+                            arr.retain(|entry| {
+                                if entry.get("__packweave_owner").is_some() {
+                                    return true;
+                                }
+                                !is_weave_hook_entry(entry)
+                            });
+                        }
                     }
                 }
 
@@ -1049,11 +1141,10 @@ impl ClaudeCodeAdapter {
                 }
 
                 // Remove the hooks key entirely if it's now empty.
-                if hooks_obj.is_empty() {
-                    config
-                        .as_object_mut()
-                        .expect("config must be object")
-                        .remove("hooks");
+                if hooks_obj.is_empty()
+                    && let Some(config_obj) = config.as_object_mut()
+                {
+                    config_obj.remove("hooks");
                 }
             }
 
@@ -1499,6 +1590,23 @@ fn build_claude_server_config(
     }
 
     Ok(serde_json::Value::Object(config))
+}
+
+/// Check if an untagged hook entry matches the structure that weave writes.
+/// Used for migration: pre-upgrade installs wrote hook entries without
+/// `__packweave_owner` tags. This heuristic identifies them by checking for
+/// weave's signature structure — an object with a "hooks" array where items
+/// have `"type": "command"`. This is a reasonable heuristic since weave is
+/// the only known tool that writes this particular structure to settings.json.
+fn is_weave_hook_entry(entry: &serde_json::Value) -> bool {
+    if let Some(hooks_arr) = entry.get("hooks").and_then(|v| v.as_array()) {
+        return hooks_arr.iter().any(|h| {
+            h.get("type")
+                .and_then(|t| t.as_str())
+                .is_some_and(|t| t == "command")
+        });
+    }
+    false
 }
 
 /// Deep-merge source into target. Arrays are replaced, objects are merged recursively.

@@ -1687,3 +1687,84 @@ fn multi_pack_hooks_different_events() {
         Some("pack-b")
     );
 }
+
+/// Migration path: pre-upgrade installs wrote hook entries without
+/// `__packweave_owner` tags. `remove_hooks` should still clean them up
+/// by matching the weave hook structure (objects with "hooks" arrays
+/// containing "type"="command" items).
+#[test]
+fn remove_hooks_cleans_untagged_entries_migration() {
+    let home = TempDir::new().unwrap();
+    let adapter = make_adapter(&home);
+    setup_claude_home(&home);
+
+    // Simulate a pre-upgrade install: write hooks to settings.json WITHOUT
+    // __packweave_owner tags, but with the same structure weave produces.
+    let settings_path = home.path().join(".claude").join("settings.json");
+    let pre_upgrade_settings = serde_json::json!({
+        "hooks": {
+            "PreToolUse": [
+                {
+                    "matcher": "Bash",
+                    "hooks": [
+                        { "type": "command", "command": "echo legacy-hook" }
+                    ]
+                }
+            ]
+        }
+    });
+    std::fs::write(
+        &settings_path,
+        serde_json::to_string_pretty(&pre_upgrade_settings).unwrap(),
+    )
+    .unwrap();
+
+    // Write a manifest that records this pack as having hooks applied,
+    // but without __packweave_owner in the settings.json entries.
+    let manifest_path = home.path().join(".claude").join(".packweave_manifest.json");
+    let manifest = serde_json::json!({
+        "servers": {},
+        "commands": {},
+        "prompt_blocks": [],
+        "settings": {},
+        "hooks": ["legacy-pack"]
+    });
+    std::fs::write(
+        &manifest_path,
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    // Remove the pack — should clean up the untagged entries.
+    adapter.remove("legacy-pack").unwrap();
+
+    let settings_after = read_json(&settings_path);
+    // The hooks key should be removed (or absent) since all entries were cleaned.
+    assert!(
+        settings_after.get("hooks").is_none(),
+        "hooks key should be removed after cleaning up untagged legacy entries"
+    );
+}
+
+/// Verifies that apply_hooks returns an error when the hooks key in
+/// settings.json is not an object (e.g. an array or string).
+#[test]
+fn apply_hooks_rejects_non_object_hooks_value() {
+    let home = TempDir::new().unwrap();
+    let adapter = make_adapter(&home);
+    setup_claude_home(&home);
+
+    // Pre-populate settings.json with hooks as an array instead of object.
+    let settings_path = home.path().join(".claude").join("settings.json");
+    std::fs::write(&settings_path, r#"{"hooks": [1, 2, 3]}"#).unwrap();
+
+    let pack = pack_with_hooks("hooks-pack");
+    let options = ApplyOptions { allow_hooks: true };
+    let result = adapter.apply(&pack, &options);
+    assert!(result.is_err(), "should fail when hooks is not an object");
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("not an object"),
+        "error should mention the hooks key is not an object, got: {msg}"
+    );
+}
