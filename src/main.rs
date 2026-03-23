@@ -146,9 +146,8 @@ enum Commands {
 enum AuthAction {
     /// Authenticate with the registry using a GitHub personal access token.
     ///
-    /// Raises the GitHub API rate limit from 60 to 5,000 requests/hour for
-    /// install, search, and update. Will also be required for `weave publish`
-    /// (not yet implemented).
+    /// Required for `weave publish`. Also raises the GitHub API rate limit
+    /// from 60 to 5,000 requests/hour for install, search, and update.
     ///
     /// Create a token at https://github.com/settings/tokens — no special
     /// scopes are needed for read-only operations (install, search, update).

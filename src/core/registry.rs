@@ -64,7 +64,7 @@ pub trait Registry: Send + Sync {
     fn publish(
         &self,
         _pack: &crate::core::pack::Pack,
-        _files: &HashMap<String, Vec<u8>>,
+        _files: &std::collections::BTreeMap<String, Vec<u8>>,
         _token: &str,
     ) -> Result<crate::core::publish::PublishResult> {
         Err(crate::error::WeaveError::Registry(
@@ -242,7 +242,7 @@ impl Registry for GitHubRegistry {
     fn publish(
         &self,
         pack: &crate::core::pack::Pack,
-        files: &HashMap<String, Vec<u8>>,
+        files: &std::collections::BTreeMap<String, Vec<u8>>,
         token: &str,
     ) -> Result<crate::core::publish::PublishResult> {
         let (owner, repo) = crate::core::publish::parse_github_registry_url(&self.base_url)?;
@@ -452,7 +452,7 @@ impl Registry for CompositeRegistry {
     fn publish(
         &self,
         pack: &crate::core::pack::Pack,
-        files: &HashMap<String, Vec<u8>>,
+        files: &std::collections::BTreeMap<String, Vec<u8>>,
         token: &str,
     ) -> Result<crate::core::publish::PublishResult> {
         // Publish always goes to the official (first) registry.
@@ -910,7 +910,7 @@ mod tests {
             targets: Default::default(),
         };
         let err = composite
-            .publish(&dummy_pack, &HashMap::new(), "token")
+            .publish(&dummy_pack, &std::collections::BTreeMap::new(), "token")
             .unwrap_err();
         assert!(
             matches!(err, WeaveError::Registry(_)),
