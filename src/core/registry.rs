@@ -301,7 +301,7 @@ fn http_get_json<T: serde::de::DeserializeOwned>(
 pub fn registry_from_config(config: &crate::core::config::Config) -> CompositeRegistry {
     let token = crate::core::credentials::resolve_token(config)
         .unwrap_or_else(|e| {
-            eprintln!("warning: failed to resolve auth token: {e}");
+            log::warn!("failed to resolve auth token: {e}");
             None
         })
         .map(|r| r.token);

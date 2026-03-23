@@ -195,8 +195,10 @@ pub fn store_token(config: &Config, token: &str) -> Result<()> {
             .tempfile_in(parent)
             .map_err(|e| WeaveError::io("creating temporary credentials file", e))?;
 
-        // Set 0o600 before writing content.
-        let _ = std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o600));
+        // Set 0o600 before writing content via the open file handle.
+        tmp.as_file()
+            .set_permissions(std::fs::Permissions::from_mode(0o600))
+            .map_err(|e| WeaveError::io("setting credentials file permissions", e))?;
         tmp.write_all(token.as_bytes())
             .map_err(|e| WeaveError::io("writing credentials", e))?;
         tmp.as_file()
