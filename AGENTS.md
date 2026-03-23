@@ -53,6 +53,28 @@ Read docs/ARCHITECTURE.md before writing any code. It defines the module structu
 - Apply must be idempotent
 - Remove must be surgical — leave user edits intact
 
+### CLI output and color
+
+All user-facing CLI output must use the style engine in `src/cli/style.rs`. Never emit raw ANSI escape codes or use hardcoded color strings. The style module respects `NO_COLOR`, `TERM=dumb`, non-TTY stdout, and the `--color` flag automatically.
+
+Use the semantic helpers — not the color names:
+
+- `style::pack_name("webdev")` — pack names (blue, bold)
+- `style::version("1.2.3")` — version numbers (yellow, bold)
+- `style::success("installed")` — success/ok messages (green, bold)
+- `style::target("claude-code")` — CLI target names (teal)
+- `style::dim("skipped")` — dimmed/secondary text (overlay)
+- `style::subtext("description")` — descriptions (subtext)
+- `style::header("Servers")` — section headers (mauve, bold)
+- `style::emphasis("important")` — bold-only emphasis
+
+Rules:
+
+1. **All `println!`/`eprintln!` in `src/cli/`** must use `style::` helpers for structured data (pack names, versions, statuses, headers). Plain text messages are fine without styling.
+2. **Never use `println!` in `src/core/` or `src/adapters/`** — return values or use `log::` macros.
+3. **Error messages via `thiserror`** stay as plain text (they flow through `anyhow` at the CLI boundary, which formats them).
+4. **New CLI commands or output changes** must be tested with `NO_COLOR=1` to verify graceful fallback.
+
 ### Testing
 
 - Unit tests go in `#[cfg(test)]` blocks in the same file
@@ -217,6 +239,7 @@ When your changes add new modules, CLI commands, or env vars, update both docume
 - Do not put business logic in CLI handlers
 - Do not put CLI-specific knowledge (file paths, config schemas) outside of adapters
 - Do not use `println!` for output in library code — use `log` or return values
+- Do not emit raw ANSI codes or hardcode colors — use `src/cli/style.rs` helpers
 - Do not implement features listed under "Explicitly deferred" in docs/ROADMAP.md
 
 -----
