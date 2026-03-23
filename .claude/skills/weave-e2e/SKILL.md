@@ -24,7 +24,7 @@ Run the E2E validation checklist from `.claude/skills/weave-e2e/checklist.md`.
 
 **Arguments:** `$ARGUMENTS`
 
-- If `$ARGUMENTS` is empty → run all flows in checklist order (Flows 1–16, then Flow 14: Cleanup last)
+- If `$ARGUMENTS` is empty → run all flows in checklist order (Flows 1–17, then Flow 14: Cleanup last)
 - If `$ARGUMENTS` is `install` → run Flows 1 + 2
 - If `$ARGUMENTS` is `profiles` → run Flows 1 + 5
 - If `$ARGUMENTS` is `search` → run Flows 1 + 7
@@ -37,7 +37,9 @@ Run the E2E validation checklist from `.claude/skills/weave-e2e/checklist.md`.
 - If `$ARGUMENTS` is `hooks` → run Flows 1 + 12
 - If `$ARGUMENTS` is `http` → run Flows 1 + 13
 - If `$ARGUMENTS` is `auth` → run Flows 1 + 15
+- If `$ARGUMENTS` is `init` → run Flows 1 + 10
 - If `$ARGUMENTS` is `publish` → run Flows 1 + 16
+- If `$ARGUMENTS` is `gap` → run Flows 1 + 17
 - If `$ARGUMENTS` is `cleanup` → run Flow 14 only (safe to run any time)
 
 ## Steps
