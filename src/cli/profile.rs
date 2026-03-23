@@ -6,7 +6,7 @@ use crate::core::config::Config;
 use crate::core::lockfile::LockFile;
 use crate::core::pack::{PackSource, ResolvedPack};
 use crate::core::profile::{InstalledPack, Profile};
-use crate::core::registry::{GitHubRegistry, Registry};
+use crate::core::registry::{Registry, registry_from_config};
 use crate::core::resolver::Resolver;
 use crate::core::store::Store;
 use crate::error::WeaveError;
@@ -87,7 +87,7 @@ pub fn add_pack(pack_name: &str, profile_name: &str) -> Result<()> {
     }
 
     let config = Config::load().context("loading weave config")?;
-    let registry = GitHubRegistry::new(&config.registry_url);
+    let registry = registry_from_config(&config);
 
     let mut profile = Profile::load(profile_name).context("loading profile")?;
 

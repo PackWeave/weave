@@ -5,7 +5,7 @@ use crate::cli::style;
 use crate::core::config::Config;
 use crate::core::lockfile::LockFile;
 use crate::core::profile::Profile;
-use crate::core::registry::GitHubRegistry;
+use crate::core::registry::registry_from_config;
 use crate::core::resolver::Resolver;
 
 /// Remove an installed pack.
@@ -14,7 +14,7 @@ pub fn run(pack_name: &str) -> Result<()> {
     let pack_name = pack_name.strip_prefix('@').unwrap_or(pack_name);
 
     let config = Config::load().context("loading weave config")?;
-    let registry = GitHubRegistry::new(&config.registry_url);
+    let registry = registry_from_config(&config);
 
     let mut profile = Profile::load(&config.active_profile).context("loading active profile")?;
 

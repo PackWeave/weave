@@ -323,11 +323,10 @@ fn apply_sets_enabled_true() {
 
     let config_path = home.path().join(".codex/config.toml");
     let config = read_toml(&config_path);
-    assert_eq!(
+    assert!(
         config["mcp_servers"]["enabled-server"]["enabled"]
             .as_bool()
             .unwrap(),
-        true,
         "enabled should be set to true"
     );
 }

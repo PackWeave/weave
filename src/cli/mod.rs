@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod diagnose;
 pub mod init;
 pub mod install;

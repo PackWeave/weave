@@ -2031,17 +2031,17 @@ mod tests {
 
         let mut result = content.to_string();
 
-        if let Some(start) = result.find(begin_tag) {
-            if let Some(end_offset) = result[start..].find(end_tag) {
-                let end_pos = start + end_offset;
-                let end = end_pos + end_tag.len();
-                let end = if result[end..].starts_with('\n') {
-                    end + 1
-                } else {
-                    end
-                };
-                result.replace_range(start..end, "");
-            }
+        if let Some(start) = result.find(begin_tag)
+            && let Some(end_offset) = result[start..].find(end_tag)
+        {
+            let end_pos = start + end_offset;
+            let end = end_pos + end_tag.len();
+            let end = if result[end..].starts_with('\n') {
+                end + 1
+            } else {
+                end
+            };
+            result.replace_range(start..end, "");
         }
 
         if !result.ends_with('\n') {

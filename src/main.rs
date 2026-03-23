@@ -119,6 +119,12 @@ enum Commands {
         action: TapAction,
     },
 
+    /// Manage registry authentication (for pack publishing and rate limits)
+    Auth {
+        #[command(subcommand)]
+        action: AuthAction,
+    },
+
     /// Switch to a named profile, or print the active profile (no args)
     Use {
         /// Profile name to switch to. Omit to print the current profile.
@@ -128,6 +134,36 @@ enum Commands {
         #[arg(long)]
         allow_hooks: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum AuthAction {
+    /// Authenticate with the registry using a GitHub personal access token.
+    ///
+    /// Raises the GitHub API rate limit from 60 to 5,000 requests/hour for
+    /// install, search, and update. Will also be required for `weave publish`
+    /// (not yet implemented).
+    ///
+    /// Create a token at https://github.com/settings/tokens — no special
+    /// scopes are needed for read-only operations (install, search, update).
+    ///
+    /// For CI/automation, set the WEAVE_TOKEN environment variable instead
+    /// of running `weave auth login`.
+    ///
+    /// Security: prefer `weave auth login` (stdin prompt) or WEAVE_TOKEN
+    /// over --token, which is visible in process listings (`ps aux`).
+    Login {
+        /// GitHub personal access token. Visible in process listings —
+        /// prefer omitting this flag (stdin prompt) or WEAVE_TOKEN env var.
+        #[arg(long)]
+        token: Option<String>,
+    },
+
+    /// Remove stored credentials from ~/.packweave/credentials
+    Logout,
+
+    /// Show current authentication state (token source and masked value)
+    Status,
 }
 
 #[derive(Subcommand)]
@@ -229,6 +265,11 @@ fn main() {
         Commands::Update { name } => cli::update::run(name.as_deref()),
         Commands::Sync { allow_hooks } => cli::sync::run(allow_hooks),
         Commands::Diagnose { json } => cli::diagnose::run(json),
+        Commands::Auth { action } => match action {
+            AuthAction::Login { token } => cli::auth::login(token.as_deref()),
+            AuthAction::Logout => cli::auth::logout(),
+            AuthAction::Status => cli::auth::status(),
+        },
         Commands::Tap { action } => match action {
             TapAction::Add { name } => cli::tap::add(&name),
             TapAction::List => cli::tap::list(),

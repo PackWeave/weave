@@ -47,6 +47,11 @@ pub enum WeaveError {
         hint: String,
     },
 
+    // Auth errors
+    #[allow(dead_code)]
+    #[error("not authenticated — run `weave auth login` to authenticate")]
+    NotAuthenticated,
+
     // Profile errors
     #[error("profile '{name}' not found — run `weave profile list` to see available profiles")]
     ProfileNotFound { name: String },

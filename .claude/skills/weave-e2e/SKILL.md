@@ -36,6 +36,7 @@ Run the E2E validation checklist from `.claude/skills/weave-e2e/checklist.md`.
 - If `$ARGUMENTS` is `tap` → run Flows 1 + 11
 - If `$ARGUMENTS` is `hooks` → run Flows 1 + 12
 - If `$ARGUMENTS` is `http` → run Flows 1 + 13
+- If `$ARGUMENTS` is `auth` → run Flows 1 + 15
 - If `$ARGUMENTS` is `cleanup` → run Flow 14 only (safe to run any time)
 
 ## Steps

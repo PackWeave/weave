@@ -1,5 +1,6 @@
 pub mod config;
 pub mod conflict;
+pub mod credentials;
 pub mod install;
 pub mod lockfile;
 pub mod mcp_registry;
