@@ -293,6 +293,25 @@ X-Test = "static-value"
 
 ---
 
+## Flow 16: Publish
+
+**Goal:** Verify `weave publish` validates packs, requires auth, detects duplicates, and provides clear errors for unsupported scenarios.
+
+| Step | Command | Expected |
+|------|---------|----------|
+| 16.1 | `weave publish /nonexistent` | Error mentioning path resolution |
+| 16.2 | `cd /tmp && weave publish` | Error: "pack.toml not found" (no pack in /tmp) |
+| 16.3 | `mkdir -p /tmp/weave-e2e-publish && echo '[pack]\nname = "e2e-publish-test"\nversion = "0.1.0"\ndescription = "test"\nauthors = ["tester"]' > /tmp/weave-e2e-publish/pack.toml` | Pack directory created |
+| 16.4 | `weave auth logout 2>/dev/null; weave publish /tmp/weave-e2e-publish` | Error: "not authenticated" |
+| 16.5 | `weave auth login --token test-token-1234` | Token stored |
+| 16.6 | `weave publish /tmp/weave-e2e-publish` | Should attempt to check registry for duplicates (may fail at GitHub API if token is fake — that's expected) |
+| 16.7 | `weave publish --help` | Shows usage with optional `[PATH]` argument |
+| 16.8 | `rm -rf /tmp/weave-e2e-publish` | Temp dir cleaned |
+
+**Pass criteria:** Missing pack.toml, missing auth, and invalid path all produce clear errors. Help text shows correct usage. Actual PR creation is not tested here (requires real GitHub access).
+
+---
+
 ## Flow 14: Cleanup
 
 **Goal:** Restore machine to pre-test state.
@@ -335,4 +354,5 @@ X-Test = "static-value"
 | 12 — Hooks | ✓ / ✗ | |
 | 13 — HTTP transport | ✓ / ✗ | |
 | 15 — Authentication | ✓ / ✗ | |
+| 16 — Publish | ✓ / ✗ | |
 | 14 — Cleanup | ✓ / ✗ | |
