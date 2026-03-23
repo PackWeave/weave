@@ -1,6 +1,7 @@
 #![cfg(not(target_os = "windows"))]
 
 mod e2e {
+    mod cli_auth;
     mod cli_diagnose;
     mod cli_hooks;
     mod cli_init;

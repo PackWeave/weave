@@ -89,12 +89,13 @@ type SearchIndex = HashMap<String, PackListing>;
 /// - `{base_url}/packs/{name}.json` — full metadata fetched on demand per pack
 pub struct GitHubRegistry {
     base_url: String,
+    token: Option<String>,
     cached_search_index: std::sync::Mutex<Option<SearchIndex>>,
     cached_packs: std::sync::Mutex<HashMap<String, PackMetadata>>,
 }
 
 impl GitHubRegistry {
-    pub fn new(base_url: &str) -> Self {
+    pub fn new(base_url: &str, token: Option<String>) -> Self {
         // Strip trailing slash and also normalise old-style URLs that already
         // include the `/index.json` suffix (e.g. configs written before the
         // sparse-index migration).  Without this, old installs would request
@@ -104,6 +105,7 @@ impl GitHubRegistry {
             .trim_end_matches("/index.json");
         Self {
             base_url: base_url.to_string(),
+            token,
             cached_search_index: std::sync::Mutex::new(None),
             cached_packs: std::sync::Mutex::new(HashMap::new()),
         }
@@ -122,7 +124,8 @@ impl GitHubRegistry {
         }
 
         let url = format!("{}/index.json", self.base_url);
-        let index: SearchIndex = http_get_json(&url, "registry search index")?;
+        let index: SearchIndex =
+            http_get_json(&url, "registry search index", self.token.as_deref())?;
 
         {
             let mut cache = self
@@ -159,13 +162,17 @@ impl GitHubRegistry {
         }
 
         let url = format!("{}/packs/{}.json", self.base_url, name);
-        let meta: PackMetadata = http_get_json(&url, &format!("pack metadata for '{name}'"))
-            .map_err(|e| match e {
-                WeaveError::RegistryHttp { status: 404, .. } => WeaveError::PackNotFound {
-                    name: name.to_string(),
-                },
-                other => other,
-            })?;
+        let meta: PackMetadata = http_get_json(
+            &url,
+            &format!("pack metadata for '{name}'"),
+            self.token.as_deref(),
+        )
+        .map_err(|e| match e {
+            WeaveError::RegistryHttp { status: 404, .. } => WeaveError::PackNotFound {
+                name: name.to_string(),
+            },
+            other => other,
+        })?;
 
         {
             let mut cache = self.cached_packs.lock().unwrap_or_else(|e| e.into_inner());
@@ -242,11 +249,23 @@ impl PackMetadata {
 }
 
 /// Perform a blocking HTTP GET and deserialize the JSON response body.
-fn http_get_json<T: serde::de::DeserializeOwned>(url: &str, label: &str) -> Result<T> {
+///
+/// When `token` is `Some`, an `Authorization: Bearer` header is included in
+/// the request. This raises the GitHub API rate limit from 60/hr to 5000/hr
+/// and is required for accessing private registries.
+fn http_get_json<T: serde::de::DeserializeOwned>(
+    url: &str,
+    label: &str,
+    token: Option<&str>,
+) -> Result<T> {
     let client = reqwest::blocking::Client::new();
-    let response = client
+    let mut request = client
         .get(url)
-        .header("User-Agent", format!("weave/{}", env!("CARGO_PKG_VERSION")))
+        .header("User-Agent", format!("weave/{}", env!("CARGO_PKG_VERSION")));
+    if let Some(token) = token {
+        request = request.header("Authorization", format!("Bearer {token}"));
+    }
+    let response = request
         .send()
         .map_err(|e| WeaveError::Registry(format!("failed to fetch {label}: {e}")))?;
 
@@ -269,11 +288,15 @@ fn http_get_json<T: serde::de::DeserializeOwned>(url: &str, label: &str) -> Resu
 /// If no taps are configured the composite still works correctly — it degrades to
 /// a single-registry wrapper with negligible overhead.
 pub fn registry_from_config(config: &crate::core::config::Config) -> CompositeRegistry {
-    let official = GitHubRegistry::new(&config.registry_url);
+    let token = crate::core::credentials::resolve_token(config).unwrap_or_else(|e| {
+        log::warn!("failed to resolve auth token: {e}");
+        None
+    });
+    let official = GitHubRegistry::new(&config.registry_url, token.clone());
     let taps = config
         .taps
         .iter()
-        .map(|t| GitHubRegistry::new(&t.url))
+        .map(|t| GitHubRegistry::new(&t.url, token.clone()))
         .collect();
     CompositeRegistry::new(official, taps)
 }
@@ -407,6 +430,7 @@ impl Registry for CompositeRegistry {
 
 /// A mock registry for testing. No network calls.
 #[cfg(test)]
+#[derive(Default)]
 pub struct MockRegistry {
     pub packs: HashMap<String, PackMetadata>,
 }
@@ -414,9 +438,7 @@ pub struct MockRegistry {
 #[cfg(test)]
 impl MockRegistry {
     pub fn new() -> Self {
-        Self {
-            packs: HashMap::new(),
-        }
+        Self::default()
     }
 
     pub fn add_pack(&mut self, metadata: PackMetadata) {
@@ -544,20 +566,20 @@ mod tests {
 
     #[test]
     fn new_strips_trailing_slash() {
-        let r = GitHubRegistry::new("https://example.com/registry/");
+        let r = GitHubRegistry::new("https://example.com/registry/", None);
         assert_eq!(r.base_url, "https://example.com/registry");
     }
 
     #[test]
     fn new_strips_old_index_json_suffix() {
         // Old configs stored the full URL including /index.json.
-        let r = GitHubRegistry::new("https://example.com/registry/index.json");
+        let r = GitHubRegistry::new("https://example.com/registry/index.json", None);
         assert_eq!(r.base_url, "https://example.com/registry");
     }
 
     #[test]
     fn new_strips_index_json_with_trailing_slash() {
-        let r = GitHubRegistry::new("https://example.com/registry/index.json/");
+        let r = GitHubRegistry::new("https://example.com/registry/index.json/", None);
         assert_eq!(r.base_url, "https://example.com/registry");
     }
 

@@ -119,6 +119,12 @@ enum Commands {
         action: TapAction,
     },
 
+    /// Manage registry authentication
+    Auth {
+        #[command(subcommand)]
+        action: AuthAction,
+    },
+
     /// Switch to a named profile, or print the active profile (no args)
     Use {
         /// Profile name to switch to. Omit to print the current profile.
@@ -128,6 +134,22 @@ enum Commands {
         #[arg(long)]
         allow_hooks: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum AuthAction {
+    /// Authenticate with the registry (GitHub personal access token)
+    Login {
+        /// Token value (reads from stdin if omitted)
+        #[arg(long)]
+        token: Option<String>,
+    },
+
+    /// Remove stored credentials
+    Logout,
+
+    /// Show current authentication state
+    Status,
 }
 
 #[derive(Subcommand)]
@@ -229,6 +251,11 @@ fn main() {
         Commands::Update { name } => cli::update::run(name.as_deref()),
         Commands::Sync { allow_hooks } => cli::sync::run(allow_hooks),
         Commands::Diagnose { json } => cli::diagnose::run(json),
+        Commands::Auth { action } => match action {
+            AuthAction::Login { token } => cli::auth::login(token.as_deref()),
+            AuthAction::Logout => cli::auth::logout(),
+            AuthAction::Status => cli::auth::status(),
+        },
         Commands::Tap { action } => match action {
             TapAction::Add { name } => cli::tap::add(&name),
             TapAction::List => cli::tap::list(),
