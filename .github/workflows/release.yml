@@ -17,8 +17,8 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to release (e.g., v0.4.2)'
-        required: true
+        description: 'Tag to release (e.g., v0.4.2). Uses --ref tag if omitted.'
+        required: false
 
 permissions:
   contents: read   # default for all jobs; release job overrides to write
@@ -115,6 +115,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
           files: |
             *.tar.gz
             *.tar.gz.sha256
