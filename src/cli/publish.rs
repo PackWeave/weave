@@ -39,12 +39,7 @@ pub fn run(path: Option<&str>) -> Result<()> {
         anyhow::anyhow!("not authenticated — run `weave auth login` before publishing")
     })?;
 
-    // 4. Verify this is a GitHub-backed registry.
-    if !credentials::is_github_registry(&config.registry_url) {
-        bail!("publish is only supported for GitHub-backed registries");
-    }
-
-    // 5. Check for duplicate version.
+    // 4. Check for duplicate version (works against any registry, including mocks).
     let registry = registry_from_config(&config);
     println!(
         "  Checking registry for existing {}@{}...",
@@ -52,6 +47,11 @@ pub fn run(path: Option<&str>) -> Result<()> {
         style::version(pack.version.to_string())
     );
     publish::check_version_not_published(&registry, &pack.name, &pack.version)?;
+
+    // 5. Verify this is a GitHub-backed registry (required for PR creation).
+    if !credentials::is_github_registry(&config.registry_url) {
+        bail!("publish is only supported for GitHub-backed registries");
+    }
 
     // 6. Collect files.
     let files = publish::collect_pack_files(&pack_dir).context("collecting pack files")?;

@@ -87,6 +87,16 @@ fn collect_dir_recursive(
             continue;
         }
 
+        // Skip symlinks — prevents reading files outside the pack directory
+        // (e.g., a symlink to ~/.ssh/id_rsa would leak sensitive content).
+        let file_type = entry
+            .file_type()
+            .map_err(|e| WeaveError::io(format!("reading file type in {prefix}"), e))?;
+        if file_type.is_symlink() {
+            log::debug!("skipping symlink: {prefix}/{name}");
+            continue;
+        }
+
         let path = entry.path();
         let rel_path = format!("{prefix}/{name}");
 
