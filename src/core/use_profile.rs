@@ -9,6 +9,7 @@ use crate::core::pack::{Pack, PackSource, ResolvedPack};
 use crate::core::profile::{InstalledPack, Profile};
 use crate::core::registry::Registry;
 use crate::core::store::Store;
+use crate::error::{Result, WeaveError};
 
 /// A pack removal result for a single adapter.
 #[derive(Debug)]
@@ -92,9 +93,7 @@ pub fn load_or_fetch_pack(
     version: &semver::Version,
     source: &PackSource,
     registry: &dyn Registry,
-) -> std::result::Result<Pack, anyhow::Error> {
-    use anyhow::Context;
-
+) -> Result<Pack> {
     // Try loading from store first
     if let Ok(pack) = Store::load_pack(name, version, Some(source)) {
         return Ok(pack);
@@ -106,40 +105,31 @@ pub fn load_or_fetch_pack(
     match source {
         PackSource::Registry { .. } => {}
         PackSource::Local { path } => {
-            return Err(crate::error::WeaveError::PackNotAvailable {
+            return Err(WeaveError::PackNotAvailable {
                 name: name.to_string(),
                 source_type: format!("local ({})", path),
                 hint: format!(
                     "reinstall from the original local path with `weave install --local {}`",
                     path
                 ),
-            }
-            .into());
+            });
         }
         PackSource::Git { url, .. } => {
-            return Err(crate::error::WeaveError::PackNotAvailable {
+            return Err(WeaveError::PackNotAvailable {
                 name: name.to_string(),
                 source_type: format!("git ({})", url),
                 hint: format!(
                     "reinstall from the original URL with `weave install --git {}`",
                     url
                 ),
-            }
-            .into());
+            });
         }
     }
 
     // Fetch from registry
-    let release = registry
-        .fetch_version(name, version)
-        .map_err(anyhow::Error::from)
-        .context("resolving pack from registry")?;
-    Store::fetch(name, &release, Some(source))
-        .map_err(anyhow::Error::from)
-        .context("downloading pack")?;
+    let release = registry.fetch_version(name, version)?;
+    Store::fetch(name, &release, Some(source))?;
     Store::load_pack(name, version, Some(source))
-        .map_err(anyhow::Error::from)
-        .context("loading fetched pack")
 }
 
 /// Execute a profile switch: remove old packs, apply new packs, update config.
@@ -156,9 +146,7 @@ pub fn switch(
     adapters: &[Box<dyn CliAdapter>],
     options: &ApplyOptions,
     registry: &dyn Registry,
-) -> std::result::Result<SwitchResult, anyhow::Error> {
-    use anyhow::Context;
-
+) -> Result<SwitchResult> {
     let (to_remove, to_add) = compute_diff(current_profile, target_profile);
 
     // Pre-flight: verify all packs can be loaded (or fetched) before making
@@ -166,13 +154,12 @@ pub fn switch(
     // loop could fail partway through, leaving adapter configs in a broken
     // state that is neither the old profile nor the new one.
     for installed in &to_add {
-        load_or_fetch_pack(&installed.name, &installed.version, &installed.source, registry)
-            .with_context(|| {
-                format!(
-                    "cannot switch: pack {}@{} is not available — resolve this before switching profiles",
-                    installed.name, installed.version
-                )
-            })?;
+        load_or_fetch_pack(
+            &installed.name,
+            &installed.version,
+            &installed.source,
+            registry,
+        )?;
     }
 
     let mut result = SwitchResult {
@@ -264,10 +251,7 @@ pub fn switch(
 
     // Update the active profile in config
     config.active_profile = target_name.to_string();
-    config
-        .save()
-        .map_err(anyhow::Error::from)
-        .context("saving config")?;
+    config.save()?;
 
     Ok(result)
 }

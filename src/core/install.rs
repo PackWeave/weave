@@ -15,6 +15,7 @@ use crate::core::profile::{InstalledPack, Profile};
 use crate::core::registry::{PackRelease, Registry};
 use crate::core::resolver::Resolver;
 use crate::core::store::Store;
+use crate::error::{Result, WeaveError};
 
 /// Result of installing a single pack — used for per-pack reporting.
 #[derive(Debug)]
@@ -70,9 +71,7 @@ pub fn install_from_registry(
     force: bool,
     options: &ApplyOptions,
     ctx: &mut InstallContext<'_>,
-) -> std::result::Result<InstallResult, anyhow::Error> {
-    use anyhow::Context;
-
+) -> Result<InstallResult> {
     let resolver = Resolver::new(ctx.registry);
     let plan = resolver.plan_install(pack_name, version_req, ctx.profile)?;
 
@@ -102,18 +101,20 @@ pub fn install_from_registry(
         let pack = Pack::load(&pack_dir)?;
 
         // Validate that the manifest matches what was resolved.
-        anyhow::ensure!(
-            pack.name == *name,
-            "pack manifest name '{}' does not match resolved name '{name}'; \
-             the archive may be corrupt or tampered",
-            pack.name
-        );
-        anyhow::ensure!(
-            pack.version == *version,
-            "pack manifest version '{}' does not match resolved version '{version}'; \
-             the archive may be corrupt or tampered",
-            pack.version
-        );
+        if pack.name != *name {
+            return Err(WeaveError::ManifestMismatch {
+                field: "name",
+                expected: name.clone(),
+                actual: pack.name,
+            });
+        }
+        if pack.version != *version {
+            return Err(WeaveError::ManifestMismatch {
+                field: "version",
+                expected: version.to_string(),
+                actual: pack.version.to_string(),
+            });
+        }
 
         // Check for tool-name conflicts with already-installed packs.
         let tool_conflicts = if !force {
@@ -179,14 +180,8 @@ pub fn install_from_registry(
     }
 
     // Save state
-    ctx.profile
-        .save()
-        .map_err(anyhow::Error::from)
-        .context("saving profile")?;
-    ctx.lockfile
-        .save(&ctx.config.active_profile)
-        .map_err(anyhow::Error::from)
-        .context("saving lock file")?;
+    ctx.profile.save()?;
+    ctx.lockfile.save(&ctx.config.active_profile)?;
 
     Ok(InstallResult {
         already_satisfied: plan.already_satisfied,
@@ -218,11 +213,8 @@ pub fn install_local(
     force: bool,
     options: &ApplyOptions,
     ctx: &mut InstallContext<'_>,
-) -> std::result::Result<LocalInstallResult, anyhow::Error> {
-    use anyhow::Context;
-
-    let pack =
-        Pack::load(path).with_context(|| format!("loading pack from '{}'", path.display()))?;
+) -> Result<LocalInstallResult> {
+    let pack = Pack::load(path)?;
 
     let name = &pack.name;
     let version = &pack.version;
@@ -236,11 +228,9 @@ pub fn install_local(
     // Local installs always re-install, even at the same version, so that
     // file changes made during pack development are picked up without
     // requiring a version bump.
-    Store::evict(name, version, Some(&local_source))
-        .with_context(|| format!("evicting cached '{name}@{version}' before local refresh"))?;
+    Store::evict(name, version, Some(&local_source))?;
 
-    let files = files_from_dir(path)
-        .with_context(|| format!("reading pack files from '{}'", path.display()))?;
+    let files = files_from_dir(path)?;
 
     let release = PackRelease {
         version: version.clone(),
@@ -248,8 +238,7 @@ pub fn install_local(
         dependencies: pack.dependencies.clone(),
     };
 
-    let pack_dir = Store::fetch(name, &release, Some(&local_source))
-        .with_context(|| format!("writing pack '{name}' to store"))?;
+    let pack_dir = Store::fetch(name, &release, Some(&local_source))?;
 
     // Re-load from store to validate written files.
     let pack = Pack::load(&pack_dir)?;
@@ -302,14 +291,8 @@ pub fn install_local(
     });
     ctx.lockfile.lock_pack(name, version.clone(), local_source);
 
-    ctx.profile
-        .save()
-        .map_err(anyhow::Error::from)
-        .context("saving profile")?;
-    ctx.lockfile
-        .save(&ctx.config.active_profile)
-        .map_err(anyhow::Error::from)
-        .context("saving lock file")?;
+    ctx.profile.save()?;
+    ctx.lockfile.save(&ctx.config.active_profile)?;
 
     Ok(LocalInstallResult {
         name: name.clone(),
@@ -404,24 +387,19 @@ const PACK_CONTENT_DIRS: &[&str] = &["prompts", "commands", "skills", "settings"
 /// Only includes `pack.toml` at the root and files under the known pack
 /// content directories (`prompts/`, `commands/`, `skills/`, `settings/`).
 /// Hidden entries and symlinks are skipped.
-pub fn files_from_dir(dir: &Path) -> std::result::Result<HashMap<String, String>, anyhow::Error> {
+pub fn files_from_dir(dir: &Path) -> Result<HashMap<String, String>> {
     let mut files = HashMap::new();
     visit_dir(dir, dir, &mut files)?;
     Ok(files)
 }
 
-fn visit_dir(
-    root: &Path,
-    current: &Path,
-    files: &mut HashMap<String, String>,
-) -> std::result::Result<(), anyhow::Error> {
-    use anyhow::Context;
-
+fn visit_dir(root: &Path, current: &Path, files: &mut HashMap<String, String>) -> Result<()> {
     let entries = std::fs::read_dir(current)
-        .with_context(|| format!("reading directory {}", current.display()))?;
+        .map_err(|e| WeaveError::io(format!("reading directory {}", current.display()), e))?;
 
     for entry in entries {
-        let entry = entry.with_context(|| format!("reading entry in {}", current.display()))?;
+        let entry = entry
+            .map_err(|e| WeaveError::io(format!("reading entry in {}", current.display()), e))?;
         let path = entry.path();
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
@@ -435,7 +413,7 @@ fn visit_dir(
         // is_symlink() correctly identifies symlinks and we skip them.
         let file_type = entry
             .file_type()
-            .with_context(|| format!("reading file type for {}", path.display()))?;
+            .map_err(|e| WeaveError::io(format!("reading file type for {}", path.display()), e))?;
         if file_type.is_symlink() {
             continue;
         }
@@ -459,7 +437,7 @@ fn visit_dir(
             }
 
             let content = std::fs::read_to_string(&path)
-                .with_context(|| format!("reading {}", path.display()))?;
+                .map_err(|e| WeaveError::io(format!("reading {}", path.display()), e))?;
             files.insert(rel, content);
         }
     }

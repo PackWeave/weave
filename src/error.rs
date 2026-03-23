@@ -22,8 +22,21 @@ pub enum WeaveError {
     #[error("pack '{name}' is already installed (version {version})")]
     AlreadyInstalled { name: String, version: String },
 
-    #[error("pack '{name}' is not installed — run `weave list` to see installed packs")]
-    NotInstalled { name: String },
+    #[error("pack '{name}' is not installed — {hint}")]
+    NotInstalled { name: String, hint: String },
+
+    // Install/update validation errors
+    #[error(
+        "pack manifest {field} '{actual}' does not match resolved {field} '{expected}' — the archive may be corrupt or tampered"
+    )]
+    ManifestMismatch {
+        field: &'static str,
+        expected: String,
+        actual: String,
+    },
+
+    #[error("invalid version requirement '{input}' — {reason}")]
+    InvalidVersionReq { input: String, reason: String },
 
     #[error(
         "pack '{name}' is not available from {source_type} and is not in the local store — {hint}"
@@ -138,3 +151,47 @@ impl WeaveError {
 }
 
 pub type Result<T> = std::result::Result<T, WeaveError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn manifest_mismatch_error_message() {
+        let err = WeaveError::ManifestMismatch {
+            field: "name",
+            expected: "webdev".to_string(),
+            actual: "other-pack".to_string(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("name"));
+        assert!(msg.contains("'other-pack'"));
+        assert!(msg.contains("'webdev'"));
+        assert!(msg.contains("corrupt or tampered"));
+    }
+
+    #[test]
+    fn invalid_version_req_error_message() {
+        let err = WeaveError::InvalidVersionReq {
+            input: "not-a-version".to_string(),
+            reason: "unexpected character 'n'".to_string(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("'not-a-version'"));
+        assert!(msg.contains("unexpected character 'n'"));
+    }
+
+    #[test]
+    fn pack_not_available_error_message() {
+        let err = WeaveError::PackNotAvailable {
+            name: "webdev".to_string(),
+            source_type: "local (/tmp/webdev)".to_string(),
+            hint: "reinstall from the original local path with `weave install --local /tmp/webdev`"
+                .to_string(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("'webdev'"));
+        assert!(msg.contains("not available from local"));
+        assert!(msg.contains("reinstall"));
+    }
+}

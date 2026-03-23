@@ -62,6 +62,7 @@ impl<'a> Resolver<'a> {
         if !profile.has_pack(pack_name) {
             return Err(WeaveError::NotInstalled {
                 name: pack_name.to_string(),
+                hint: "run `weave list` to see installed packs".to_string(),
             });
         }
 

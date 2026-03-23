@@ -12,6 +12,7 @@ use crate::core::profile::{InstalledPack, Profile};
 use crate::core::registry::Registry;
 use crate::core::resolver::Resolver;
 use crate::core::store::Store;
+use crate::error::{Result, WeaveError};
 
 /// Result for a single pack update.
 #[derive(Debug)]
@@ -50,11 +51,7 @@ pub struct SkippedPack {
 /// - "foo@latest" -> ("foo", None) — no constraint, get absolute latest
 /// - "@foo" -> ("foo", None) — leading @ stripped
 /// - "foo@^2.0" -> ("foo", Some(^2.0))
-pub fn parse_pack_spec(
-    spec: &str,
-) -> std::result::Result<(String, Option<semver::VersionReq>), anyhow::Error> {
-    use anyhow::Context;
-
+pub fn parse_pack_spec(spec: &str) -> Result<(String, Option<semver::VersionReq>)> {
     if let Some((name, suffix)) = spec.rsplit_once('@') {
         if name.is_empty() {
             return Ok((suffix.to_string(), None));
@@ -62,8 +59,10 @@ pub fn parse_pack_spec(
         if suffix == "latest" {
             return Ok((name.to_string(), None));
         }
-        let req = semver::VersionReq::parse(suffix)
-            .with_context(|| format!("invalid version requirement '{suffix}'"))?;
+        let req = semver::VersionReq::parse(suffix).map_err(|e| WeaveError::InvalidVersionReq {
+            input: suffix.to_string(),
+            reason: e.to_string(),
+        })?;
         Ok((name.to_string(), Some(req)))
     } else {
         Ok((spec.to_string(), None))
@@ -91,9 +90,7 @@ pub fn update_packs(
     profile: &mut Profile,
     lockfile: &mut LockFile,
     adapters: &[Box<dyn CliAdapter>],
-) -> std::result::Result<UpdateResult, anyhow::Error> {
-    use anyhow::Context;
-
+) -> Result<UpdateResult> {
     // Determine which packs to update and their version constraints.
     let packs_to_update: Vec<(String, Option<semver::VersionReq>)> = match pack_spec {
         Some(spec) => {
@@ -101,9 +98,10 @@ pub fn update_packs(
             let name = name.strip_prefix('@').unwrap_or(&name).to_string();
 
             if !profile.has_pack(&name) {
-                anyhow::bail!(
-                    "'{name}' is not installed. Run `weave install {name}` to install it first."
-                );
+                return Err(WeaveError::NotInstalled {
+                    name: name.clone(),
+                    hint: format!("run `weave install {name}` to install it first"),
+                });
             }
             vec![(name, version_req)]
         }
@@ -175,18 +173,20 @@ pub fn update_packs(
             let pack = Pack::load(&pack_dir)?;
 
             // Validate manifest matches resolved metadata
-            anyhow::ensure!(
-                pack.name == *resolved_name,
-                "pack manifest name '{}' does not match resolved name '{resolved_name}'; \
-                 the archive may be corrupt or tampered",
-                pack.name
-            );
-            anyhow::ensure!(
-                pack.version == *version,
-                "pack manifest version '{}' does not match resolved version '{version}'; \
-                 the archive may be corrupt or tampered",
-                pack.version
-            );
+            if pack.name != *resolved_name {
+                return Err(WeaveError::ManifestMismatch {
+                    field: "name",
+                    expected: resolved_name.clone(),
+                    actual: pack.name,
+                });
+            }
+            if pack.version != *version {
+                return Err(WeaveError::ManifestMismatch {
+                    field: "version",
+                    expected: version.to_string(),
+                    actual: pack.version.to_string(),
+                });
+            }
 
             let resolved = ResolvedPack {
                 pack: pack.clone(),
@@ -237,14 +237,8 @@ pub fn update_packs(
     }
 
     if result.any_updated {
-        profile
-            .save()
-            .map_err(anyhow::Error::from)
-            .context("saving profile")?;
-        lockfile
-            .save(&config.active_profile)
-            .map_err(anyhow::Error::from)
-            .context("saving lock file")?;
+        profile.save()?;
+        lockfile.save(&config.active_profile)?;
     }
 
     Ok(result)
