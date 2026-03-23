@@ -98,7 +98,10 @@ pub fn update_packs(
             let name = name.strip_prefix('@').unwrap_or(&name).to_string();
 
             if !profile.has_pack(&name) {
-                return Err(WeaveError::NotInstalled { name: name.clone() });
+                return Err(WeaveError::NotInstalled {
+                    name: name.clone(),
+                    hint: format!("run `weave install {name}` to install it first"),
+                });
             }
             vec![(name, version_req)]
         }

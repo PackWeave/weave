@@ -22,8 +22,8 @@ pub enum WeaveError {
     #[error("pack '{name}' is already installed (version {version})")]
     AlreadyInstalled { name: String, version: String },
 
-    #[error("pack '{name}' is not installed")]
-    NotInstalled { name: String },
+    #[error("pack '{name}' is not installed — {hint}")]
+    NotInstalled { name: String, hint: String },
 
     // Install/update validation errors
     #[error(
