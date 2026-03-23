@@ -75,18 +75,18 @@ The milestones below are sequential. Each one produces something usable before t
 
 ### Ecosystem
 
-- [ ] `weave publish` command for pack authors (issue #146)
-- [ ] `weave auth` for registry authentication (issue #147)
+- [x] `weave publish` command for pack authors (issue #146)
+- [x] `weave auth` for registry authentication (issue #147)
 
 ### Correctness & Security
 
-- [ ] Additive hook merge for multi-pack coexistence (issue #145)
-- [ ] Normalize local paths before hashing in store cache key (issue #133)
-- [ ] Validate MCP server header values for plaintext secrets (issue #141)
+- [x] Additive hook merge for multi-pack coexistence (issue #145)
+- [x] Normalize local paths before hashing in store cache key (issue #133)
+- [x] Validate MCP server header values for plaintext secrets (issue #141)
 
 ### Library Quality
 
-- [ ] Replace `anyhow` with `WeaveError` in CLI/core handlers — required for crates.io consumers (issue #143)
+- [x] Replace `anyhow` with `WeaveError` in CLI/core handlers — required for crates.io consumers (issue #143)
 - [ ] Colorize CLI output (issue #106)
 
 ### Release Infrastructure

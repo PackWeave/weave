@@ -96,6 +96,7 @@ src/
     mcp_registry.rs        Upstream MCP Registry client (weave search --mcp).
     pack.rs                Pack manifest: parsing, validation, the Pack struct.
     profile.rs             Profile: read/write, active profile tracking.
+    publish.rs             Publish orchestration: file collection, version check, GitHub PR creation.
     registry.rs            Registry trait, GitHubRegistry, and CompositeRegistry.
     resolver.rs            Dependency graph construction and semver resolution.
     store.rs               Local pack cache: download, extract, verify, evict.
@@ -310,7 +311,7 @@ pub trait Registry: Send + Sync {
     fn search(&self, query: &str) -> Result<Vec<PackSummary>>;
     fn fetch_metadata(&self, name: &str) -> Result<PackMetadata>;
     fn fetch_version(&self, name: &str, version: &semver::Version) -> Result<PackRelease>;
-    fn publish(&self, archive: &Path, token: &str) -> Result<()>;
+    fn publish(&self, pack: &Pack, files: &BTreeMap<String, Vec<u8>>, token: &str) -> Result<PublishResult>;
 }
 ```
 
