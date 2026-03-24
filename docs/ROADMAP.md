@@ -109,6 +109,8 @@ The milestones below are sequential. Each one produces something usable before t
 - [ ] Pack content checksums in registry for integrity verification (issue #175)
 - [ ] Enforce `min_tool_version` check during pack install (issue #197)
 - [ ] Switch Codex adapter to `toml_edit` to preserve user comments (issue #212)
+- [ ] Rollback on partial adapter apply failure — don't record install if any adapter fails (issue #221)
+- [ ] Schema versioning for pack.toml and sidecar manifests — graceful rejection of newer formats (issue #224)
 
 ### Adoption Accelerators
 
@@ -143,15 +145,12 @@ The milestones below are sequential. Each one produces something usable before t
 - [ ] `weave config get/set` command (issue #200)
 - [ ] Subagent distribution via packs (issue #198)
 
-### Quality & Testing
+### Resilience & Quality
 
+- [ ] Handle registry rate limiting with retry and backoff (issue #222)
 - [ ] Golden-file tests for adapter config output (issue #216)
 - [ ] Fuzz testing targets for config parsing (issue #217)
 - [ ] Windows build-check CI job (issue #218)
-- [ ] Use FNV-1a for local pack cache directory hashing (issue #132)
-- [ ] Include source info in `Store::list_cached` return type (issue #134)
-- [ ] Cover `CompositeRegistry` directly instead of mock reimplementation (issue #142)
-- [ ] Decouple `core::use_profile` from `GitHubRegistry` (issue #144)
 
 -----
 
@@ -162,6 +161,7 @@ The milestones below are sequential. Each one produces something usable before t
 - [ ] Post-install scripts — `[scripts]` table in pack.toml (issue #167). Requires explicit `--allow-scripts` flag, sandboxing design, and restricted action set. See security analysis for design constraints.
 - [ ] Auto-update mechanism (issue #51). Must be opt-in per pack, show diff of changes, require confirmation. Passive update check (#202) should ship first.
 - [ ] Registry namespace scoping — `@scope/pack-name` format (issue #215). Protocol-level change; design before the registry has many consumers.
+- [ ] Pack version yanking and deprecation (issue #223). Allows pack authors to mark bad versions as uninstallable.
 
 -----
 
