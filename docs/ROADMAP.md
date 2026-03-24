@@ -166,7 +166,7 @@ The milestones below are sequential. Each one produces something usable before t
 > Higher-risk features that expand the attack surface. Each requires careful security design before implementation.
 
 - [ ] Post-install scripts — `[scripts]` table in pack.toml (issue #167). Requires explicit `--allow-scripts` flag, sandboxing design, and restricted action set. See security analysis for design constraints.
-- [ ] Auto-update mechanism (issue #51). Must be opt-in per pack, show diff of changes, require confirmation. Passive update check (issue #202) should ship first.
+- [ ] Self-update mechanism — `weave self-update` to fetch and replace the binary from GitHub Releases (issue #51).
 - [ ] Registry namespace scoping — `@scope/pack-name` format (issue #215). Protocol-level change; design before the registry has many consumers.
 - [ ] Pack version yanking and deprecation (issue #223). Allows pack authors to mark bad versions as uninstallable.
 
