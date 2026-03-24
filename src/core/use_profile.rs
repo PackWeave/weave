@@ -247,7 +247,16 @@ pub fn switch(
                     crate::core::install::check_min_tool_version(&pack)?;
                     crate::core::install::target_adapters(&pack, adapters)
                 }
-                Err(_) => adapters.iter().map(|a| a.name().to_string()).collect(),
+                Err(_) => {
+                    // Pack not in local cache — version compatibility and target
+                    // adapters cannot be verified in dry-run mode.
+                    log::warn!(
+                        "pack {}@{} not cached locally — dry-run preview may be approximate",
+                        installed.name,
+                        installed.version
+                    );
+                    adapters.iter().map(|a| a.name().to_string()).collect()
+                }
             };
             apply_result.applied_adapters = target_names;
         } else {
