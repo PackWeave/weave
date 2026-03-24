@@ -152,6 +152,13 @@ The milestones below are sequential. Each one produces something usable before t
 - [ ] Fuzz testing targets for config parsing (issue #217)
 - [ ] Windows build-check CI job (issue #218)
 
+### Housekeeping (done)
+
+- [x] Use FNV-1a for local pack cache directory hashing (issue #132)
+- [x] Include source info in `Store::list_cached` return type (issue #134)
+- [x] Cover `CompositeRegistry` directly instead of mock reimplementation (issue #142)
+- [x] Decouple `core::use_profile` from `GitHubRegistry` (issue #144)
+
 -----
 
 ## Milestone 8 — v0.7 (power features)
