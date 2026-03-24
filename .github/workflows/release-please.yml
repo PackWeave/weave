@@ -42,8 +42,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
-          PR=$(gh pr list --label "autorelease: pending" --state open --json number --jq '.[0].number')
+          PR=$(gh pr list --repo "${{ github.repository }}" --label "autorelease: pending" --state open --json number --jq '.[0].number // empty')
           if [ -n "$PR" ]; then
-            gh api repos/${{ github.repository }}/pulls/$PR/update-branch \
-              --method PUT -f update_method="rebase" 2>/dev/null || true
+            gh api repos/${{ github.repository }}/pulls/"$PR"/update-branch \
+              --method PUT -f update_method="rebase" || \
+              echo "::warning::Failed to sync release PR #$PR branch with main"
           fi
