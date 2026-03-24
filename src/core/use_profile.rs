@@ -138,6 +138,7 @@ pub fn load_or_fetch_pack(
 /// - Verifying the target profile exists
 /// - Checking that the active profile is not already the target
 /// - Printing output and formatting messages
+#[allow(clippy::too_many_arguments)]
 pub fn switch(
     target_name: &str,
     config: &mut Config,
