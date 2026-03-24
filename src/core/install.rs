@@ -125,6 +125,22 @@ pub fn install_from_registry(
                     })?;
             let pack = Pack::from_toml(pack_toml, &std::path::PathBuf::from("pack.toml"))?;
 
+            // Validate manifest matches what was resolved, same as the normal path.
+            if pack.name != *name {
+                return Err(WeaveError::ManifestMismatch {
+                    field: "name",
+                    expected: name.clone(),
+                    actual: pack.name,
+                });
+            }
+            if pack.version != *version {
+                return Err(WeaveError::ManifestMismatch {
+                    field: "version",
+                    expected: version.to_string(),
+                    actual: pack.version.to_string(),
+                });
+            }
+
             let tool_conflicts = if !force {
                 conflict::check_tool_conflicts(&pack, &installed_packs)
                     .iter()
