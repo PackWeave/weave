@@ -6,6 +6,7 @@
 [![Registry](https://img.shields.io/badge/registry-browse%20packs-8B5CF6)](https://github.com/PackWeave/registry)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Hypercommit](https://img.shields.io/badge/Hypercommit-DB2475)](https://hypercommit.com/weave)
 
 > **One command configures all your AI CLIs.** Install, share, and version MCP servers, slash commands, and prompts across Claude Code, Gemini CLI, and Codex CLI.
 
