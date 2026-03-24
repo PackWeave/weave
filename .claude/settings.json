@@ -6,7 +6,8 @@
             "Skill(weave-ship)",
             "Skill(rust-pre-commit)",
             "Skill(check-pr-review)",
-            "Skill(weave-e2e)"
+            "Skill(weave-e2e)",
+            "Skill(review-prs)"
         ]
     },
     "attribution": {
