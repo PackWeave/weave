@@ -243,7 +243,10 @@ pub fn switch(
                 &installed.version,
                 Some(&installed.source),
             ) {
-                Ok(pack) => crate::core::install::target_adapters(&pack, adapters),
+                Ok(pack) => {
+                    crate::core::install::check_min_tool_version(&pack)?;
+                    crate::core::install::target_adapters(&pack, adapters)
+                }
                 Err(_) => adapters.iter().map(|a| a.name().to_string()).collect(),
             };
             apply_result.applied_adapters = target_names;
@@ -264,6 +267,8 @@ pub fn switch(
                     continue;
                 }
             };
+
+            crate::core::install::check_min_tool_version(&pack)?;
 
             let resolved = ResolvedPack {
                 pack,

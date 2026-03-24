@@ -17,6 +17,27 @@ use crate::core::resolver::Resolver;
 use crate::core::store::Store;
 use crate::error::{Result, WeaveError};
 
+/// Check that the current weave version satisfies the pack's `min_tool_version`.
+///
+/// Returns `Ok(())` if the pack has no `min_tool_version` requirement or if the
+/// current version meets or exceeds it.  Returns `Err(IncompatibleToolVersion)`
+/// otherwise.  This check runs in both normal and dry-run paths so users always
+/// see version incompatibilities early.
+pub fn check_min_tool_version(pack: &Pack) -> Result<()> {
+    if let Some(ref min_version) = pack.min_tool_version {
+        let current = semver::Version::parse(env!("CARGO_PKG_VERSION"))
+            .expect("CARGO_PKG_VERSION is always valid semver");
+        if current < *min_version {
+            return Err(WeaveError::IncompatibleToolVersion {
+                pack_name: pack.name.clone(),
+                required: min_version.clone(),
+                current,
+            });
+        }
+    }
+    Ok(())
+}
+
 /// Returns the names of adapters that a pack would target, based on the pack's
 /// `targets` flags and which adapters are installed.
 pub fn target_adapters(pack: &Pack, adapters: &[Box<dyn CliAdapter>]) -> Vec<String> {
@@ -124,6 +145,7 @@ pub fn install_from_registry(
                         reason: "registry release missing pack.toml".to_string(),
                     })?;
             let pack = Pack::from_toml(pack_toml, &std::path::PathBuf::from("pack.toml"))?;
+            check_min_tool_version(&pack)?;
 
             // Validate manifest matches what was resolved, same as the normal path.
             if pack.name != *name {
@@ -177,6 +199,7 @@ pub fn install_from_registry(
 
         // Load the pack manifest
         let pack = Pack::load(&pack_dir)?;
+        check_min_tool_version(&pack)?;
 
         // Validate that the manifest matches what was resolved.
         if pack.name != *name {
@@ -298,6 +321,7 @@ pub fn install_local(
     dry_run: bool,
 ) -> Result<LocalInstallResult> {
     let pack = Pack::load(path)?;
+    check_min_tool_version(&pack)?;
 
     let name = &pack.name;
     let version = &pack.version;
@@ -562,4 +586,86 @@ fn visit_dir(root: &Path, current: &Path, files: &mut HashMap<String, String>) -
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    /// Helper: build a Pack from TOML for testing.
+    fn pack_from_toml(toml: &str) -> Pack {
+        Pack::from_toml(toml, &PathBuf::from("test.toml")).unwrap()
+    }
+
+    #[test]
+    fn check_min_tool_version_higher_than_current_errors() {
+        let toml = r#"
+[pack]
+name = "future-pack"
+version = "1.0.0"
+description = "Needs a future weave"
+authors = ["tester"]
+min_tool_version = "99.0.0"
+"#;
+        let pack = pack_from_toml(toml);
+        let result = check_min_tool_version(&pack);
+        assert!(
+            result.is_err(),
+            "should fail when min_tool_version exceeds current"
+        );
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("99.0.0"),
+            "error should mention required version: {err_msg}"
+        );
+        assert!(
+            err_msg.contains("please upgrade"),
+            "error should tell user to upgrade: {err_msg}"
+        );
+        assert!(
+            err_msg.contains("future-pack"),
+            "error should mention pack name: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn check_min_tool_version_equal_to_current_succeeds() {
+        let current_version = env!("CARGO_PKG_VERSION");
+        let toml = format!(
+            r#"
+[pack]
+name = "current-pack"
+version = "1.0.0"
+description = "Needs exactly the current weave"
+authors = ["tester"]
+min_tool_version = "{current_version}"
+"#
+        );
+        let pack = pack_from_toml(&toml);
+        let result = check_min_tool_version(&pack);
+        assert!(
+            result.is_ok(),
+            "should succeed when min_tool_version equals current: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn check_min_tool_version_none_succeeds() {
+        let toml = r#"
+[pack]
+name = "no-min-pack"
+version = "1.0.0"
+description = "No min_tool_version specified"
+authors = ["tester"]
+"#;
+        let pack = pack_from_toml(toml);
+        let result = check_min_tool_version(&pack);
+        assert!(
+            result.is_ok(),
+            "should succeed when min_tool_version is absent: {:?}",
+            result.err()
+        );
+    }
 }
