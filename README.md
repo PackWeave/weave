@@ -227,6 +227,7 @@ version = "1.0.0"
 description = "Web development MCP stack"
 authors = ["yourname"]
 keywords = ["web", "browser", "git"]
+min_tool_version = "0.4.0"    # optional: minimum weave version required
 
 [[servers]]
 name = "puppeteer"
@@ -247,6 +248,7 @@ Packs can also declare:
 - **Slash commands / skills** — copied into `~/.claude/commands/` or `~/.codex/skills/`
 - **System prompt fragments** — appended to `CLAUDE.md` / `GEMINI.md` / `AGENTS.md` between tagged delimiters
 - **Settings fragments** — deep-merged into Claude Code and Gemini CLI JSON settings; merged as top-level keys in Codex CLI's TOML config
+- **Minimum tool version** — `min_tool_version` rejects install on older weave versions
 - **Environment variable declarations** — written as `${VAR}` references, never values
 
 > [!IMPORTANT]

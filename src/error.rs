@@ -25,6 +25,15 @@ pub enum WeaveError {
     #[error("pack '{name}' is not installed — {hint}")]
     NotInstalled { name: String, hint: String },
 
+    #[error(
+        "pack '{pack_name}' requires weave {required} or later, but this is weave {current} — please upgrade"
+    )]
+    IncompatibleToolVersion {
+        pack_name: String,
+        required: semver::Version,
+        current: semver::Version,
+    },
+
     // Install/update validation errors
     #[error(
         "pack manifest {field} '{actual}' does not match resolved {field} '{expected}' — the archive may be corrupt or tampered"

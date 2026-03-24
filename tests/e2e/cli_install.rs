@@ -580,3 +580,36 @@ async fn remove_http_server_cleans_up() {
         "remote-api should be removed from ~/.claude.json after pack removal"
     );
 }
+
+// ── min_tool_version enforcement ──────────────────────────────────────────────
+
+#[cfg(not(target_os = "windows"))]
+#[tokio::test]
+async fn install_local_pack_with_incompatible_min_tool_version() {
+    let env = TestEnv::new().await;
+
+    // Create a local pack that requires a far-future weave version.
+    let pack_dir = env.project_dir.path().join("future-pack");
+    std::fs::create_dir_all(&pack_dir).unwrap();
+    std::fs::write(
+        pack_dir.join("pack.toml"),
+        r#"[pack]
+name = "future-pack"
+version = "0.1.0"
+description = "requires future weave"
+authors = ["tester"]
+min_tool_version = "99.0.0"
+"#,
+    )
+    .unwrap();
+
+    env.weave_cmd()
+        .args(["install", "./future-pack"])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("99.0.0")
+                .and(predicate::str::contains("please upgrade"))
+                .from_utf8(),
+        );
+}
