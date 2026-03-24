@@ -11,7 +11,8 @@ use crate::core::store::Store;
 /// This is the recovery command after config drift — it ensures that every
 /// adapter's config matches what the lock file says should be installed.
 /// When `allow_hooks` is true, hooks declared in pack manifests are applied.
-pub fn run(allow_hooks: bool) -> Result<()> {
+/// When `dry_run` is true, preview what would be synced without writing.
+pub fn run(allow_hooks: bool, dry_run: bool) -> Result<()> {
     let config = Config::load().context("loading weave config")?;
     let profile_name = &config.active_profile;
 
@@ -34,6 +35,24 @@ pub fn run(allow_hooks: bool) -> Result<()> {
             "{}",
             style::subtext("No supported CLI adapters found on this system.")
         );
+        return Ok(());
+    }
+
+    if dry_run {
+        println!("{}", style::header("Dry run — no changes will be made:"));
+        println!();
+        for (pack_name, locked) in &lockfile.packs {
+            let adapter_names: Vec<_> = adapters
+                .iter()
+                .map(|a| style::target(a.name()).to_string())
+                .collect();
+            println!(
+                "  Would sync {}@{} to {}",
+                style::pack_name(pack_name.as_str()),
+                style::version(locked.version.to_string()),
+                adapter_names.join(", ")
+            );
+        }
         return Ok(());
     }
 
