@@ -155,13 +155,16 @@ pub fn switch(
     // any changes. Without this, the remove loop could run and then the add
     // loop could fail partway through, leaving adapter configs in a broken
     // state that is neither the old profile nor the new one.
-    for installed in &to_add {
-        load_or_fetch_pack(
-            &installed.name,
-            &installed.version,
-            &installed.source,
-            registry,
-        )?;
+    // Skip in dry-run mode to avoid mutating the store via fetch.
+    if !dry_run {
+        for installed in &to_add {
+            load_or_fetch_pack(
+                &installed.name,
+                &installed.version,
+                &installed.source,
+                registry,
+            )?;
+        }
     }
 
     let mut result = SwitchResult {
@@ -179,11 +182,23 @@ pub fn switch(
         };
 
         if dry_run {
-            // In dry-run mode, list all adapters as "would be removed from".
+            // In dry-run mode, only list adapters actually tracking this pack.
             for adapter in adapters {
-                remove_result
-                    .removed_adapters
-                    .push(adapter.name().to_string());
+                match adapter.tracked_packs() {
+                    Ok(tracked) => {
+                        if tracked.contains(pack_name) {
+                            remove_result
+                                .removed_adapters
+                                .push(adapter.name().to_string());
+                        }
+                    }
+                    Err(_) => {
+                        // If we can't check, include it as a candidate.
+                        remove_result
+                            .removed_adapters
+                            .push(adapter.name().to_string());
+                    }
+                }
             }
         } else {
             for adapter in adapters {

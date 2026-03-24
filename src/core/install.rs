@@ -109,8 +109,50 @@ pub fn install_from_registry(
     let mut results = Vec::new();
 
     for (name, version) in &plan.to_install {
-        // Fetch from registry and store
+        // Fetch pack metadata from registry.
         let release = ctx.registry.fetch_version(name, version)?;
+
+        if dry_run {
+            // In dry-run mode, parse pack.toml directly from registry data
+            // without writing to the local store.
+            let pack_toml = release.files.get("pack.toml").ok_or_else(|| {
+                WeaveError::PackLoad(format!("{name}: registry release missing pack.toml"))
+            })?;
+            let pack =
+                Pack::from_toml(pack_toml, &std::path::PathBuf::from(format!("{name}/pack.toml")))?;
+
+            let tool_conflicts = if !force {
+                conflict::check_tool_conflicts(&pack, &installed_packs)
+                    .iter()
+                    .map(|c| {
+                        format!(
+                            "tool conflict: '{}' is exported by both {}/{} and {}/{}",
+                            c.tool_name,
+                            c.installed_pack,
+                            c.installed_server,
+                            c.incoming_pack,
+                            c.incoming_server,
+                        )
+                    })
+                    .collect()
+            } else {
+                vec![]
+            };
+
+            let applied_adapters = target_adapters(&pack, ctx.adapters);
+            results.push(PackInstallResult {
+                name: name.clone(),
+                version: version.clone(),
+                applied_adapters,
+                adapter_errors: vec![],
+                tool_conflicts,
+                missing_env_vars: check_missing_env_vars(&pack),
+                has_hooks: pack.has_hooks(),
+            });
+            continue;
+        }
+
+        // Normal path: fetch to local store and apply.
         let pack_dir = Store::fetch(name, &release, None)?;
 
         // Load the pack manifest
@@ -162,19 +204,7 @@ pub fn install_from_registry(
         let has_hooks = pack.has_hooks();
         let missing_env_vars = check_missing_env_vars(&pack);
 
-        if dry_run {
-            // In dry-run mode, compute target adapters but skip apply + state writes.
-            let applied_adapters = target_adapters(&pack, ctx.adapters);
-            results.push(PackInstallResult {
-                name: name.clone(),
-                version: version.clone(),
-                applied_adapters,
-                adapter_errors: vec![],
-                tool_conflicts,
-                missing_env_vars,
-                has_hooks,
-            });
-        } else {
+        {
             // Apply to each installed adapter.
             let (applied_adapters, adapter_errors) =
                 apply_to_adapters(&resolved, ctx.adapters, options);
@@ -258,6 +288,43 @@ pub fn install_local(
         path: path.to_string_lossy().to_string(),
     };
 
+    if dry_run {
+        // In dry-run mode, use the pack already loaded from disk — skip
+        // store eviction and fetch to avoid any filesystem mutations.
+        let tool_conflicts = if !force {
+            let installed_packs: Vec<Pack> = load_installed_packs(ctx.profile)
+                .into_iter()
+                .filter(|p| p.name != *name)
+                .collect();
+            conflict::check_tool_conflicts(&pack, &installed_packs)
+                .iter()
+                .map(|c| {
+                    format!(
+                        "tool conflict: '{}' is exported by both {}/{} and {}/{}",
+                        c.tool_name,
+                        c.installed_pack,
+                        c.installed_server,
+                        c.incoming_pack,
+                        c.incoming_server,
+                    )
+                })
+                .collect()
+        } else {
+            vec![]
+        };
+
+        return Ok(LocalInstallResult {
+            name: name.clone(),
+            version: version.clone(),
+            applied_adapters: target_adapters(&pack, ctx.adapters),
+            adapter_errors: vec![],
+            tool_conflicts,
+            missing_env_vars: check_missing_env_vars(&pack),
+            unresolved_dependencies,
+            has_hooks: pack.has_hooks(),
+        });
+    }
+
     // Local installs always re-install, even at the same version, so that
     // file changes made during pack development are picked up without
     // requiring a version bump.
@@ -313,45 +380,31 @@ pub fn install_local(
     let has_hooks = pack.has_hooks();
     let missing_env_vars = check_missing_env_vars(&pack);
 
-    if dry_run {
-        let applied_adapters = target_adapters(&pack, ctx.adapters);
-        Ok(LocalInstallResult {
-            name: name.clone(),
-            version: version.clone(),
-            applied_adapters,
-            adapter_errors: vec![],
-            tool_conflicts,
-            missing_env_vars,
-            unresolved_dependencies,
-            has_hooks,
-        })
-    } else {
-        let (applied_adapters, adapter_errors) =
-            apply_to_adapters(&resolved, ctx.adapters, options);
+    let (applied_adapters, adapter_errors) =
+        apply_to_adapters(&resolved, ctx.adapters, options);
 
-        // Remove old version from profile if upgrading.
-        ctx.profile.remove_pack(name);
-        ctx.profile.add_pack(InstalledPack {
-            name: name.clone(),
-            version: version.clone(),
-            source: local_source.clone(),
-        });
-        ctx.lockfile.lock_pack(name, version.clone(), local_source);
+    // Remove old version from profile if upgrading.
+    ctx.profile.remove_pack(name);
+    ctx.profile.add_pack(InstalledPack {
+        name: name.clone(),
+        version: version.clone(),
+        source: local_source.clone(),
+    });
+    ctx.lockfile.lock_pack(name, version.clone(), local_source);
 
-        ctx.profile.save()?;
-        ctx.lockfile.save(&ctx.config.active_profile)?;
+    ctx.profile.save()?;
+    ctx.lockfile.save(&ctx.config.active_profile)?;
 
-        Ok(LocalInstallResult {
-            name: name.clone(),
-            version: version.clone(),
-            applied_adapters,
-            adapter_errors,
-            tool_conflicts,
-            missing_env_vars,
-            unresolved_dependencies,
-            has_hooks,
-        })
-    }
+    Ok(LocalInstallResult {
+        name: name.clone(),
+        version: version.clone(),
+        applied_adapters,
+        adapter_errors,
+        tool_conflicts,
+        missing_env_vars,
+        unresolved_dependencies,
+        has_hooks,
+    })
 }
 
 /// Apply a resolved pack to all given adapters. Returns (successes, errors).
