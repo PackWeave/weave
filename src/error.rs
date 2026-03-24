@@ -157,6 +157,13 @@ pub enum WeaveError {
         path: PathBuf,
         source: Box<toml::de::Error>,
     },
+
+    // TOML edit errors (format-preserving writes)
+    #[error("invalid TOML in {path}: {source}")]
+    TomlEdit {
+        path: PathBuf,
+        source: toml_edit::TomlError,
+    },
 }
 
 impl WeaveError {

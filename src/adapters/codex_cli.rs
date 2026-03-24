@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+use toml_edit::DocumentMut;
 
 use crate::adapters::{ApplyOptions, CliAdapter, DiagnosticIssue, Severity};
 use crate::core::pack::{McpServer, PackSource, ResolvedPack, Transport};
@@ -154,6 +155,7 @@ impl CodexAdapter {
     // ── TOML config helpers ───────────────────────────────────────────────────
 
     /// Read a `config.toml`, returning an empty table if the file doesn't exist.
+    /// Used by read-only paths (diagnose) that don't need formatting preservation.
     fn read_config_toml(path: &std::path::Path) -> Result<toml::Value> {
         if !path.exists() {
             return Ok(toml::Value::Table(Default::default()));
@@ -165,11 +167,24 @@ impl CodexAdapter {
         })
     }
 
-    /// Write a TOML value to a file.
-    fn write_config_toml(path: &std::path::Path, config: &toml::Value) -> Result<()> {
-        // toml::Value only holds valid TOML data constructed by weave — serialization cannot fail.
-        let content = toml::to_string(config).expect("toml::Value serialization cannot fail");
-        util::write_file(path, &content)
+    /// Read a `config.toml` as a `DocumentMut` for format-preserving writes.
+    /// Returns an empty document if the file doesn't exist.
+    fn read_config_document(path: &std::path::Path) -> Result<DocumentMut> {
+        if !path.exists() {
+            return Ok(DocumentMut::new());
+        }
+        let content = util::read_file(path)?;
+        content
+            .parse::<DocumentMut>()
+            .map_err(|e| WeaveError::TomlEdit {
+                path: path.to_path_buf(),
+                source: e,
+            })
+    }
+
+    /// Write a `DocumentMut` to disk, preserving comments and formatting.
+    fn write_config_document(path: &std::path::Path, doc: &DocumentMut) -> Result<()> {
+        util::write_file(path, &doc.to_string())
     }
 
     // ── Shared helpers ────────────────────────────────────────────────────────
@@ -182,33 +197,26 @@ impl CodexAdapter {
         pack: &ResolvedPack,
         servers_map: &mut HashMap<String, String>,
     ) -> Result<()> {
-        let mut config = Self::read_config_toml(path)?;
+        let mut doc = Self::read_config_document(path)?;
 
-        let config_table = config
-            .as_table_mut()
-            .ok_or_else(|| WeaveError::ApplyFailed {
-                pack: pack.pack.name.clone(),
-                cli: "Codex CLI".into(),
-                reason: format!(
-                    "{} is not a TOML table — cannot merge MCP servers into it",
-                    path.display()
-                ),
-            })?;
+        // Ensure mcp_servers table exists.
+        if !doc.contains_key("mcp_servers") {
+            doc["mcp_servers"] = toml_edit::Item::Table(toml_edit::Table::new());
+        }
 
-        let mcp_entry = config_table
-            .entry("mcp_servers")
-            .or_insert_with(|| toml::Value::Table(Default::default()));
-
-        let mcp_table = mcp_entry
-            .as_table_mut()
-            .ok_or_else(|| WeaveError::ApplyFailed {
-                pack: pack.pack.name.clone(),
-                cli: "Codex CLI".into(),
-                reason: format!(
-                    "'mcp_servers' in {} is not a TOML table — cannot merge servers into it",
-                    path.display()
-                ),
-            })?;
+        let mcp_table =
+            doc["mcp_servers"]
+                .as_table_mut()
+                .ok_or_else(|| WeaveError::ApplyFailed {
+                    pack: pack.pack.name.clone(),
+                    cli: "Codex CLI".into(),
+                    reason: format!(
+                        "'mcp_servers' in {} is not a TOML table — cannot merge servers into it",
+                        path.display()
+                    ),
+                })?;
+        // Render as [mcp_servers.xxx] headers, not inline.
+        mcp_table.set_implicit(false);
 
         for server in &pack.pack.servers {
             if let Some(owner) = servers_map.get(&server.name) {
@@ -238,18 +246,18 @@ impl CodexAdapter {
                     ),
                 });
             }
-            mcp_table.insert(
-                server.name.clone(),
-                build_codex_server_config(server).map_err(|reason| WeaveError::ApplyFailed {
+            let server_table = build_codex_server_config_edit(server).map_err(|reason| {
+                WeaveError::ApplyFailed {
                     pack: pack.pack.name.clone(),
                     cli: "Codex CLI".into(),
                     reason,
-                })?,
-            );
+                }
+            })?;
+            mcp_table.insert(&server.name, toml_edit::Item::Table(server_table));
             servers_map.insert(server.name.clone(), pack.pack.name.clone());
         }
 
-        Self::write_config_toml(path, &config)
+        Self::write_config_document(path, &doc)
     }
 
     /// Remove pack servers from the TOML file at `path`, updating `servers_map`.
@@ -268,28 +276,20 @@ impl CodexAdapter {
             return Ok(());
         }
 
-        let mut config = Self::read_config_toml(path)?;
-        let config_table = config
-            .as_table_mut()
-            .ok_or_else(|| WeaveError::RemoveFailed {
-                pack: pack_name.to_owned(),
-                cli: "Codex CLI".into(),
-                reason: format!(
-                    "{} is not a TOML table — cannot remove MCP servers from it",
-                    path.display()
-                ),
-            })?;
+        let mut doc = Self::read_config_document(path)?;
 
-        match config_table.get_mut("mcp_servers") {
-            Some(v) => {
-                let mcp = v.as_table_mut().ok_or_else(|| WeaveError::RemoveFailed {
-                    pack: pack_name.to_owned(),
-                    cli: "Codex CLI".into(),
-                    reason: format!(
-                        "{}: `mcp_servers` exists but is not a TOML table",
-                        path.display()
-                    ),
-                })?;
+        match doc.get_mut("mcp_servers") {
+            Some(item) => {
+                let mcp = item
+                    .as_table_mut()
+                    .ok_or_else(|| WeaveError::RemoveFailed {
+                        pack: pack_name.to_owned(),
+                        cli: "Codex CLI".into(),
+                        reason: format!(
+                            "{}: `mcp_servers` exists but is not a TOML table",
+                            path.display()
+                        ),
+                    })?;
                 for server_name in servers_to_remove {
                     mcp.remove(server_name);
                 }
@@ -304,7 +304,7 @@ impl CodexAdapter {
             }
         }
 
-        Self::write_config_toml(path, &config)?;
+        Self::write_config_document(path, &doc)?;
 
         // Only mutate ownership tracking after the file write succeeds — otherwise
         // an I/O error would silently drop entries from the manifest.
@@ -323,7 +323,7 @@ impl CodexAdapter {
         fragment: &toml::Value,
         settings_map: &mut HashMap<String, SettingsRecord>,
     ) -> Result<()> {
-        let mut config = Self::read_config_toml(path)?;
+        let mut doc = Self::read_config_document(path)?;
 
         let frag_table = fragment.as_table().ok_or_else(|| WeaveError::ApplyFailed {
             pack: pack.pack.name.clone(),
@@ -355,24 +355,14 @@ impl CodexAdapter {
             return Ok(());
         }
 
-        let config_table = config
-            .as_table_mut()
-            .ok_or_else(|| WeaveError::ApplyFailed {
-                pack: pack.pack.name.clone(),
-                cli: "Codex CLI".into(),
-                reason: format!(
-                    "{} is not a TOML table — cannot merge settings into it",
-                    path.display()
-                ),
-            })?;
-
-        // Snapshot original values for later removal. Keys absent in the current config
+        // Snapshot original values for later removal. Keys absent in the current doc
         // are stored as JSON null so we can detect "was not present" during removal.
         let mut snap_map = serde_json::Map::new();
         for (key, _) in &sanitised_pairs {
-            let before = config_table
+            let before = doc
                 .get(key)
-                .map(toml_value_to_json)
+                .map(toml_edit_item_to_json)
+                .unwrap_or(Some(serde_json::Value::Null))
                 .unwrap_or(serde_json::Value::Null);
             snap_map.insert(key.clone(), before);
         }
@@ -380,10 +370,10 @@ impl CodexAdapter {
 
         // Merge the fragment (top-level keys only — no deep merge for TOML settings).
         for (key, val) in &sanitised_pairs {
-            config_table.insert(key.clone(), val.clone());
+            doc[key.as_str()] = toml_value_to_edit_item(val);
         }
 
-        Self::write_config_toml(path, &config)?;
+        Self::write_config_document(path, &doc)?;
 
         // Convert applied fragment to JSON for storage in the JSON sidecar.
         let applied_json = toml_table_to_json(&sanitised_pairs.iter().cloned().collect());
@@ -416,7 +406,7 @@ impl CodexAdapter {
             return Ok(());
         }
 
-        let mut config = Self::read_config_toml(path)?;
+        let mut doc = Self::read_config_document(path)?;
 
         let frag_obj = record
             .applied
@@ -430,24 +420,12 @@ impl CodexAdapter {
             })?;
         let frag_obj = frag_obj.clone();
 
-        let config_table = config
-            .as_table_mut()
-            .ok_or_else(|| WeaveError::RemoveFailed {
-                pack: pack_name.to_owned(),
-                cli: "Codex CLI".into(),
-                reason: format!(
-                    "{} is not a TOML table — cannot remove settings from it",
-                    path.display()
-                ),
-            })?;
-
         let orig_obj = record.original.as_object().cloned().unwrap_or_default();
 
         for (key, applied_val) in &frag_obj {
             // Check whether the current value still matches what we wrote. If the user
             // modified it after install, leave it alone and warn — non-destructive mutations.
-            let current = config_table.get(key);
-            let current_json = current.map(toml_value_to_json);
+            let current_json = doc.get(key).and_then(toml_edit_item_to_json);
             if current_json.as_ref() != Some(applied_val) {
                 log::warn!(
                     "settings key '{key}' (from pack '{pack_name}') was modified after install; \
@@ -461,18 +439,13 @@ impl CodexAdapter {
                 .cloned()
                 .unwrap_or(serde_json::Value::Null);
             if pre_json.is_null() {
-                config_table.remove(key);
-            } else if let Some(toml_val) = json_value_to_toml(&pre_json) {
-                config_table.insert(key.clone(), toml_val);
+                doc.remove(key);
             } else {
-                log::warn!(
-                    "settings key '{key}' (from pack '{pack_name}') original value could not be \
-                     restored; leaving it in place — remove manually if desired"
-                );
+                doc[key.as_str()] = json_value_to_edit_item(&pre_json);
             }
         }
 
-        Self::write_config_toml(path, &config)?;
+        Self::write_config_document(path, &doc)?;
         settings_map.remove(pack_name);
         Ok(())
     }
@@ -953,13 +926,18 @@ impl CliAdapter for CodexAdapter {
     }
 }
 
-// ── TOML server config builder ────────────────────────────────────────────────
+// ── TOML server config builder (toml_edit) ────────────────────────────────────
 
-/// Build a Codex CLI MCP server config TOML value.
+/// Build a Codex CLI MCP server config as a `toml_edit::Table` for
+/// format-preserving writes.
 ///
 /// Returns `Err(reason)` if required fields are missing for the chosen transport.
-fn build_codex_server_config(server: &McpServer) -> std::result::Result<toml::Value, String> {
-    let mut table = toml::value::Table::new();
+fn build_codex_server_config_edit(
+    server: &McpServer,
+) -> std::result::Result<toml_edit::Table, String> {
+    let mut table = toml_edit::Table::new();
+    // Render as [header] style, not inline {}.
+    table.set_implicit(false);
 
     match server.transport {
         Some(Transport::Http) => {
@@ -971,13 +949,13 @@ fn build_codex_server_config(server: &McpServer) -> std::result::Result<toml::Va
                     server.name
                 )
             })?;
-            table.insert("url".into(), toml::Value::String(url.to_owned()));
+            table.insert("url", toml_edit::value(url));
             if let Some(headers) = &server.headers {
-                let mut headers_table = toml::value::Table::new();
+                let mut headers_table = toml_edit::Table::new();
                 for (k, v) in headers {
-                    headers_table.insert(k.clone(), toml::Value::String(v.clone()));
+                    headers_table.insert(k, toml_edit::value(v.as_str()));
                 }
-                table.insert("http_headers".into(), toml::Value::Table(headers_table));
+                table.insert("http_headers", toml_edit::Item::Table(headers_table));
             }
         }
         _ => {
@@ -989,36 +967,170 @@ fn build_codex_server_config(server: &McpServer) -> std::result::Result<toml::Va
                     server.name
                 )
             })?;
-            table.insert("command".into(), toml::Value::String(command.to_owned()));
+            table.insert("command", toml_edit::value(command));
 
             if !server.args.is_empty() {
-                table.insert(
-                    "args".into(),
-                    toml::Value::Array(
-                        server
-                            .args
-                            .iter()
-                            .map(|a| toml::Value::String(a.clone()))
-                            .collect(),
-                    ),
-                );
+                let mut arr = toml_edit::Array::new();
+                for a in &server.args {
+                    arr.push(a.as_str());
+                }
+                table.insert("args", toml_edit::value(arr));
             }
         }
     }
 
-    table.insert("enabled".into(), toml::Value::Boolean(true));
+    table.insert("enabled", toml_edit::value(true));
 
     if !server.env.is_empty() {
-        let mut env_table = toml::value::Table::new();
+        let mut env_table = toml_edit::Table::new();
         for key in server.env.keys() {
             // Write "${KEY}" references so the config clearly signals which env
             // vars the user must populate. An actual secret value is never stored.
-            env_table.insert(key.clone(), toml::Value::String(format!("${{{key}}}")));
+            env_table.insert(key, toml_edit::value(format!("${{{key}}}")));
         }
-        table.insert("env".into(), toml::Value::Table(env_table));
+        table.insert("env", toml_edit::Item::Table(env_table));
     }
 
-    Ok(toml::Value::Table(table))
+    Ok(table)
+}
+
+// ── toml_edit / toml / JSON conversion helpers ────────────────────────────────
+
+/// Convert a `toml::Value` to a `toml_edit::Item` for format-preserving writes.
+fn toml_value_to_edit_item(val: &toml::Value) -> toml_edit::Item {
+    match val {
+        toml::Value::String(s) => toml_edit::value(s.as_str()),
+        toml::Value::Integer(i) => toml_edit::value(*i),
+        toml::Value::Float(f) => toml_edit::value(*f),
+        toml::Value::Boolean(b) => toml_edit::value(*b),
+        toml::Value::Array(arr) => {
+            let mut edit_arr = toml_edit::Array::new();
+            for item in arr {
+                match item {
+                    toml::Value::String(s) => edit_arr.push(s.as_str()),
+                    toml::Value::Integer(i) => edit_arr.push(*i),
+                    toml::Value::Float(f) => edit_arr.push(*f),
+                    toml::Value::Boolean(b) => edit_arr.push(*b),
+                    _ => {
+                        // Nested arrays/tables in arrays: fall back to string repr.
+                        // This is rare for settings fragments but handles edge cases.
+                        edit_arr.push(item.to_string().as_str());
+                    }
+                }
+            }
+            toml_edit::value(edit_arr)
+        }
+        toml::Value::Table(tbl) => {
+            let mut edit_table = toml_edit::Table::new();
+            for (k, v) in tbl {
+                edit_table.insert(k, toml_value_to_edit_item(v));
+            }
+            toml_edit::Item::Table(edit_table)
+        }
+        toml::Value::Datetime(dt) => toml_edit::value(dt.to_string()),
+    }
+}
+
+/// Convert a `toml_edit::Item` to a `serde_json::Value` for manifest snapshots.
+/// Returns `None` for `Item::None` (absent keys).
+fn toml_edit_item_to_json(item: &toml_edit::Item) -> Option<serde_json::Value> {
+    match item {
+        toml_edit::Item::None => None,
+        toml_edit::Item::Value(v) => Some(toml_edit_value_to_json(v)),
+        toml_edit::Item::Table(t) => {
+            let mut map = serde_json::Map::new();
+            for (k, v) in t.iter() {
+                if let Some(jv) = toml_edit_item_to_json(v) {
+                    map.insert(k.to_string(), jv);
+                }
+            }
+            Some(serde_json::Value::Object(map))
+        }
+        toml_edit::Item::ArrayOfTables(arr) => {
+            let items: Vec<serde_json::Value> = arr
+                .iter()
+                .map(|t| {
+                    let mut map = serde_json::Map::new();
+                    for (k, v) in t.iter() {
+                        if let Some(jv) = toml_edit_item_to_json(v) {
+                            map.insert(k.to_string(), jv);
+                        }
+                    }
+                    serde_json::Value::Object(map)
+                })
+                .collect();
+            Some(serde_json::Value::Array(items))
+        }
+    }
+}
+
+/// Convert a `toml_edit::Value` to a `serde_json::Value`.
+fn toml_edit_value_to_json(val: &toml_edit::Value) -> serde_json::Value {
+    match val {
+        toml_edit::Value::String(s) => serde_json::Value::String(s.value().clone()),
+        toml_edit::Value::Integer(i) => serde_json::json!(*i.value()),
+        toml_edit::Value::Float(f) => serde_json::json!(*f.value()),
+        toml_edit::Value::Boolean(b) => serde_json::Value::Bool(*b.value()),
+        toml_edit::Value::Datetime(dt) => serde_json::Value::String(dt.value().to_string()),
+        toml_edit::Value::Array(arr) => {
+            let items: Vec<serde_json::Value> = arr.iter().map(toml_edit_value_to_json).collect();
+            serde_json::Value::Array(items)
+        }
+        toml_edit::Value::InlineTable(t) => {
+            let mut map = serde_json::Map::new();
+            for (k, v) in t.iter() {
+                map.insert(k.to_string(), toml_edit_value_to_json(v));
+            }
+            serde_json::Value::Object(map)
+        }
+    }
+}
+
+/// Convert a `serde_json::Value` to a `toml_edit::Item` for restoring originals.
+fn json_value_to_edit_item(val: &serde_json::Value) -> toml_edit::Item {
+    match val {
+        serde_json::Value::Null => toml_edit::Item::None,
+        serde_json::Value::Bool(b) => toml_edit::value(*b),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                toml_edit::value(i)
+            } else if let Some(f) = n.as_f64() {
+                toml_edit::value(f)
+            } else {
+                toml_edit::Item::None
+            }
+        }
+        serde_json::Value::String(s) => toml_edit::value(s.as_str()),
+        serde_json::Value::Array(arr) => {
+            let mut edit_arr = toml_edit::Array::new();
+            for item in arr {
+                match item {
+                    serde_json::Value::String(s) => edit_arr.push(s.as_str()),
+                    serde_json::Value::Number(n) => {
+                        if let Some(i) = n.as_i64() {
+                            edit_arr.push(i);
+                        } else if let Some(f) = n.as_f64() {
+                            edit_arr.push(f);
+                        }
+                    }
+                    serde_json::Value::Bool(b) => edit_arr.push(*b),
+                    _ => {
+                        // Nested objects/arrays in arrays are not common for settings;
+                        // serialize as string for safety.
+                        edit_arr.push(item.to_string().as_str());
+                    }
+                }
+            }
+            toml_edit::value(edit_arr)
+        }
+        serde_json::Value::Object(obj) => {
+            let mut table = toml_edit::Table::new();
+            for (k, v) in obj {
+                table.insert(k, json_value_to_edit_item(v));
+            }
+            toml_edit::Item::Table(table)
+        }
+    }
 }
 
 // ── Settings helpers ──────────────────────────────────────────────────────────
