@@ -80,9 +80,10 @@ weave list
 **Safe and reversible — your manual config stays untouched:**
 
 ```bash
-weave diagnose      # detect config drift across all CLIs
-weave sync          # fix it — reapply your profile
-weave remove web-dev # clean undo, manual edits survive
+weave install web-dev --dry-run  # preview what would change — no files written
+weave diagnose                   # detect config drift across all CLIs
+weave sync                       # fix it — reapply your profile
+weave remove web-dev             # clean undo, manual edits survive
 ```
 
 **Add community pack sources:**
@@ -191,8 +192,8 @@ weave remove web-dev        # clean undo
 
 | Command | Description |
 |---------|-------------|
-| `weave install <pack>` | Install a pack and apply it to all supported CLIs. Use `--version` to pin (e.g. `^1.0`, `=1.2.0`). Use `--project` to also write to `.mcp.json` in the current directory. Use `--allow-hooks` to apply pack-defined lifecycle hooks. |
-| `weave remove <pack>` | Remove a pack and clean up all config entries it wrote |
+| `weave install <pack>` | Install a pack and apply it to all supported CLIs. Use `--version` to pin (e.g. `^1.0`, `=1.2.0`). Use `--project` to also write to `.mcp.json` in the current directory. Use `--allow-hooks` to apply pack-defined lifecycle hooks. Use `--dry-run` to preview changes without writing. |
+| `weave remove <pack>` | Remove a pack and clean up all config entries it wrote. Use `--dry-run` to preview. |
 | `weave list` | Show installed packs with versions, scope, and target CLIs |
 | `weave search <query>` | Search the pack registry |
 | `weave search --mcp <query>` | Search the official MCP Registry for servers |
@@ -204,8 +205,8 @@ weave remove web-dev        # clean undo
 | `weave profile list` | List all profiles (marks the active one) |
 | `weave profile delete <name>` | Delete a profile |
 | `weave profile add <pack> -p <name>` | Add a pack to a named profile |
-| `weave use [profile]` | Switch to a named profile, or print the active one |
-| `weave sync` | Reapply the active profile to all adapters |
+| `weave use [profile]` | Switch to a named profile, or print the active one. Use `--dry-run` to preview. |
+| `weave sync` | Reapply the active profile to all adapters. Use `--dry-run` to preview. |
 | `weave auth login [--token <TOKEN>]` | Authenticate with the registry (GitHub PAT). Required for publishing; raises rate limits for all commands. Reads from stdin if `--token` is omitted. Set `WEAVE_TOKEN` env var for CI. |
 | `weave auth status` | Show current authentication state (token source and masked value) |
 | `weave auth logout` | Remove stored credentials |
@@ -299,16 +300,18 @@ Packs: 1 installed
 
 See [docs/ROADMAP.md](https://github.com/PackWeave/weave/blob/main/docs/ROADMAP.md) for full milestones.
 
-**v0.4 — first public release:**
-- `weave publish` + `weave auth` — publish and share packs from the CLI
-- Additive hook merge for multi-pack profiles
-- Colorized CLI output, structured error types
-- crates.io publish, Homebrew formula
-
-**v0.5 — ecosystem depth:**
+**v0.5 — security hardening (in progress):**
+- Concurrency lock to prevent simultaneous operations
+- Pack content checksums for integrity verification
+- Rollback on partial adapter apply failure
+- Schema versioning for pack.toml forward compatibility
 - `weave export` — reverse-engineer your existing CLI setup into a shareable pack
-- Skill directories, template placeholders, `--dry-run`
+
+**v0.6 — ecosystem depth:**
+- `weave diff` / `weave doctor` — show changes and verify server health
+- `weave diagnose --fix` — auto-repair config drift
 - Adapter modernization — Claude Code skills format, rules directory
+- Template placeholders, prerequisites section
 
 ---
 
