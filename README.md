@@ -1,11 +1,8 @@
 # Weave
 
-[![Build](https://github.com/PackWeave/weave/actions/workflows/ci.yml/badge.svg)](https://github.com/PackWeave/weave/actions/workflows/ci.yml)
+[![CI](https://github.com/PackWeave/weave/actions/workflows/ci.yml/badge.svg)](https://github.com/PackWeave/weave/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/packweave.svg)](https://crates.io/crates/packweave)
-[![Downloads](https://img.shields.io/crates/d/packweave)](https://crates.io/crates/packweave)
-[![GitHub Release](https://img.shields.io/github/v/release/PackWeave/weave)](https://github.com/PackWeave/weave/releases)
 [![Homebrew](https://img.shields.io/badge/homebrew-PackWeave%2Ftap-FBB040)](https://github.com/PackWeave/homebrew-tap)
-[![cargo-binstall](https://img.shields.io/badge/cargo--binstall-supported-green)](https://github.com/cargo-bins/cargo-binstall)
 [![Registry](https://img.shields.io/badge/registry-browse%20packs-8B5CF6)](https://github.com/PackWeave/registry)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
