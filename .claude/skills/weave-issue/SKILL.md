@@ -1,7 +1,8 @@
 ---
 name: weave-issue
-description: Create a well-formed GitHub issue for the weave project with current work context auto-injected. Pass a title and optional description as arguments.
+description: Create a well-formed GitHub issue for the weave project with all fields populated (labels, type, milestone, assignee, blocked-by relationships). Pass a title and optional description as arguments.
 allowed-tools: Bash, Read, Grep, Glob
+argument-hint: "<title> [--- <description>]"
 ---
 
 ## Context
@@ -12,24 +13,104 @@ allowed-tools: Bash, Read, Grep, Glob
 ### Recent commits
 !`git log --oneline -5`
 
-### Open issues
-!`gh issue list --state open --json number,title --jq '.[] | "#\(.number) \(.title)"' 2>/dev/null | head -10`
+### Open issues (for dedup check)
+!`gh issue list --state open --json number,title --jq '.[] | "#\(.number) \(.title)"' 2>/dev/null | head -20`
+
+### Available milestones
+!`gh api repos/PackWeave/weave/milestones --jq '.[] | "\(.title)"' 2>/dev/null`
+
+### Issue type IDs (for GraphQL)
+!`gh api graphql -f query='{ repository(owner: "PackWeave", name: "weave") { issueTypes(first: 10) { nodes { id name } } } }' --jq '.data.repository.issueTypes.nodes[] | "\(.name) = \(.id)"' 2>/dev/null`
 
 ## Task
 
-Create a GitHub issue using the title and description from `$ARGUMENTS`.
+Create a GitHub issue with **all fields filled**: label, issue type, milestone, assignee, and blocked-by relationships.
 
-Steps:
-1. Parse `$ARGUMENTS`: the first line (or everything before `---`) is the **title**, anything after `---` is the **body/description**. If no separator, use the entire argument as the title.
-2. Determine the GitHub username: `gh api user --jq .login`
-3. Build a well-formed issue body that includes:
-   - The description from `$ARGUMENTS` (if provided)
-   - A **Context** section with: current branch, link to the most relevant recent commit if applicable
-   - Keep it concise — no padding
-4. Create the issue:
-   ```sh
-   gh issue create --title "<title>" --body "<body>" --assignee <username>
-   ```
-5. Print the issue URL.
+### Step 1 — Parse arguments
 
-Do not add labels unless the user specified them. Do not create duplicate issues — check the open issues list above first.
+Parse `$ARGUMENTS`:
+- Everything before `---` (or the entire input if no separator) is the **title**
+- Everything after `---` is the **body/description**
+- If no arguments, ask the user for a title
+
+### Step 2 — Classify the issue
+
+Based on the title prefix and content, determine:
+
+**Issue type** (exactly one):
+- `Bug` — title starts with `fix:` or `fix(`, or describes something broken
+- `Feature` — title starts with `feat:` or `feat(`, or describes new functionality
+- `Task` — title starts with `test:`, `ci:`, `docs:`, `refactor:`, `chore:`, or describes internal work
+
+**Label** (exactly one):
+- `bug` — for Bug type
+- `enhancement` — for Feature and Task types
+- `documentation` — for docs-only issues
+
+### Step 3 — Determine milestone
+
+Ask the user which milestone this belongs to, showing the available milestones from context above. If the user has already specified a milestone in their description, use that. Options:
+- `M6 - 0.5` (security hardening)
+- `M7 - 0.6` (ecosystem depth)
+- `M8 - 0.7` (power features)
+- None (explicitly deferred)
+
+### Step 4 — Check for blockers
+
+Ask: "Does this issue depend on any open issue being completed first?"
+- If yes, collect the blocking issue numbers
+- If the user says no or doesn't specify, skip this step
+
+### Step 5 — Create the issue
+
+```sh
+gh issue create \
+  --title "<title>" \
+  --body "<body>" \
+  --assignee $(gh api user --jq .login) \
+  --label "<label>" \
+  --milestone "<milestone>"  # omit flag entirely if no milestone
+```
+
+Do not create duplicate issues — check the open issues list above first. No "Built with Claude Code" taglines.
+
+### Step 6 — Set issue type
+
+Get the new issue's node ID and set the type:
+
+```sh
+# Get the issue node ID
+NODE_ID=$(gh api graphql -f query='{ repository(owner: "PackWeave", name: "weave") { issue(number: <NUMBER>) { id } } }' --jq '.data.repository.issue.id')
+
+# Set the type (use the type ID from context above)
+gh api graphql -f query='mutation { updateIssue(input: {id: "'$NODE_ID'", issueTypeId: "<TYPE_ID>"}) { issue { number } } }'
+```
+
+### Step 7 — Set blocked-by relationships
+
+If blocking issues were identified in Step 4, for each blocker:
+
+```sh
+# Get the blocker's node ID
+BLOCKER_ID=$(gh api graphql -f query='{ repository(owner: "PackWeave", name: "weave") { issue(number: <BLOCKER_NUMBER>) { id } } }' --jq '.data.repository.issue.id')
+
+# Set the relationship
+gh api graphql -f query='mutation { addBlockedBy(input: {issueId: "'$NODE_ID'", blockingIssueId: "'$BLOCKER_ID'"}) { issue { number } blockingIssue { number } } }'
+```
+
+Also add the `blocked` label if any blockers were set:
+```sh
+gh issue edit <NUMBER> --add-label "blocked"
+```
+
+### Step 8 — Report
+
+Print a summary:
+```
+Created: #<number> <title>
+Type:    <Bug|Feature|Task>
+Label:   <label>
+Milestone: <milestone>
+Blocked by: #X, #Y (if any)
+URL:     <url>
+```
