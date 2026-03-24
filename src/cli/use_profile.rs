@@ -10,7 +10,8 @@ use crate::error::WeaveError;
 
 /// Switch to a named profile, or print the active profile if no name is given.
 /// When `allow_hooks` is true, hooks declared in pack manifests are applied.
-pub fn run(profile_name: Option<&str>, allow_hooks: bool) -> Result<()> {
+/// When `dry_run` is true, preview the profile switch without writing.
+pub fn run(profile_name: Option<&str>, allow_hooks: bool, dry_run: bool) -> Result<()> {
     let mut config = Config::load().context("loading weave config")?;
 
     // If no profile name given, just print the current active profile.
@@ -53,7 +54,47 @@ pub fn run(profile_name: Option<&str>, allow_hooks: bool) -> Result<()> {
         &installed_adapters,
         &apply_options,
         &registry,
+        dry_run,
     )?;
+
+    if dry_run {
+        println!("{}", style::header("Dry run — no changes will be made:"));
+        println!();
+        for remove_result in &result.removed {
+            let adapter_names: Vec<_> = remove_result
+                .removed_adapters
+                .iter()
+                .map(|a| style::target(a.as_str()).to_string())
+                .collect();
+            println!(
+                "  Would remove {} from {}",
+                style::pack_name(remove_result.pack_name.as_str()),
+                adapter_names.join(", ")
+            );
+        }
+        for apply_result in &result.applied {
+            if let Some(err) = &apply_result.load_error {
+                eprintln!("  {}: {err}", style::dim("warning"));
+                continue;
+            }
+            let adapter_names: Vec<_> = apply_result
+                .applied_adapters
+                .iter()
+                .map(|a| style::target(a.as_str()).to_string())
+                .collect();
+            println!(
+                "  Would apply {}@{} to {}",
+                style::pack_name(apply_result.name.as_str()),
+                style::version(apply_result.version.to_string()),
+                adapter_names.join(", ")
+            );
+        }
+        println!(
+            "  Would switch to profile '{}'",
+            style::emphasis(target_name)
+        );
+        return Ok(());
+    }
 
     // Format output for removals
     for remove_result in &result.removed {

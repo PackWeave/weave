@@ -9,7 +9,8 @@ use crate::core::registry::registry_from_config;
 use crate::core::resolver::Resolver;
 
 /// Remove an installed pack.
-pub fn run(pack_name: &str) -> Result<()> {
+/// When `dry_run` is true, preview what would be removed without writing.
+pub fn run(pack_name: &str, dry_run: bool) -> Result<()> {
     // Normalise name: strip a leading '@' so `weave remove @webdev` works.
     let pack_name = pack_name.strip_prefix('@').unwrap_or(pack_name);
 
@@ -22,10 +23,27 @@ pub fn run(pack_name: &str) -> Result<()> {
     let resolver = Resolver::new(&registry);
     let plan = resolver.plan_remove(pack_name, &profile)?;
 
+    let adapters = adapters::installed_adapters();
+
+    if dry_run {
+        println!("{}", style::header("Dry run — no changes will be made:"));
+        println!();
+        for name in &plan.to_remove {
+            let adapter_names: Vec<_> = adapters
+                .iter()
+                .map(|a| style::target(a.name()).to_string())
+                .collect();
+            println!(
+                "  Would remove {} from {}",
+                style::pack_name(name.as_str()),
+                adapter_names.join(", ")
+            );
+        }
+        return Ok(());
+    }
+
     // Load lock file
     let mut lockfile = LockFile::load(&config.active_profile).context("loading lock file")?;
-
-    let adapters = adapters::installed_adapters();
 
     for name in &plan.to_remove {
         println!("  Removing {}...", style::pack_name(name.as_str()));

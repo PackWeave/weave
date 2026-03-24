@@ -138,6 +138,7 @@ pub fn load_or_fetch_pack(
 /// - Verifying the target profile exists
 /// - Checking that the active profile is not already the target
 /// - Printing output and formatting messages
+#[allow(clippy::too_many_arguments)]
 pub fn switch(
     target_name: &str,
     config: &mut Config,
@@ -146,6 +147,7 @@ pub fn switch(
     adapters: &[Box<dyn CliAdapter>],
     options: &ApplyOptions,
     registry: &dyn Registry,
+    dry_run: bool,
 ) -> Result<SwitchResult> {
     let (to_remove, to_add) = compute_diff(current_profile, target_profile);
 
@@ -176,22 +178,31 @@ pub fn switch(
             adapter_errors: vec![],
         };
 
-        for adapter in adapters {
-            match adapter.remove(pack_name) {
-                Ok(warnings) => {
-                    remove_result
-                        .removed_adapters
-                        .push(adapter.name().to_string());
-                    for w in warnings {
+        if dry_run {
+            // In dry-run mode, list all adapters as "would be removed from".
+            for adapter in adapters {
+                remove_result
+                    .removed_adapters
+                    .push(adapter.name().to_string());
+            }
+        } else {
+            for adapter in adapters {
+                match adapter.remove(pack_name) {
+                    Ok(warnings) => {
                         remove_result
-                            .adapter_warnings
-                            .push(format!("{}: {w}", adapter.name()));
+                            .removed_adapters
+                            .push(adapter.name().to_string());
+                        for w in warnings {
+                            remove_result
+                                .adapter_warnings
+                                .push(format!("{}: {w}", adapter.name()));
+                        }
                     }
-                }
-                Err(e) => {
-                    remove_result
-                        .adapter_errors
-                        .push(format!("{}: {e}", adapter.name()));
+                    Err(e) => {
+                        remove_result
+                            .adapter_errors
+                            .push(format!("{}: {e}", adapter.name()));
+                    }
                 }
             }
         }
@@ -226,22 +237,28 @@ pub fn switch(
             }
         };
 
-        let resolved = ResolvedPack {
-            pack,
-            source: installed.source.clone(),
-        };
+        if dry_run {
+            // In dry-run mode, compute target adapters without applying.
+            let target_names = crate::core::install::target_adapters(&pack, adapters);
+            apply_result.applied_adapters = target_names;
+        } else {
+            let resolved = ResolvedPack {
+                pack,
+                source: installed.source.clone(),
+            };
 
-        for adapter in adapters {
-            match adapter.apply(&resolved, options) {
-                Ok(()) => {
-                    apply_result
-                        .applied_adapters
-                        .push(adapter.name().to_string());
-                }
-                Err(e) => {
-                    apply_result
-                        .adapter_errors
-                        .push(format!("{}: {e}", adapter.name()));
+            for adapter in adapters {
+                match adapter.apply(&resolved, options) {
+                    Ok(()) => {
+                        apply_result
+                            .applied_adapters
+                            .push(adapter.name().to_string());
+                    }
+                    Err(e) => {
+                        apply_result
+                            .adapter_errors
+                            .push(format!("{}: {e}", adapter.name()));
+                    }
                 }
             }
         }
@@ -249,9 +266,11 @@ pub fn switch(
         result.applied.push(apply_result);
     }
 
-    // Update the active profile in config
-    config.active_profile = target_name.to_string();
-    config.save()?;
+    // Update the active profile in config (skip in dry-run mode)
+    if !dry_run {
+        config.active_profile = target_name.to_string();
+        config.save()?;
+    }
 
     Ok(result)
 }

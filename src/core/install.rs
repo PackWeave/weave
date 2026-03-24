@@ -17,6 +17,21 @@ use crate::core::resolver::Resolver;
 use crate::core::store::Store;
 use crate::error::{Result, WeaveError};
 
+/// Returns the names of adapters that a pack would target, based on the pack's
+/// `targets` flags and which adapters are installed.
+pub fn target_adapters(pack: &Pack, adapters: &[Box<dyn CliAdapter>]) -> Vec<String> {
+    use crate::adapters::AdapterId;
+    adapters
+        .iter()
+        .filter(|a| match a.id() {
+            AdapterId::ClaudeCode => pack.targets.claude_code,
+            AdapterId::GeminiCli => pack.targets.gemini_cli,
+            AdapterId::CodexCli => pack.targets.codex_cli,
+        })
+        .map(|a| a.name().to_string())
+        .collect()
+}
+
 /// Result of installing a single pack — used for per-pack reporting.
 #[derive(Debug)]
 pub struct PackInstallResult {
@@ -71,6 +86,7 @@ pub fn install_from_registry(
     force: bool,
     options: &ApplyOptions,
     ctx: &mut InstallContext<'_>,
+    dry_run: bool,
 ) -> Result<InstallResult> {
     let resolver = Resolver::new(ctx.registry);
     let plan = resolver.plan_install(pack_name, version_req, ctx.profile)?;
@@ -142,46 +158,62 @@ pub fn install_from_registry(
             },
         };
 
-        // Apply to each installed adapter.
-        let has_hooks = pack.has_hooks();
-        let (applied_adapters, adapter_errors) =
-            apply_to_adapters(&resolved, ctx.adapters, options);
-
         // Check for missing required env vars.
+        let has_hooks = pack.has_hooks();
         let missing_env_vars = check_missing_env_vars(&pack);
 
-        // Record in profile
-        ctx.profile.add_pack(InstalledPack {
-            name: name.clone(),
-            version: version.clone(),
-            source: PackSource::Registry {
-                registry_url: ctx.config.registry_url.clone(),
-            },
-        });
+        if dry_run {
+            // In dry-run mode, compute target adapters but skip apply + state writes.
+            let applied_adapters = target_adapters(&pack, ctx.adapters);
+            results.push(PackInstallResult {
+                name: name.clone(),
+                version: version.clone(),
+                applied_adapters,
+                adapter_errors: vec![],
+                tool_conflicts,
+                missing_env_vars,
+                has_hooks,
+            });
+        } else {
+            // Apply to each installed adapter.
+            let (applied_adapters, adapter_errors) =
+                apply_to_adapters(&resolved, ctx.adapters, options);
 
-        // Record in lock file
-        ctx.lockfile.lock_pack(
-            name,
-            version.clone(),
-            PackSource::Registry {
-                registry_url: ctx.config.registry_url.clone(),
-            },
-        );
+            // Record in profile
+            ctx.profile.add_pack(InstalledPack {
+                name: name.clone(),
+                version: version.clone(),
+                source: PackSource::Registry {
+                    registry_url: ctx.config.registry_url.clone(),
+                },
+            });
 
-        results.push(PackInstallResult {
-            name: name.clone(),
-            version: version.clone(),
-            applied_adapters,
-            adapter_errors,
-            tool_conflicts,
-            missing_env_vars,
-            has_hooks,
-        });
+            // Record in lock file
+            ctx.lockfile.lock_pack(
+                name,
+                version.clone(),
+                PackSource::Registry {
+                    registry_url: ctx.config.registry_url.clone(),
+                },
+            );
+
+            results.push(PackInstallResult {
+                name: name.clone(),
+                version: version.clone(),
+                applied_adapters,
+                adapter_errors,
+                tool_conflicts,
+                missing_env_vars,
+                has_hooks,
+            });
+        }
     }
 
-    // Save state
-    ctx.profile.save()?;
-    ctx.lockfile.save(&ctx.config.active_profile)?;
+    // Save state (skip in dry-run mode)
+    if !dry_run {
+        ctx.profile.save()?;
+        ctx.lockfile.save(&ctx.config.active_profile)?;
+    }
 
     Ok(InstallResult {
         already_satisfied: plan.already_satisfied,
@@ -213,6 +245,7 @@ pub fn install_local(
     force: bool,
     options: &ApplyOptions,
     ctx: &mut InstallContext<'_>,
+    dry_run: bool,
 ) -> Result<LocalInstallResult> {
     let pack = Pack::load(path)?;
 
@@ -278,32 +311,47 @@ pub fn install_local(
     };
 
     let has_hooks = pack.has_hooks();
-    let (applied_adapters, adapter_errors) = apply_to_adapters(&resolved, ctx.adapters, options);
-
     let missing_env_vars = check_missing_env_vars(&pack);
 
-    // Remove old version from profile if upgrading.
-    ctx.profile.remove_pack(name);
-    ctx.profile.add_pack(InstalledPack {
-        name: name.clone(),
-        version: version.clone(),
-        source: local_source.clone(),
-    });
-    ctx.lockfile.lock_pack(name, version.clone(), local_source);
+    if dry_run {
+        let applied_adapters = target_adapters(&pack, ctx.adapters);
+        Ok(LocalInstallResult {
+            name: name.clone(),
+            version: version.clone(),
+            applied_adapters,
+            adapter_errors: vec![],
+            tool_conflicts,
+            missing_env_vars,
+            unresolved_dependencies,
+            has_hooks,
+        })
+    } else {
+        let (applied_adapters, adapter_errors) =
+            apply_to_adapters(&resolved, ctx.adapters, options);
 
-    ctx.profile.save()?;
-    ctx.lockfile.save(&ctx.config.active_profile)?;
+        // Remove old version from profile if upgrading.
+        ctx.profile.remove_pack(name);
+        ctx.profile.add_pack(InstalledPack {
+            name: name.clone(),
+            version: version.clone(),
+            source: local_source.clone(),
+        });
+        ctx.lockfile.lock_pack(name, version.clone(), local_source);
 
-    Ok(LocalInstallResult {
-        name: name.clone(),
-        version: version.clone(),
-        applied_adapters,
-        adapter_errors,
-        tool_conflicts,
-        missing_env_vars,
-        unresolved_dependencies,
-        has_hooks,
-    })
+        ctx.profile.save()?;
+        ctx.lockfile.save(&ctx.config.active_profile)?;
+
+        Ok(LocalInstallResult {
+            name: name.clone(),
+            version: version.clone(),
+            applied_adapters,
+            adapter_errors,
+            tool_conflicts,
+            missing_env_vars,
+            unresolved_dependencies,
+            has_hooks,
+        })
+    }
 }
 
 /// Apply a resolved pack to all given adapters. Returns (successes, errors).
