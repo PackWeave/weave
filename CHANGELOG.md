@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.4](https://github.com/PackWeave/weave/compare/v0.4.3...v0.4.4) (2026-03-24)
+
+
+### Features
+
+* **cli:** add --dry-run flag to install, remove, sync, and use ([#166](https://github.com/PackWeave/weave/issues/166)) ([f4dec45](https://github.com/PackWeave/weave/commit/f4dec452f4878d47418c49ae6c9dbd48acbcf955))
+
+
+### Bug Fixes
+
+* **adapters:** switch Codex adapter to toml_edit for comment preservation ([#227](https://github.com/PackWeave/weave/issues/227)) ([c7ac69d](https://github.com/PackWeave/weave/commit/c7ac69dc04ecff4cd7b6d197283477c69768c5e5))
+* **cli:** make --dry-run truly non-mutating ([#229](https://github.com/PackWeave/weave/issues/229)) ([fd8a991](https://github.com/PackWeave/weave/commit/fd8a991f367c0dd426ac4a491ecd87d4887776db))
+
 ## [0.4.3](https://github.com/PackWeave/weave/compare/v0.4.2...v0.4.3) (2026-03-23)
 
 
