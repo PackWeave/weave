@@ -134,7 +134,9 @@ pub enum WeaveError {
     TapNotFound { name: String },
 
     // Concurrency errors
-    #[error("another weave process is running — if this is unexpected, remove {lock_path}")]
+    #[error(
+        "another weave process is running — wait a moment and retry, or remove {lock_path} if this is unexpected"
+    )]
     LockContention { lock_path: PathBuf },
 
     // Config errors

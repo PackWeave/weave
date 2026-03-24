@@ -292,7 +292,7 @@ fn main() {
             allow_hooks,
             dry_run,
         } => (|| {
-            let _lock = lock()?;
+            let _lock = if !dry_run { Some(lock()?) } else { None };
             cli::install::run(
                 &name,
                 version.as_deref(),
@@ -303,7 +303,7 @@ fn main() {
             )
         })(),
         Commands::Remove { name, dry_run } => (|| {
-            let _lock = lock()?;
+            let _lock = if !dry_run { Some(lock()?) } else { None };
             cli::remove::run(&name, dry_run)
         })(),
         Commands::Update { name } => (|| {
@@ -314,7 +314,7 @@ fn main() {
             allow_hooks,
             dry_run,
         } => (|| {
-            let _lock = lock()?;
+            let _lock = if !dry_run { Some(lock()?) } else { None };
             cli::sync::run(allow_hooks, dry_run)
         })(),
         Commands::Publish { path } => (|| {
@@ -326,7 +326,7 @@ fn main() {
             allow_hooks,
             dry_run,
         } => (|| {
-            let _lock = lock()?;
+            let _lock = if !dry_run { Some(lock()?) } else { None };
             cli::use_profile::run(profile.as_deref(), allow_hooks, dry_run)
         })(),
         Commands::Auth { action } => match action {

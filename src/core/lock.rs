@@ -41,7 +41,12 @@ pub fn acquire() -> Result<WeaveFileLock> {
         util::ensure_dir(parent)?;
     }
 
-    let file = File::create(&path).map_err(|e| WeaveError::io("creating lock file", e))?;
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+        .map_err(|e| WeaveError::io("creating lock file", e))?;
 
     file.try_lock_exclusive()
         .map_err(|_| WeaveError::LockContention { lock_path: path })?;
@@ -88,6 +93,10 @@ mod tests {
         let err = result.unwrap_err();
         assert!(
             err.to_string().contains("another weave process is running"),
+            "unexpected error message: {err}"
+        );
+        assert!(
+            err.to_string().contains("wait a moment and retry"),
             "unexpected error message: {err}"
         );
         drop(_lock1);
