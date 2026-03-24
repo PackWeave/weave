@@ -69,7 +69,7 @@ The milestones below are sequential. Each one produces something usable before t
 
 -----
 
-## Milestone 5 — v0.4 (first public release)
+## Milestone 5 — v0.4 (first public release) ✅
 
 > Pack publishing, error quality, and release infrastructure. Ship a polished, complete product that developers can install, use, author for, and trust.
 
@@ -87,27 +87,46 @@ The milestones below are sequential. Each one produces something usable before t
 ### Library Quality
 
 - [x] Replace `anyhow` with `WeaveError` in CLI/core handlers — required for crates.io consumers (issue #143)
-- [ ] Colorize CLI output (issue #106)
+- [x] Colorize CLI output (issue #106)
 
 ### Release Infrastructure
 
-- [ ] Release Please integration — automated CHANGELOG.md and release PRs (issue #43)
-- [ ] Set up `CARGO_REGISTRY_TOKEN` for crates.io publishing (issue #78)
-- [ ] Manual E2E validation on macOS, including all Claude Code hook events supported by the spec (issue #93)
-- [ ] Cut first public release — GitHub Release with binaries, Homebrew, cargo-binstall (issue #92)
+- [x] Release Please integration — automated CHANGELOG.md and release PRs (issue #43)
+- [x] Set up `CARGO_REGISTRY_TOKEN` for crates.io publishing (issue #78)
+- [x] Manual E2E validation on macOS, including all Claude Code hook events supported by the spec (issue #93)
+- [x] Cut first public release — GitHub Release with binaries, Homebrew, cargo-binstall (issue #92)
 
 -----
 
-## Milestone 6 — v0.5
+## Milestone 6 — v0.5 (security hardening)
 
-> Ecosystem depth: richer authoring tools, adapter modernization, and onboarding improvements. Ships incrementally after the first public release.
+> Harden security boundaries and fix correctness gaps before growing the ecosystem. These items were elevated from the original M6 scope because they affect trust and safety for config files that control AI CLI behavior.
+
+### Security & Correctness
+
+- [ ] `--dry-run` flag on install/sync/remove — preview changes without writing (issue #166)
+- [ ] Concurrency lock to prevent simultaneous weave operations (issue #201)
+- [ ] Pack content checksums in registry for integrity verification (issue #175)
+- [ ] Enforce `min_tool_version` check during pack install (issue #197)
+- [ ] Switch Codex adapter to `toml_edit` to preserve user comments (issue #212)
+
+### Adoption Accelerators
+
+- [ ] `weave export` — reverse-engineer an existing CLI setup into a publishable pack (issue #162)
+- [ ] Passive update check for installed packs (issue #202)
+
+-----
+
+## Milestone 7 — v0.6 (ecosystem depth)
+
+> Richer authoring tools, adapter modernization, and onboarding improvements. Ships incrementally after security hardening.
 
 ### Onboarding & Authoring
 
-- [ ] `weave export` — reverse-engineer an existing CLI setup into a publishable pack (issue #162)
 - [ ] Template placeholder substitution — `${PROJECT_NAME}`, `${PACK_NAME}` in prompt fragments (issue #165)
 - [ ] `[prerequisites]` section in pack.toml — declare system dependency checks with actionable hints (issue #161)
-- [ ] `--dry-run` flag on install/sync/remove — preview changes without writing (issue #166)
+- [ ] `weave diff` — show config changes since last install (issue #213)
+- [ ] `weave doctor` — verify MCP servers are reachable and functional (issue #214)
 
 ### Adapter Modernization
 
@@ -120,16 +139,28 @@ The milestones below are sequential. Each one produces something usable before t
 
 - [ ] Template management for CLI prompt files — CLAUDE.md, AGENTS.md, etc. (issue #50)
 - [ ] Pack-defined health checks in `weave diagnose` (issue #163)
-- [ ] Post-install scripts — `[scripts]` table in pack.toml (issue #167)
-- [ ] Pack content checksums in registry for integrity verification (issue #175)
-- [ ] Auto-update mechanism (issue #51)
+- [ ] `weave config get/set` command (issue #200)
+- [ ] Subagent distribution via packs (issue #198)
 
-### Housekeeping
+### Quality & Testing
 
+- [ ] Golden-file tests for adapter config output (issue #216)
+- [ ] Fuzz testing targets for config parsing (issue #217)
+- [ ] Windows build-check CI job (issue #218)
 - [ ] Use FNV-1a for local pack cache directory hashing (issue #132)
 - [ ] Include source info in `Store::list_cached` return type (issue #134)
 - [ ] Cover `CompositeRegistry` directly instead of mock reimplementation (issue #142)
 - [ ] Decouple `core::use_profile` from `GitHubRegistry` (issue #144)
+
+-----
+
+## Milestone 8 — v0.7 (power features)
+
+> Higher-risk features that expand the attack surface. Each requires careful security design before implementation.
+
+- [ ] Post-install scripts — `[scripts]` table in pack.toml (issue #167). Requires explicit `--allow-scripts` flag, sandboxing design, and restricted action set. See security analysis for design constraints.
+- [ ] Auto-update mechanism (issue #51). Must be opt-in per pack, show diff of changes, require confirmation. Passive update check (#202) should ship first.
+- [ ] Registry namespace scoping — `@scope/pack-name` format (issue #215). Protocol-level change; design before the registry has many consumers.
 
 -----
 
