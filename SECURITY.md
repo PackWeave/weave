@@ -26,6 +26,6 @@ weave is a local CLI tool. Its attack surface includes:
 
 ## Out of scope
 
-- Vulnerabilities requiring a malicious pack to already be installed by a trusted user
+- Social engineering attacks where a user knowingly installs a pack they were explicitly warned about (e.g. dismissed hook consent prompts)
 - Issues in third-party MCP servers referenced by packs (report to the server's maintainer)
 - Prompt injection attacks that do not bypass weave's own security boundaries
