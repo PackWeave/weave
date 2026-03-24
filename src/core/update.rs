@@ -197,6 +197,10 @@ pub fn update_packs(
 
             // Update does not apply hooks by default — the user must pass
             // --allow-hooks on a fresh install or sync to opt in.
+            // TODO(#221): update rollback should restore the previous version, not remove entirely.
+            // Currently, if one adapter fails during update, apply_to_adapters rolls back by
+            // calling remove() — which removes the pack entirely rather than restoring the
+            // previously-installed version. This is a known limitation.
             let apply_options = ApplyOptions::default();
             let (applied_adapters, adapter_errors) =
                 apply_to_adapters(&resolved, adapters, &apply_options);

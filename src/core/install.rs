@@ -459,7 +459,7 @@ pub fn apply_to_adapters(
                     match successful_adapter.remove(&resolved.pack.name) {
                         Ok(_warnings) => {
                             errors.push(format!(
-                                "{name}: applied then rolled back due to {failed_name} failure"
+                                "{name}: rolled back (was applied before {failed_name} failed)"
                             ));
                         }
                         Err(rollback_err) => {
