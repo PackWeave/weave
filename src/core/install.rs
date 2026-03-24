@@ -231,7 +231,8 @@ pub fn install_from_registry(
 
             // Only record in profile/lockfile if at least one adapter succeeded
             // (empty applied_adapters + errors means rollback occurred).
-            if !applied_adapters.is_empty() || adapter_errors.is_empty() {
+            let rollback_occurred = applied_adapters.is_empty() && !adapter_errors.is_empty();
+            if !rollback_occurred {
                 // Record in profile
                 ctx.profile.add_pack(InstalledPack {
                     name: name.clone(),
@@ -407,7 +408,8 @@ pub fn install_local(
     let (applied_adapters, adapter_errors) = apply_to_adapters(&resolved, ctx.adapters, options);
 
     // Only record and save if adapters didn't all roll back.
-    if !applied_adapters.is_empty() || adapter_errors.is_empty() {
+    let rollback_occurred = applied_adapters.is_empty() && !adapter_errors.is_empty();
+    if !rollback_occurred {
         // Remove old version from profile if upgrading.
         ctx.profile.remove_pack(name);
         ctx.profile.add_pack(InstalledPack {
@@ -466,7 +468,7 @@ pub fn apply_to_adapters(
                                 resolved.pack.name
                             );
                             errors.push(format!(
-                                "{name}: applied then rollback failed ({rollback_err})"
+                                "{name}: applied then rollback failed ({rollback_err}) — run `weave sync` to repair"
                             ));
                         }
                     }
