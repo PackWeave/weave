@@ -153,6 +153,7 @@ This project has Claude Code skills that encode the standard development workflo
 - **`/rust-pre-commit`** — runs `cargo fmt --all`, `cargo clippy -- -D warnings`, and `cargo test` in order. Use this to verify the working tree is CI-ready before committing.
 - **`/check-pr-review [PR number]`** — fetches all inline code comments, review verdicts (APPROVED/CHANGES_REQUESTED), and conversation threads on a PR. Classifies each as stale/valid/deferred/skip, fixes valid ones in-place, and creates GitHub issues for deferred ones. PR number is optional — auto-detected from the current branch.
 - **`/weave-issue <title> [--- description]`** — creates a GitHub issue with all fields filled: label, issue type (Bug/Feature/Task), milestone, assignee, and blocked-by relationships. **Always use this skill when creating issues — never use raw `gh issue create`.**
+- **`/review-prs [PR numbers] [--rounds N]`** — runs 4 parallel persona-based code reviews (Product Owner, Senior Rust Engineer, Security Auditor, Documentation Specialist) on the specified PRs. Defaults to all open PRs by the current user, 2 rounds. Use after creating PRs and before requesting human review.
 - **`/weave-e2e [flow]`** — runs the manual E2E validation checklist against real CLI installations (`~/.claude.json`, `~/.gemini/settings.json`, `~/.codex/config.toml`). This is the gate before shipping features that touch adapters. Run the full suite or target a single flow (`install`, `profiles`, `search`, `remove`, `diagnose`, `local`, `cleanup`).
 
 Two hooks enforce workflow automatically:
