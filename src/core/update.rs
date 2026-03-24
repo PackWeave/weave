@@ -197,33 +197,40 @@ pub fn update_packs(
 
             // Update does not apply hooks by default — the user must pass
             // --allow-hooks on a fresh install or sync to opt in.
+            // TODO(#221): update rollback should restore the previous version, not remove entirely.
+            // Currently, if one adapter fails during update, apply_to_adapters rolls back by
+            // calling remove() — which removes the pack entirely rather than restoring the
+            // previously-installed version. This is a known limitation.
             let apply_options = ApplyOptions::default();
             let (applied_adapters, adapter_errors) =
                 apply_to_adapters(&resolved, adapters, &apply_options);
 
             let missing_env_vars = check_missing_env_vars(&pack);
 
-            // Record in profile
-            profile.add_pack(InstalledPack {
-                name: resolved_name.clone(),
-                version: version.clone(),
-                source: PackSource::Registry {
-                    registry_url: config.registry_url.clone(),
-                },
-            });
+            // Only record in profile/lockfile if at least one adapter succeeded
+            // (empty applied_adapters + errors means rollback occurred).
+            let rollback_occurred = applied_adapters.is_empty() && !adapter_errors.is_empty();
+            if !rollback_occurred {
+                // Record in profile
+                profile.add_pack(InstalledPack {
+                    name: resolved_name.clone(),
+                    version: version.clone(),
+                    source: PackSource::Registry {
+                        registry_url: config.registry_url.clone(),
+                    },
+                });
 
-            // Record in lock file
-            lockfile.lock_pack(
-                resolved_name,
-                version.clone(),
-                PackSource::Registry {
-                    registry_url: config.registry_url.clone(),
-                },
-            );
+                // Record in lock file
+                lockfile.lock_pack(
+                    resolved_name,
+                    version.clone(),
+                    PackSource::Registry {
+                        registry_url: config.registry_url.clone(),
+                    },
+                );
 
-            // Mark updated regardless of adapter errors — profile/lockfile state
-            // has already been mutated and the store has the new version.
-            result.any_updated = true;
+                result.any_updated = true;
+            }
 
             result.updated.push(PackUpdateResult {
                 name: resolved_name.clone(),
