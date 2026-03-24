@@ -277,7 +277,7 @@ fn main() {
     let cli = Cli::from_arg_matches(&cli).expect("clap arg mismatch");
 
     let result = match cli.command {
-        // Read-only commands — no lock needed.
+        // Commands that don't mutate the packweave store — no lock needed.
         Commands::Init { name } => cli::init::run(name.as_deref()),
         Commands::List => cli::list::run(),
         Commands::Search { query, target, mcp } => cli::search::run(&query, target.as_deref(), mcp),
@@ -326,7 +326,11 @@ fn main() {
             allow_hooks,
             dry_run,
         } => (|| {
-            let _lock = if !dry_run { Some(lock()?) } else { None };
+            let _lock = if profile.is_some() && !dry_run {
+                Some(lock()?)
+            } else {
+                None
+            };
             cli::use_profile::run(profile.as_deref(), allow_hooks, dry_run)
         })(),
         Commands::Auth { action } => match action {

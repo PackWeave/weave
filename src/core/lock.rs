@@ -28,6 +28,23 @@ fn lock_path() -> Result<PathBuf> {
     Ok(util::packweave_dir()?.join(".lock"))
 }
 
+/// Returns `true` if the I/O error indicates another process holds the lock.
+///
+/// On Unix this is `ErrorKind::WouldBlock`; on Windows the OS returns
+/// `ERROR_LOCK_VIOLATION` (raw error 33) which the standard library does not
+/// map to `WouldBlock`, so we check the raw code explicitly.
+fn is_lock_contention(e: &std::io::Error) -> bool {
+    if e.kind() == std::io::ErrorKind::WouldBlock {
+        return true;
+    }
+    // Windows: ERROR_LOCK_VIOLATION = 33
+    #[cfg(windows)]
+    if e.raw_os_error() == Some(33) {
+        return true;
+    }
+    false
+}
+
 /// Acquire an exclusive advisory lock for mutating weave operations.
 ///
 /// Returns a [`WeaveFileLock`] guard that releases the lock on drop.
@@ -48,45 +65,58 @@ pub fn acquire() -> Result<WeaveFileLock> {
         .open(&path)
         .map_err(|e| WeaveError::io("creating lock file", e))?;
 
-    file.try_lock_exclusive()
-        .map_err(|_| WeaveError::LockContention { lock_path: path })?;
-
-    Ok(WeaveFileLock { _file: file })
+    match file.try_lock_exclusive() {
+        Ok(()) => Ok(WeaveFileLock { _file: file }),
+        Err(e) if is_lock_contention(&e) => Err(WeaveError::LockContention { lock_path: path }),
+        Err(e) => Err(WeaveError::io("acquiring lock file", e)),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serial_test::serial;
-    use std::env;
 
-    /// Helper: set `WEAVE_TEST_STORE_DIR` to a temp directory and return it.
-    fn setup_test_store() -> tempfile::TempDir {
-        let tmp = tempfile::tempdir().expect("create temp dir");
-        // SAFETY: test helper, serial execution via #[serial]
-        unsafe { env::set_var("WEAVE_TEST_STORE_DIR", tmp.path()) };
-        tmp
+    /// RAII guard that sets an env var on creation and restores it on drop,
+    /// even if the test panics.
+    struct EnvGuard {
+        key: &'static str,
+        prev: Option<String>,
     }
 
-    fn teardown_test_store() {
-        // SAFETY: test helper, serial execution via #[serial]
-        unsafe { env::remove_var("WEAVE_TEST_STORE_DIR") };
+    impl EnvGuard {
+        fn set(key: &'static str, value: &std::path::Path) -> Self {
+            let prev = std::env::var(key).ok();
+            // SAFETY: test helper, serial execution via #[serial]
+            unsafe { std::env::set_var(key, value) };
+            Self { key, prev }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            // SAFETY: restoring env on drop in test
+            match &self.prev {
+                Some(v) => unsafe { std::env::set_var(self.key, v) },
+                None => unsafe { std::env::remove_var(self.key) },
+            }
+        }
     }
 
     #[test]
     #[serial]
     fn lock_file_is_created_in_store_directory() {
-        let tmp = setup_test_store();
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let _guard = EnvGuard::set("WEAVE_TEST_STORE_DIR", tmp.path());
         let _lock = acquire().expect("acquire lock");
         assert!(tmp.path().join(".lock").exists());
-        drop(_lock);
-        teardown_test_store();
     }
 
     #[test]
     #[serial]
     fn second_lock_fails_with_contention() {
-        let _tmp = setup_test_store();
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let _guard = EnvGuard::set("WEAVE_TEST_STORE_DIR", tmp.path());
         let _lock1 = acquire().expect("first acquire");
         let result = acquire();
         assert!(result.is_err());
@@ -99,21 +129,18 @@ mod tests {
             err.to_string().contains("wait a moment and retry"),
             "unexpected error message: {err}"
         );
-        drop(_lock1);
-        teardown_test_store();
     }
 
     #[test]
     #[serial]
     fn lock_released_on_drop() {
-        let _tmp = setup_test_store();
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let _guard = EnvGuard::set("WEAVE_TEST_STORE_DIR", tmp.path());
         {
             let _lock = acquire().expect("acquire lock");
             // lock held here
         }
         // After drop, we should be able to acquire again.
         let _lock2 = acquire().expect("re-acquire after drop");
-        drop(_lock2);
-        teardown_test_store();
     }
 }
