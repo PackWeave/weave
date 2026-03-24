@@ -416,6 +416,43 @@ mod tests {
 
     /// A mock registry that panics on any call — used to verify that
     /// `load_or_fetch_pack` never reaches the registry for non-registry sources.
+    /// Mock adapter that panics on apply/remove — used to verify dry-run
+    /// never calls mutating adapter methods.
+    struct PanicAdapter {
+        adapter_name: &'static str,
+    }
+
+    impl CliAdapter for PanicAdapter {
+        fn id(&self) -> crate::adapters::AdapterId {
+            crate::adapters::AdapterId::ClaudeCode
+        }
+        fn name(&self) -> &str {
+            self.adapter_name
+        }
+        fn is_installed(&self) -> bool {
+            true
+        }
+        fn config_dir(&self) -> std::path::PathBuf {
+            std::path::PathBuf::from("/tmp/mock")
+        }
+        fn apply(
+            &self,
+            _pack: &crate::core::pack::ResolvedPack,
+            _options: &ApplyOptions,
+        ) -> crate::error::Result<()> {
+            panic!("apply() must not be called during dry-run");
+        }
+        fn remove(&self, _pack_name: &str) -> crate::error::Result<Vec<String>> {
+            panic!("remove() must not be called during dry-run");
+        }
+        fn diagnose(&self) -> crate::error::Result<Vec<crate::adapters::DiagnosticIssue>> {
+            Ok(vec![])
+        }
+        fn tracked_packs(&self) -> crate::error::Result<std::collections::HashSet<String>> {
+            Ok(std::collections::HashSet::new())
+        }
+    }
+
     struct MockRegistry;
 
     impl Registry for MockRegistry {
@@ -491,5 +528,62 @@ mod tests {
             err_msg.contains("git"),
             "error should mention 'git' source type, got: {err_msg}"
         );
+    }
+
+    /// Verify that `switch(dry_run=true)` never calls adapter apply/remove
+    /// or registry fetch methods. The mock adapter and registry panic on
+    /// any mutating call, so this test would fail if dry-run leaked.
+    #[test]
+    #[serial_test::serial]
+    fn dry_run_switch_does_not_call_adapters_or_registry() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let _guard = EnvGuard::set("WEAVE_TEST_STORE_DIR", tmp.path());
+
+        let current = make_profile(
+            "current",
+            vec![test_pack("old-pack", "1.0.0")],
+        );
+        let target = make_profile(
+            "target",
+            vec![test_pack("new-pack", "2.0.0")],
+        );
+
+        let adapter: Box<dyn CliAdapter> = Box::new(PanicAdapter {
+            adapter_name: "TestAdapter",
+        });
+        let adapters: Vec<Box<dyn CliAdapter>> = vec![adapter];
+        let registry = MockRegistry;
+        let options = ApplyOptions { allow_hooks: false };
+
+        let mut config = Config {
+            active_profile: "current".to_string(),
+            registry_url: "https://example.com".to_string(),
+            taps: vec![],
+        };
+
+        // This would panic if dry-run called apply(), remove(), or any
+        // registry method — the mocks are set up to panic on those calls.
+        let result = switch(
+            "target",
+            &mut config,
+            &current,
+            &target,
+            &adapters,
+            &options,
+            &registry,
+            true, // dry_run
+        );
+
+        assert!(result.is_ok(), "dry-run switch should succeed");
+        let result = result.unwrap();
+
+        // Verify the diff was computed correctly.
+        assert_eq!(result.removed.len(), 1);
+        assert_eq!(result.removed[0].pack_name, "old-pack");
+        assert_eq!(result.applied.len(), 1);
+        assert_eq!(result.applied[0].name, "new-pack");
+
+        // Config should NOT have been updated (dry-run).
+        assert_eq!(config.active_profile, "current");
     }
 }
