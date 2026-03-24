@@ -3,7 +3,10 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::adapters::{ApplyOptions, CliAdapter, DiagnosticIssue, Severity};
+use crate::adapters::{
+    ApplyOptions, CURRENT_MANIFEST_SCHEMA_VERSION, CliAdapter, DiagnosticIssue, Severity,
+    default_manifest_schema_version,
+};
 use crate::core::pack::{McpServer, ResolvedPack, Transport};
 use crate::core::store::Store;
 use crate::error::{Result, WeaveError};
@@ -20,8 +23,10 @@ struct SettingsRecord {
 }
 
 /// Sidecar manifest tracking what weave wrote to Claude Code config.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct PackweaveManifest {
+    #[serde(default = "default_manifest_schema_version")]
+    schema_version: u32,
     #[serde(default)]
     servers: HashMap<String, String>, // server_name -> pack_name
     #[serde(default)]
@@ -39,6 +44,20 @@ struct PackweaveManifest {
     /// state regardless of the current working directory.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     project_dirs: HashMap<String, Vec<String>>, // pack_name -> [project_root_abs_paths]
+}
+
+impl Default for PackweaveManifest {
+    fn default() -> Self {
+        Self {
+            schema_version: CURRENT_MANIFEST_SCHEMA_VERSION,
+            servers: HashMap::new(),
+            commands: HashMap::new(),
+            prompt_blocks: Vec::new(),
+            settings: HashMap::new(),
+            hooks: Vec::new(),
+            project_dirs: HashMap::new(),
+        }
+    }
 }
 
 pub struct ClaudeCodeAdapter {
@@ -190,7 +209,20 @@ impl ClaudeCodeAdapter {
             return Ok(PackweaveManifest::default());
         }
         let content = util::read_file(&path)?;
-        serde_json::from_str(&content).map_err(|e| WeaveError::Json { path, source: e })
+        let manifest: PackweaveManifest =
+            serde_json::from_str(&content).map_err(|e| WeaveError::Json {
+                path: path.clone(),
+                source: e,
+            })?;
+        if manifest.schema_version > CURRENT_MANIFEST_SCHEMA_VERSION {
+            return Err(WeaveError::SchemaVersionTooNew {
+                file_kind: "sidecar manifest",
+                path,
+                found: manifest.schema_version,
+                supported: CURRENT_MANIFEST_SCHEMA_VERSION,
+            });
+        }
+        Ok(manifest)
     }
 
     fn save_manifest(&self, manifest: &PackweaveManifest) -> Result<()> {
@@ -207,7 +239,20 @@ impl ClaudeCodeAdapter {
             return Ok(PackweaveManifest::default());
         }
         let content = util::read_file(&path)?;
-        serde_json::from_str(&content).map_err(|e| WeaveError::Json { path, source: e })
+        let manifest: PackweaveManifest =
+            serde_json::from_str(&content).map_err(|e| WeaveError::Json {
+                path: path.clone(),
+                source: e,
+            })?;
+        if manifest.schema_version > CURRENT_MANIFEST_SCHEMA_VERSION {
+            return Err(WeaveError::SchemaVersionTooNew {
+                file_kind: "sidecar manifest",
+                path,
+                found: manifest.schema_version,
+                supported: CURRENT_MANIFEST_SCHEMA_VERSION,
+            });
+        }
+        Ok(manifest)
     }
 
     fn save_project_manifest(&self, manifest: &PackweaveManifest) -> Result<()> {
@@ -2183,5 +2228,35 @@ mod tests {
             manifest.project_dirs.contains_key("prompt-pack"),
             "project root should be retained when CLAUDE.md has orphaned prompt blocks"
         );
+    }
+
+    #[test]
+    fn reject_manifest_with_future_schema_version() {
+        let dir = TempDir::new().unwrap();
+        let home = dir.path().join("home");
+        std::fs::create_dir_all(home.join(".claude")).unwrap();
+
+        // Write a manifest with a future schema version.
+        let manifest_path = home.join(".claude/.packweave_manifest.json");
+        std::fs::write(
+            &manifest_path,
+            r#"{"schema_version": 99, "servers": {}, "commands": {}}"#,
+        )
+        .unwrap();
+
+        let adapter = test_adapter_with_home(&home);
+        let result = adapter.load_manifest();
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("schema version 99"),
+            "expected 'schema version 99' in error: {msg}"
+        );
+    }
+
+    fn test_adapter_with_home(home: &std::path::Path) -> ClaudeCodeAdapter {
+        let no_project = home.join("no-project");
+        std::fs::create_dir_all(&no_project).unwrap();
+        ClaudeCodeAdapter::with_home_and_project(home.to_path_buf(), no_project)
     }
 }

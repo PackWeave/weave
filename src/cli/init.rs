@@ -44,7 +44,9 @@ fn validate_pack_name(name: &str) -> Result<()> {
 /// Generate the `pack.toml` content for a new pack.
 fn pack_toml_content(name: &str) -> String {
     format!(
-        r#"[pack]
+        r#"schema_version = 1
+
+[pack]
 name = "{name}"
 version = "0.1.0"
 description = "TODO: describe what this pack does"

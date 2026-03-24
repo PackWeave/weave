@@ -10,6 +10,14 @@ use serde::Serialize;
 use crate::core::pack::ResolvedPack;
 use crate::error::Result;
 
+/// Current schema version for adapter sidecar manifest files.
+pub const CURRENT_MANIFEST_SCHEMA_VERSION: u32 = 1;
+
+/// Default schema version for serde deserialization of adapter manifests.
+pub(crate) fn default_manifest_schema_version() -> u32 {
+    1
+}
+
 /// Options passed to [`CliAdapter::apply`] controlling optional behaviours.
 #[derive(Debug, Clone, Default)]
 pub struct ApplyOptions {

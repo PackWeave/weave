@@ -147,6 +147,7 @@ mod tests {
         // Constructing an empty lock file and verifying it has no packs
         // is the unit-testable core of the "sync with nothing locked" path.
         let lockfile = LockFile {
+            schema_version: crate::core::lockfile::CURRENT_LOCKFILE_SCHEMA_VERSION,
             packs: BTreeMap::new(),
         };
         assert!(

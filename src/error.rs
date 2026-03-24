@@ -142,6 +142,17 @@ pub enum WeaveError {
     #[error("tap '{name}' is not registered — run `weave tap list` to see registered taps")]
     TapNotFound { name: String },
 
+    // Schema versioning errors
+    #[error(
+        "{file_kind} at {path} uses schema version {found}, but this version of weave only supports up to version {supported} — please upgrade weave"
+    )]
+    SchemaVersionTooNew {
+        file_kind: &'static str,
+        path: std::path::PathBuf,
+        found: u32,
+        supported: u32,
+    },
+
     // Concurrency errors
     #[error(
         "another weave process is running — wait a moment and retry, or remove {lock_path} if this is unexpected"
