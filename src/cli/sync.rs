@@ -45,12 +45,10 @@ pub fn run(allow_hooks: bool, dry_run: bool) -> Result<()> {
             // Load the pack manifest to check targets, falling back to all adapters.
             let adapter_names: Vec<_> =
                 match Store::load_pack(pack_name, &locked.version, locked.source.as_ref()) {
-                    Ok(pack) => {
-                        crate::core::install::target_adapters(&pack, &adapters)
-                            .into_iter()
-                            .map(|name| style::target(&name).to_string())
-                            .collect()
-                    }
+                    Ok(pack) => crate::core::install::target_adapters(&pack, &adapters)
+                        .into_iter()
+                        .map(|name| style::target(&name).to_string())
+                        .collect(),
                     Err(_) => adapters
                         .iter()
                         .map(|a| style::target(a.name()).to_string())

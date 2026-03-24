@@ -539,14 +539,8 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let _guard = EnvGuard::set("WEAVE_TEST_STORE_DIR", tmp.path());
 
-        let current = make_profile(
-            "current",
-            vec![test_pack("old-pack", "1.0.0")],
-        );
-        let target = make_profile(
-            "target",
-            vec![test_pack("new-pack", "2.0.0")],
-        );
+        let current = make_profile("current", vec![test_pack("old-pack", "1.0.0")]);
+        let target = make_profile("target", vec![test_pack("new-pack", "2.0.0")]);
 
         let adapter: Box<dyn CliAdapter> = Box::new(PanicAdapter {
             adapter_name: "TestAdapter",
@@ -559,6 +553,7 @@ mod tests {
             active_profile: "current".to_string(),
             registry_url: "https://example.com".to_string(),
             taps: vec![],
+            auth_token_path: None,
         };
 
         // This would panic if dry-run called apply(), remove(), or any
