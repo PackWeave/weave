@@ -115,12 +115,14 @@ pub fn install_from_registry(
         if dry_run {
             // In dry-run mode, parse pack.toml directly from registry data
             // without writing to the local store.
-            let pack_toml = release.files.get("pack.toml").ok_or_else(|| {
-                WeaveError::InvalidManifest {
-                    path: std::path::PathBuf::from(format!("{name}/pack.toml")),
-                    reason: "registry release missing pack.toml".to_string(),
-                }
-            })?;
+            let pack_toml =
+                release
+                    .files
+                    .get("pack.toml")
+                    .ok_or_else(|| WeaveError::InvalidManifest {
+                        path: std::path::PathBuf::from(format!("{name}/pack.toml")),
+                        reason: "registry release missing pack.toml".to_string(),
+                    })?;
             let pack = Pack::from_toml(pack_toml, &std::path::PathBuf::from("pack.toml"))?;
 
             let tool_conflicts = if !force {
@@ -382,8 +384,7 @@ pub fn install_local(
     let has_hooks = pack.has_hooks();
     let missing_env_vars = check_missing_env_vars(&pack);
 
-    let (applied_adapters, adapter_errors) =
-        apply_to_adapters(&resolved, ctx.adapters, options);
+    let (applied_adapters, adapter_errors) = apply_to_adapters(&resolved, ctx.adapters, options);
 
     // Remove old version from profile if upgrading.
     ctx.profile.remove_pack(name);

@@ -238,12 +238,14 @@ pub fn switch(
         if dry_run {
             // In dry-run mode, try loading from store without fetching.
             // If the pack is cached, use its targets; otherwise list all adapters.
-            let target_names =
-                match Store::load_pack(&installed.name, &installed.version, Some(&installed.source))
-                {
-                    Ok(pack) => crate::core::install::target_adapters(&pack, adapters),
-                    Err(_) => adapters.iter().map(|a| a.name().to_string()).collect(),
-                };
+            let target_names = match Store::load_pack(
+                &installed.name,
+                &installed.version,
+                Some(&installed.source),
+            ) {
+                Ok(pack) => crate::core::install::target_adapters(&pack, adapters),
+                Err(_) => adapters.iter().map(|a| a.name().to_string()).collect(),
+            };
             apply_result.applied_adapters = target_names;
         } else {
             let pack = match load_or_fetch_pack(
