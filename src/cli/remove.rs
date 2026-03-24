@@ -32,9 +32,11 @@ pub fn run(pack_name: &str, dry_run: bool) -> Result<()> {
             let adapter_names: Vec<_> = adapters
                 .iter()
                 .filter(|a| {
+                    // If we can't read tracked packs, include the adapter
+                    // (over-report rather than under-report in preview).
                     a.tracked_packs()
                         .map(|tracked| tracked.contains(name.as_str()))
-                        .unwrap_or(false)
+                        .unwrap_or(true)
                 })
                 .map(|a| style::target(a.name()).to_string())
                 .collect();
