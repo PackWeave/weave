@@ -127,6 +127,7 @@ The milestones below are sequential. Each one produces something usable before t
 - [ ] `[prerequisites]` section in pack.toml — declare system dependency checks with actionable hints (issue #161)
 - [ ] `weave diff` — show config changes since last install (issue #213)
 - [ ] `weave doctor` — verify MCP servers are reachable and functional (issue #214)
+- [ ] `weave diagnose --fix` — auto-repair detected config drift issues (issue #220)
 
 ### Adapter Modernization
 
