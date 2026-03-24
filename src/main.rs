@@ -56,6 +56,10 @@ enum Commands {
         /// Apply hooks declared by the pack (shell commands that run at lifecycle events)
         #[arg(long)]
         allow_hooks: bool,
+
+        /// Preview changes without writing
+        #[arg(long)]
+        dry_run: bool,
     },
 
     /// List installed packs
@@ -65,6 +69,10 @@ enum Commands {
     Remove {
         /// Pack name to remove
         name: String,
+
+        /// Preview changes without writing
+        #[arg(long)]
+        dry_run: bool,
     },
 
     /// Search for packs in the registry
@@ -98,6 +106,10 @@ enum Commands {
         /// Apply hooks declared by packs (shell commands that run at lifecycle events)
         #[arg(long)]
         allow_hooks: bool,
+
+        /// Preview changes without writing
+        #[arg(long)]
+        dry_run: bool,
     },
 
     /// Check for config drift and project-scope staleness across all adapters
@@ -139,6 +151,10 @@ enum Commands {
         /// Apply hooks declared by packs (shell commands that run at lifecycle events)
         #[arg(long)]
         allow_hooks: bool,
+
+        /// Preview changes without writing
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -263,12 +279,23 @@ fn main() {
             force,
             project,
             allow_hooks,
-        } => cli::install::run(&name, version.as_deref(), force, project, allow_hooks),
+            dry_run,
+        } => cli::install::run(
+            &name,
+            version.as_deref(),
+            force,
+            project,
+            allow_hooks,
+            dry_run,
+        ),
         Commands::List => cli::list::run(),
-        Commands::Remove { name } => cli::remove::run(&name),
+        Commands::Remove { name, dry_run } => cli::remove::run(&name, dry_run),
         Commands::Search { query, target, mcp } => cli::search::run(&query, target.as_deref(), mcp),
         Commands::Update { name } => cli::update::run(name.as_deref()),
-        Commands::Sync { allow_hooks } => cli::sync::run(allow_hooks),
+        Commands::Sync {
+            allow_hooks,
+            dry_run,
+        } => cli::sync::run(allow_hooks, dry_run),
         Commands::Diagnose { json } => cli::diagnose::run(json),
         Commands::Publish { path } => cli::publish::run(path.as_deref()),
         Commands::Auth { action } => match action {
@@ -290,7 +317,8 @@ fn main() {
         Commands::Use {
             profile,
             allow_hooks,
-        } => cli::use_profile::run(profile.as_deref(), allow_hooks),
+            dry_run,
+        } => cli::use_profile::run(profile.as_deref(), allow_hooks, dry_run),
     };
 
     if let Err(err) = result {

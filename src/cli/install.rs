@@ -12,12 +12,14 @@ use crate::core::registry::registry_from_config;
 /// When `force` is true, tool-conflict warnings are suppressed.
 /// When `project` is true, also installs to `.mcp.json` in the current directory.
 /// When `allow_hooks` is true, hooks declared in the pack manifest are applied.
+/// When `dry_run` is true, preview changes without writing to disk.
 pub fn run(
     pack_name: &str,
     version: Option<&str>,
     force: bool,
     project: bool,
     allow_hooks: bool,
+    dry_run: bool,
 ) -> Result<()> {
     // Guard: --project from the home directory would write to ~/.mcp.json, which
     // Claude Code reads globally. Refuse early with a clear error.
@@ -38,7 +40,7 @@ pub fn run(
 
     // Local path install — bypasses the registry entirely.
     if install::is_local_path(pack_name) {
-        return run_local(pack_name, force, project, allow_hooks);
+        return run_local(pack_name, force, project, allow_hooks, dry_run);
     }
 
     // Normalise name: strip a leading '@' so `weave install @webdev` works like
@@ -75,9 +77,73 @@ pub fn run(
         force,
         &apply_options,
         &mut ctx,
+        dry_run,
     )?;
 
-    // Format output
+    if dry_run {
+        print_dry_run_output(&result, allow_hooks);
+    } else {
+        print_install_output(&result, allow_hooks);
+    }
+
+    Ok(())
+}
+
+/// Print dry-run preview output for an install operation.
+fn print_dry_run_output(result: &install::InstallResult, allow_hooks: bool) {
+    println!("{}", style::header("Dry run — no changes will be made:"));
+    println!();
+
+    for name in &result.already_satisfied {
+        println!(
+            "  {} is already installed and up to date",
+            style::pack_name(name.as_str())
+        );
+    }
+
+    for pack_result in &result.installed {
+        print_pack_preview(pack_result, allow_hooks);
+    }
+}
+
+/// Print a preview of a single pack that would be installed.
+fn print_pack_preview(pack_result: &install::PackInstallResult, allow_hooks: bool) {
+    println!(
+        "  Would install {}@{}",
+        style::pack_name(pack_result.name.as_str()),
+        style::version(pack_result.version.to_string())
+    );
+    if !pack_result.applied_adapters.is_empty() {
+        let targets: Vec<_> = pack_result
+            .applied_adapters
+            .iter()
+            .map(|a| style::target(a.as_str()).to_string())
+            .collect();
+        println!("    {}: {}", style::dim("Targets"), targets.join(", "));
+    }
+    for conflict in &pack_result.tool_conflicts {
+        eprintln!("    {}: {conflict}", style::dim("warning"));
+    }
+    if pack_result.has_hooks && !allow_hooks {
+        println!(
+            "    {}: declares hooks (pass --allow-hooks to apply them)",
+            style::dim("Hooks")
+        );
+    }
+    for env_var in &pack_result.missing_env_vars {
+        let status = format!(
+            "{} (required, not set)",
+            style::emphasis(env_var.key.as_str())
+        );
+        eprintln!("    {}: {status}", style::dim("Env var"));
+        if let Some(desc) = &env_var.description {
+            eprintln!("      {}", style::dim(desc.as_str()));
+        }
+    }
+}
+
+/// Print normal install output.
+fn print_install_output(result: &install::InstallResult, allow_hooks: bool) {
     for name in &result.already_satisfied {
         println!(
             "  {} is already installed and up to date",
@@ -129,12 +195,16 @@ pub fn run(
     if !result.installed.is_empty() {
         println!("{}", style::success("Done."));
     }
-
-    Ok(())
 }
 
 /// Install a pack from a local directory path (bypasses the registry).
-fn run_local(raw_path: &str, force: bool, project: bool, allow_hooks: bool) -> Result<()> {
+fn run_local(
+    raw_path: &str,
+    force: bool,
+    project: bool,
+    allow_hooks: bool,
+    dry_run: bool,
+) -> Result<()> {
     let path = install::expand_home(raw_path);
     let path = path
         .canonicalize()
@@ -161,7 +231,52 @@ fn run_local(raw_path: &str, force: bool, project: bool, allow_hooks: bool) -> R
         adapters: &adapters,
     };
 
-    let result = install::install_local(&path, force, &apply_options, &mut ctx)?;
+    let result = install::install_local(&path, force, &apply_options, &mut ctx, dry_run)?;
+
+    if dry_run {
+        println!("{}", style::header("Dry run — no changes will be made:"));
+        println!();
+        println!(
+            "  Would install {}@{} (local)",
+            style::pack_name(result.name.as_str()),
+            style::version(result.version.to_string())
+        );
+        if !result.applied_adapters.is_empty() {
+            let targets: Vec<_> = result
+                .applied_adapters
+                .iter()
+                .map(|a| style::target(a.as_str()).to_string())
+                .collect();
+            println!("    {}: {}", style::dim("Targets"), targets.join(", "));
+        }
+        if !result.unresolved_dependencies.is_empty() {
+            println!(
+                "    {}: {}",
+                style::dim("Dependencies"),
+                result.unresolved_dependencies.join(", ")
+            );
+        }
+        for conflict in &result.tool_conflicts {
+            eprintln!("    {}: {conflict}", style::dim("warning"));
+        }
+        if result.has_hooks && !allow_hooks {
+            println!(
+                "    {}: declares hooks (pass --allow-hooks to apply them)",
+                style::dim("Hooks")
+            );
+        }
+        for env_var in &result.missing_env_vars {
+            let status = format!(
+                "{} (required, not set)",
+                style::emphasis(env_var.key.as_str())
+            );
+            eprintln!("    {}: {status}", style::dim("Env var"));
+            if let Some(desc) = &env_var.description {
+                eprintln!("      {}", style::dim(desc.as_str()));
+            }
+        }
+        return Ok(());
+    }
 
     println!(
         "  Installing {}@{} (local)...",
