@@ -229,23 +229,28 @@ pub fn install_from_registry(
             let (applied_adapters, adapter_errors) =
                 apply_to_adapters(&resolved, ctx.adapters, options);
 
-            // Record in profile
-            ctx.profile.add_pack(InstalledPack {
-                name: name.clone(),
-                version: version.clone(),
-                source: PackSource::Registry {
-                    registry_url: ctx.config.registry_url.clone(),
-                },
-            });
+            // Only record in profile/lockfile if at least one adapter succeeded
+            // (empty applied_adapters + errors means rollback occurred).
+            let rollback_occurred = applied_adapters.is_empty() && !adapter_errors.is_empty();
+            if !rollback_occurred {
+                // Record in profile
+                ctx.profile.add_pack(InstalledPack {
+                    name: name.clone(),
+                    version: version.clone(),
+                    source: PackSource::Registry {
+                        registry_url: ctx.config.registry_url.clone(),
+                    },
+                });
 
-            // Record in lock file
-            ctx.lockfile.lock_pack(
-                name,
-                version.clone(),
-                PackSource::Registry {
-                    registry_url: ctx.config.registry_url.clone(),
-                },
-            );
+                // Record in lock file
+                ctx.lockfile.lock_pack(
+                    name,
+                    version.clone(),
+                    PackSource::Registry {
+                        registry_url: ctx.config.registry_url.clone(),
+                    },
+                );
+            }
 
             results.push(PackInstallResult {
                 name: name.clone(),
@@ -402,17 +407,21 @@ pub fn install_local(
 
     let (applied_adapters, adapter_errors) = apply_to_adapters(&resolved, ctx.adapters, options);
 
-    // Remove old version from profile if upgrading.
-    ctx.profile.remove_pack(name);
-    ctx.profile.add_pack(InstalledPack {
-        name: name.clone(),
-        version: version.clone(),
-        source: local_source.clone(),
-    });
-    ctx.lockfile.lock_pack(name, version.clone(), local_source);
+    // Only record and save if adapters didn't all roll back.
+    let rollback_occurred = applied_adapters.is_empty() && !adapter_errors.is_empty();
+    if !rollback_occurred {
+        // Remove old version from profile if upgrading.
+        ctx.profile.remove_pack(name);
+        ctx.profile.add_pack(InstalledPack {
+            name: name.clone(),
+            version: version.clone(),
+            source: local_source.clone(),
+        });
+        ctx.lockfile.lock_pack(name, version.clone(), local_source);
 
-    ctx.profile.save()?;
-    ctx.lockfile.save(&ctx.config.active_profile)?;
+        ctx.profile.save()?;
+        ctx.lockfile.save(&ctx.config.active_profile)?;
+    }
 
     Ok(LocalInstallResult {
         name: name.clone(),
@@ -427,20 +436,51 @@ pub fn install_local(
 }
 
 /// Apply a resolved pack to all given adapters. Returns (successes, errors).
+///
+/// If any adapter fails, all previously successful adapters are rolled back
+/// by calling `remove()`. In that case, `applied` is returned empty so that
+/// callers know not to record the pack as installed.
 pub fn apply_to_adapters(
     resolved: &ResolvedPack,
     adapters: &[Box<dyn CliAdapter>],
     options: &ApplyOptions,
 ) -> (Vec<String>, Vec<String>) {
-    let mut applied = Vec::new();
+    let mut applied: Vec<(String, &Box<dyn CliAdapter>)> = Vec::new();
     let mut errors = Vec::new();
     for adapter in adapters {
         match adapter.apply(resolved, options) {
-            Ok(()) => applied.push(adapter.name().to_string()),
-            Err(e) => errors.push(format!("{}: {e}", adapter.name())),
+            Ok(()) => applied.push((adapter.name().to_string(), adapter)),
+            Err(e) => {
+                let failed_name = adapter.name().to_string();
+                errors.push(format!("{failed_name}: {e}"));
+
+                // Roll back all previously successful adapters.
+                for (name, successful_adapter) in &applied {
+                    match successful_adapter.remove(&resolved.pack.name) {
+                        Ok(_warnings) => {
+                            errors.push(format!(
+                                "{name}: rolled back (was applied before {failed_name} failed)"
+                            ));
+                        }
+                        Err(rollback_err) => {
+                            log::warn!(
+                                "rollback of {} from {name} failed: {rollback_err}",
+                                resolved.pack.name
+                            );
+                            errors.push(format!(
+                                "{name}: applied then rollback failed ({rollback_err}) — run `weave sync` to repair"
+                            ));
+                        }
+                    }
+                }
+
+                // Return empty applied list — nothing should be recorded.
+                return (vec![], errors);
+            }
         }
     }
-    (applied, errors)
+    let applied_names = applied.into_iter().map(|(name, _)| name).collect();
+    (applied_names, errors)
 }
 
 /// Check for required env vars that are not set in the current environment.
@@ -562,4 +602,182 @@ fn visit_dir(root: &Path, current: &Path, files: &mut HashMap<String, String>) -
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::adapters::{AdapterId, ApplyOptions, CliAdapter, DiagnosticIssue};
+    use crate::core::pack::{Pack, PackSource, PackTargets, ResolvedPack};
+    use std::collections::HashSet;
+    use std::path::PathBuf;
+
+    /// A mock adapter that succeeds on apply.
+    struct SucceedAdapter {
+        adapter_name: &'static str,
+    }
+
+    impl SucceedAdapter {
+        fn new(name: &'static str) -> Self {
+            Self { adapter_name: name }
+        }
+    }
+
+    impl CliAdapter for SucceedAdapter {
+        fn id(&self) -> AdapterId {
+            AdapterId::ClaudeCode
+        }
+        fn name(&self) -> &str {
+            self.adapter_name
+        }
+        fn is_installed(&self) -> bool {
+            true
+        }
+        fn config_dir(&self) -> PathBuf {
+            PathBuf::from("/tmp/mock")
+        }
+        fn apply(&self, _pack: &ResolvedPack, _options: &ApplyOptions) -> crate::error::Result<()> {
+            Ok(())
+        }
+        fn remove(&self, _pack_name: &str) -> crate::error::Result<Vec<String>> {
+            Ok(vec![])
+        }
+        fn diagnose(&self) -> crate::error::Result<Vec<DiagnosticIssue>> {
+            Ok(vec![])
+        }
+        fn tracked_packs(&self) -> crate::error::Result<HashSet<String>> {
+            Ok(HashSet::new())
+        }
+    }
+
+    /// A mock adapter that always fails on apply.
+    struct FailAdapter {
+        adapter_name: &'static str,
+    }
+
+    impl CliAdapter for FailAdapter {
+        fn id(&self) -> AdapterId {
+            AdapterId::GeminiCli
+        }
+        fn name(&self) -> &str {
+            self.adapter_name
+        }
+        fn is_installed(&self) -> bool {
+            true
+        }
+        fn config_dir(&self) -> PathBuf {
+            PathBuf::from("/tmp/mock")
+        }
+        fn apply(&self, _pack: &ResolvedPack, _options: &ApplyOptions) -> crate::error::Result<()> {
+            Err(crate::error::WeaveError::ApplyFailed {
+                pack: "test-pack".to_string(),
+                cli: self.adapter_name.to_string(),
+                reason: "simulated failure".to_string(),
+            })
+        }
+        fn remove(&self, _pack_name: &str) -> crate::error::Result<Vec<String>> {
+            Ok(vec![])
+        }
+        fn diagnose(&self) -> crate::error::Result<Vec<DiagnosticIssue>> {
+            Ok(vec![])
+        }
+        fn tracked_packs(&self) -> crate::error::Result<HashSet<String>> {
+            Ok(HashSet::new())
+        }
+    }
+
+    fn make_resolved_pack() -> ResolvedPack {
+        ResolvedPack {
+            pack: Pack {
+                name: "test-pack".to_string(),
+                version: semver::Version::new(1, 0, 0),
+                description: "A test pack".to_string(),
+                authors: vec![],
+                license: None,
+                repository: None,
+                keywords: vec![],
+                min_tool_version: None,
+                servers: vec![],
+                dependencies: Default::default(),
+                extensions: Default::default(),
+                targets: PackTargets::default(),
+            },
+            source: PackSource::Local {
+                path: "/tmp/test".to_string(),
+            },
+        }
+    }
+
+    #[test]
+    fn apply_to_adapters_all_succeed() {
+        let adapters: Vec<Box<dyn CliAdapter>> = vec![
+            Box::new(SucceedAdapter::new("Adapter A")),
+            Box::new(SucceedAdapter::new("Adapter B")),
+        ];
+        let resolved = make_resolved_pack();
+        let options = ApplyOptions::default();
+
+        let (applied, errors) = apply_to_adapters(&resolved, &adapters, &options);
+
+        assert_eq!(applied, vec!["Adapter A", "Adapter B"]);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn apply_to_adapters_rolls_back_on_partial_failure() {
+        let adapters: Vec<Box<dyn CliAdapter>> = vec![
+            Box::new(SucceedAdapter::new("Claude Code")),
+            Box::new(FailAdapter {
+                adapter_name: "Gemini CLI",
+            }),
+        ];
+        let resolved = make_resolved_pack();
+        let options = ApplyOptions::default();
+
+        let (applied, errors) = apply_to_adapters(&resolved, &adapters, &options);
+
+        // applied should be empty because rollback occurred
+        assert!(
+            applied.is_empty(),
+            "expected empty applied list after rollback, got: {applied:?}"
+        );
+
+        // Should have errors: one for the failure, one for the rollback
+        assert!(
+            errors.len() >= 2,
+            "expected at least 2 errors (failure + rollback), got: {errors:?}"
+        );
+
+        // The first error should be from the failing adapter
+        assert!(
+            errors[0].contains("Gemini CLI"),
+            "first error should mention failing adapter: {errors:?}"
+        );
+
+        // The second error should mention the rollback
+        assert!(
+            errors[1].contains("rolled back"),
+            "second error should mention rollback: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn apply_to_adapters_returns_empty_on_first_adapter_failure() {
+        let adapters: Vec<Box<dyn CliAdapter>> = vec![
+            Box::new(FailAdapter {
+                adapter_name: "Gemini CLI",
+            }),
+            Box::new(SucceedAdapter::new("Claude Code")),
+        ];
+        let resolved = make_resolved_pack();
+        let options = ApplyOptions::default();
+
+        let (applied, errors) = apply_to_adapters(&resolved, &adapters, &options);
+
+        // applied should be empty — the first adapter failed before any succeeded
+        assert!(applied.is_empty());
+        // Only one error — the failure itself, no rollbacks needed
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].contains("Gemini CLI"));
+    }
 }
