@@ -27,7 +27,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: googleapis/release-please-action@v4
+        id: release
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
           token: ${{ secrets.RELEASE_TOKEN }}
+
+      # Keep the release PR branch in sync with main even when a push
+      # contains only non-releasable commits (docs:, test:, ci:, etc.).
+      # Release Please only force-pushes its branch when the changelog
+      # changes, leaving the PR BEHIND main otherwise.
+      - name: Sync release PR branch with main
+        if: steps.release.outputs.releases_created != 'true' && steps.release.outputs.prs_created != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          PR=$(gh pr list --repo "${{ github.repository }}" --label "autorelease: pending" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$PR" ]; then
+            gh api repos/${{ github.repository }}/pulls/"$PR"/update-branch \
+              --method PUT -f update_method="rebase" || \
+              echo "::warning::Failed to sync release PR #$PR branch with main"
+          fi
