@@ -142,6 +142,12 @@ pub enum WeaveError {
     #[error("tap '{name}' is not registered — run `weave tap list` to see registered taps")]
     TapNotFound { name: String },
 
+    // Concurrency errors
+    #[error(
+        "another weave process is running — wait a moment and retry, or remove {lock_path} if this is unexpected"
+    )]
+    LockContention { lock_path: PathBuf },
+
     // Config errors
     #[error("could not determine home directory — set the HOME environment variable")]
     NoHomeDir,

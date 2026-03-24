@@ -26,6 +26,9 @@ This document describes the internal design of weave. It is intended for contrib
 weave install @webdev
        │
        ▼
+  Lock                     ← acquires ~/.packweave/.lock (prevents concurrent mutations)
+       │
+       ▼
   Registry client          ← fetches pack metadata + inline file content
        │
        ▼
@@ -93,6 +96,7 @@ src/
     conflict.rs            Tool-level conflict detection across installed packs.
     install.rs             Install orchestration (registry + local).
     lockfile.rs            Lock file: read/write, version pinning.
+    lock.rs                Advisory file lock for concurrency safety.
     mcp_registry.rs        Upstream MCP Registry client (weave search --mcp).
     pack.rs                Pack manifest: parsing, validation, the Pack struct.
     profile.rs             Profile: read/write, active profile tracking.
@@ -540,6 +544,7 @@ no SHA256 ceremony.
 |`~/.packweave/credentials`          |Registry auth token (written by `weave auth login`, 0o600)|
 |`~/.packweave/profiles/<n>.toml`     |Installed pack list for a profile                 |
 |`~/.packweave/locks/<n>.lock`        |Pinned exact versions for a profile               |
+|`~/.packweave/.lock`                |Advisory file lock preventing concurrent mutations |
 |`~/.packweave/packs/<name>/<ver>/`   |Inline pack file contents written on install      |
 |`~/.claude/.packweave_manifest.json` |Tracks what weave wrote in Claude Code config     |
 |`~/.gemini/.packweave_manifest.json` |Tracks what weave wrote in Gemini CLI config      |
