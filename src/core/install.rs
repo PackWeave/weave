@@ -116,10 +116,12 @@ pub fn install_from_registry(
             // In dry-run mode, parse pack.toml directly from registry data
             // without writing to the local store.
             let pack_toml = release.files.get("pack.toml").ok_or_else(|| {
-                WeaveError::PackLoad(format!("{name}: registry release missing pack.toml"))
+                WeaveError::InvalidManifest {
+                    path: std::path::PathBuf::from(format!("{name}/pack.toml")),
+                    reason: "registry release missing pack.toml".to_string(),
+                }
             })?;
-            let pack =
-                Pack::from_toml(pack_toml, &std::path::PathBuf::from(format!("{name}/pack.toml")))?;
+            let pack = Pack::from_toml(pack_toml, &std::path::PathBuf::from("pack.toml"))?;
 
             let tool_conflicts = if !force {
                 conflict::check_tool_conflicts(&pack, &installed_packs)

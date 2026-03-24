@@ -235,28 +235,34 @@ pub fn switch(
             load_error: None,
         };
 
-        let pack = match load_or_fetch_pack(
-            &installed.name,
-            &installed.version,
-            &installed.source,
-            registry,
-        ) {
-            Ok(p) => p,
-            Err(e) => {
-                apply_result.load_error = Some(format!(
-                    "could not load {}@{}: {e}",
-                    installed.name, installed.version
-                ));
-                result.applied.push(apply_result);
-                continue;
-            }
-        };
-
         if dry_run {
-            // In dry-run mode, compute target adapters without applying.
-            let target_names = crate::core::install::target_adapters(&pack, adapters);
+            // In dry-run mode, try loading from store without fetching.
+            // If the pack is cached, use its targets; otherwise list all adapters.
+            let target_names =
+                match Store::load_pack(&installed.name, &installed.version, Some(&installed.source))
+                {
+                    Ok(pack) => crate::core::install::target_adapters(&pack, adapters),
+                    Err(_) => adapters.iter().map(|a| a.name().to_string()).collect(),
+                };
             apply_result.applied_adapters = target_names;
         } else {
+            let pack = match load_or_fetch_pack(
+                &installed.name,
+                &installed.version,
+                &installed.source,
+                registry,
+            ) {
+                Ok(p) => p,
+                Err(e) => {
+                    apply_result.load_error = Some(format!(
+                        "could not load {}@{}: {e}",
+                        installed.name, installed.version
+                    ));
+                    result.applied.push(apply_result);
+                    continue;
+                }
+            };
+
             let resolved = ResolvedPack {
                 pack,
                 source: installed.source.clone(),
