@@ -3,6 +3,7 @@
 mod e2e {
     mod cli_auth;
     mod cli_diagnose;
+    mod cli_dry_run;
     mod cli_hooks;
     mod cli_init;
     mod cli_install;

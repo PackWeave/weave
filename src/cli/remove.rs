@@ -31,13 +31,27 @@ pub fn run(pack_name: &str, dry_run: bool) -> Result<()> {
         for name in &plan.to_remove {
             let adapter_names: Vec<_> = adapters
                 .iter()
+                .filter(|a| {
+                    // If we can't read tracked packs, include the adapter
+                    // (over-report rather than under-report in preview).
+                    a.tracked_packs()
+                        .map(|tracked| tracked.contains(name.as_str()))
+                        .unwrap_or(true)
+                })
                 .map(|a| style::target(a.name()).to_string())
                 .collect();
-            println!(
-                "  Would remove {} from {}",
-                style::pack_name(name.as_str()),
-                adapter_names.join(", ")
-            );
+            if adapter_names.is_empty() {
+                println!(
+                    "  Would remove {} from profile and lockfile only",
+                    style::pack_name(name.as_str()),
+                );
+            } else {
+                println!(
+                    "  Would remove {} from {}",
+                    style::pack_name(name.as_str()),
+                    adapter_names.join(", ")
+                );
+            }
         }
         return Ok(());
     }
