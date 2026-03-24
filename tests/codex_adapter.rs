@@ -1165,3 +1165,121 @@ fn diagnose_reports_missing_skill_file() {
         "issue should mention the missing skill file"
     );
 }
+
+// ── Comment preservation tests ────────────────────────────────────────────────
+
+#[test]
+fn apply_preserves_comments_in_config_toml() {
+    let home = TempDir::new().unwrap();
+    setup_codex_home(&home);
+    let adapter = make_adapter(&home);
+
+    // Write a config.toml with comments.
+    let config_path = home.path().join(".codex/config.toml");
+    let initial_content = "# My personal settings\nmodel = \"o4-mini\" # preferred model\n";
+    std::fs::write(&config_path, initial_content).unwrap();
+
+    // Apply a pack with a server.
+    let pack = pack_with_servers("comment-pack", vec![simple_server("comment-server")]);
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
+
+    // Read back and assert comments are preserved.
+    let content = std::fs::read_to_string(&config_path).unwrap();
+    assert!(
+        content.contains("# My personal settings"),
+        "top-level comment should be preserved after apply; got:\n{content}"
+    );
+    assert!(
+        content.contains("# preferred model"),
+        "inline comment should be preserved after apply; got:\n{content}"
+    );
+    // The server should also be written.
+    let config = read_toml(&config_path);
+    assert!(
+        config["mcp_servers"]["comment-server"].is_table(),
+        "server should be written"
+    );
+}
+
+#[test]
+fn remove_preserves_comments_in_config_toml() {
+    let home = TempDir::new().unwrap();
+    setup_codex_home(&home);
+    let adapter = make_adapter(&home);
+
+    // Write a config.toml with comments.
+    let config_path = home.path().join(".codex/config.toml");
+    let initial_content = "# My personal settings\nmodel = \"o4-mini\" # preferred model\n";
+    std::fs::write(&config_path, initial_content).unwrap();
+
+    // Apply then remove a server.
+    let pack = pack_with_servers("rm-comment-pack", vec![simple_server("rm-comment-server")]);
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
+    adapter.remove("rm-comment-pack").unwrap();
+
+    // Read back and assert comments are still present.
+    let content = std::fs::read_to_string(&config_path).unwrap();
+    assert!(
+        content.contains("# My personal settings"),
+        "top-level comment should be preserved after remove; got:\n{content}"
+    );
+    assert!(
+        content.contains("# preferred model"),
+        "inline comment should be preserved after remove; got:\n{content}"
+    );
+    // The server should be gone.
+    let config = read_toml(&config_path);
+    let mcp = config.as_table().unwrap().get("mcp_servers");
+    let server_present = mcp
+        .and_then(|v| v.as_table())
+        .and_then(|t| t.get("rm-comment-server"))
+        .is_some();
+    assert!(!server_present, "server should be removed");
+}
+
+#[test]
+fn apply_preserves_comments_between_existing_sections() {
+    let home = TempDir::new().unwrap();
+    setup_codex_home(&home);
+    let adapter = make_adapter(&home);
+
+    // Write a config with a commented section.
+    let config_path = home.path().join(".codex/config.toml");
+    let initial_content = "\
+# General configuration
+model = \"o4-mini\"
+
+# MCP server configuration
+[mcp_servers]
+
+# My custom server
+[mcp_servers.custom]
+command = \"my-tool\"
+enabled = true
+";
+    std::fs::write(&config_path, initial_content).unwrap();
+
+    // Apply a new server (different name, so no conflict).
+    let pack = pack_with_servers("section-pack", vec![simple_server("new-server")]);
+    adapter.apply(&pack, &ApplyOptions::default()).unwrap();
+
+    let content = std::fs::read_to_string(&config_path).unwrap();
+    assert!(
+        content.contains("# General configuration"),
+        "section comment should be preserved; got:\n{content}"
+    );
+    assert!(
+        content.contains("# My custom server"),
+        "server comment should be preserved; got:\n{content}"
+    );
+    assert!(
+        content.contains("[mcp_servers.custom]"),
+        "existing server section should be preserved; got:\n{content}"
+    );
+    // New server should also exist.
+    let config = read_toml(&config_path);
+    assert!(
+        config["mcp_servers"]["new-server"].is_table(),
+        "new server should be written"
+    );
+}
