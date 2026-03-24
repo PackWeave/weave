@@ -40,6 +40,7 @@ Run the E2E validation checklist from `.claude/skills/weave-e2e/checklist.md`.
 - If `$ARGUMENTS` is `init` → run Flows 1 + 10
 - If `$ARGUMENTS` is `publish` → run Flows 1 + 16
 - If `$ARGUMENTS` is `gap` → run Flows 1 + 17
+- If `$ARGUMENTS` is `dry-run` → run Flows 1 + 18
 - If `$ARGUMENTS` is `cleanup` → run Flow 14 only (safe to run any time)
 
 ## Steps

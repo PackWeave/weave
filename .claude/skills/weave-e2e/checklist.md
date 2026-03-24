@@ -219,6 +219,29 @@ authors = ["e2e-tester"]
 
 ---
 
+## Flow 18: Dry-run preview
+
+**Goal:** Verify `--dry-run` previews changes without modifying any files.
+
+| Step | Command | Expected |
+|------|---------|----------|
+| 18.1 | `weave install --dry-run filesystem` | Exits 0, prints "Dry run — no changes will be made" with pack info |
+| 18.2 | `weave list` | filesystem NOT listed (dry-run did not install) |
+| 18.3 | `cat ~/.claude.json \| jq '.mcpServers \| keys'` | No filesystem server keys added |
+| 18.4 | `weave install filesystem` | Exits 0, actually installs |
+| 18.5 | `weave remove --dry-run filesystem` | Exits 0, prints "Would remove" |
+| 18.6 | `weave list` | filesystem still listed (dry-run did not remove) |
+| 18.7 | `weave sync --dry-run` | Exits 0, prints "Would sync" with pack info |
+| 18.8 | `weave profile create e2e-dry-run-test` | Exits 0 |
+| 18.9 | `weave use --dry-run e2e-dry-run-test` | Exits 0, prints what would change |
+| 18.10 | `weave use` | Still on the original profile (dry-run did not switch) |
+| 18.11 | `weave remove filesystem` | Cleanup |
+| 18.12 | `weave profile delete e2e-dry-run-test` | Cleanup |
+
+**Pass criteria:** All `--dry-run` commands show preview output but leave config files, profiles, lockfiles, and store untouched.
+
+---
+
 ## Flow 11: Community taps
 
 **Goal:** Verify `weave tap add/list/remove` commands work against real GitHub-hosted taps.
@@ -379,6 +402,7 @@ X-Test = "static-value"
 | 14.7 | `weave tap remove PackWeave/example-tap 2>/dev/null \|\| true` | Tap removed |
 | 14.8 | `weave use default` | Switch to default profile |
 | 14.9 | `weave profile delete e2e-validation 2>/dev/null \|\| true` | Profile removed |
+| 14.9b | `weave profile delete e2e-dry-run-test 2>/dev/null \|\| true` | Profile removed |
 | 14.10 | `rm -rf /tmp/weave-e2e-local /tmp/weave-e2e-hooks /tmp/weave-e2e-http` | Temp dirs removed |
 | 14.11 | `rm -f .mcp.json` | Project-scope file removed if present |
 | 14.12 | `weave auth logout 2>/dev/null || true` | Auth credentials removed |
@@ -409,4 +433,5 @@ X-Test = "static-value"
 | 13 — HTTP transport | ✓ / ✗ | |
 | 15 — Authentication | ✓ / ✗ | |
 | 16 — Publish | ✓ / ✗ | |
+| 18 — Dry-run preview | ✓ / ✗ | |
 | 14 — Cleanup | ✓ / ✗ | |
