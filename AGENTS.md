@@ -122,6 +122,7 @@ src/core/             Business logic — no I/O to CLI config files here
   core/pack.rs          Pack manifest parsing + validation
   core/profile.rs       Profile read/write, active profile tracking
   core/lockfile.rs      Lock file read/write, version pinning
+  core/lock.rs          Advisory file lock (prevents concurrent mutations)
   core/resolver.rs      Dependency graph + semver resolution
   core/store.rs         Local pack cache (~/.packweave/packs/)
   core/registry.rs      Registry trait + GitHubRegistry + CompositeRegistry

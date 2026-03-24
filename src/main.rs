@@ -255,6 +255,11 @@ fn pre_parse_color_mode() -> cli::style::ColorMode {
     cli::style::ColorMode::Auto
 }
 
+/// Helper: acquire the advisory file lock, converting the error to `anyhow::Error`.
+fn lock() -> anyhow::Result<core::lock::WeaveFileLock> {
+    Ok(core::lock::acquire()?)
+}
+
 fn main() {
     env_logger::init();
 
@@ -272,7 +277,13 @@ fn main() {
     let cli = Cli::from_arg_matches(&cli).expect("clap arg mismatch");
 
     let result = match cli.command {
+        // Commands that don't mutate the packweave store — no lock needed.
         Commands::Init { name } => cli::init::run(name.as_deref()),
+        Commands::List => cli::list::run(),
+        Commands::Search { query, target, mcp } => cli::search::run(&query, target.as_deref(), mcp),
+        Commands::Diagnose { json } => cli::diagnose::run(json),
+
+        // Mutating commands — acquire advisory lock.
         Commands::Install {
             name,
             version,
@@ -280,45 +291,85 @@ fn main() {
             project,
             allow_hooks,
             dry_run,
-        } => cli::install::run(
-            &name,
-            version.as_deref(),
-            force,
-            project,
-            allow_hooks,
-            dry_run,
-        ),
-        Commands::List => cli::list::run(),
-        Commands::Remove { name, dry_run } => cli::remove::run(&name, dry_run),
-        Commands::Search { query, target, mcp } => cli::search::run(&query, target.as_deref(), mcp),
-        Commands::Update { name } => cli::update::run(name.as_deref()),
+        } => (|| {
+            let _lock = if !dry_run { Some(lock()?) } else { None };
+            cli::install::run(
+                &name,
+                version.as_deref(),
+                force,
+                project,
+                allow_hooks,
+                dry_run,
+            )
+        })(),
+        Commands::Remove { name, dry_run } => (|| {
+            let _lock = if !dry_run { Some(lock()?) } else { None };
+            cli::remove::run(&name, dry_run)
+        })(),
+        Commands::Update { name } => (|| {
+            let _lock = lock()?;
+            cli::update::run(name.as_deref())
+        })(),
         Commands::Sync {
             allow_hooks,
             dry_run,
-        } => cli::sync::run(allow_hooks, dry_run),
-        Commands::Diagnose { json } => cli::diagnose::run(json),
-        Commands::Publish { path } => cli::publish::run(path.as_deref()),
-        Commands::Auth { action } => match action {
-            AuthAction::Login { token } => cli::auth::login(token.as_deref()),
-            AuthAction::Logout => cli::auth::logout(),
-            AuthAction::Status => cli::auth::status(),
-        },
-        Commands::Tap { action } => match action {
-            TapAction::Add { name } => cli::tap::add(&name),
-            TapAction::List => cli::tap::list(),
-            TapAction::Remove { name } => cli::tap::remove(&name),
-        },
-        Commands::Profile { action } => match action {
-            ProfileAction::Create { name } => cli::profile::create(&name),
-            ProfileAction::Delete { name } => cli::profile::delete(&name),
-            ProfileAction::List => cli::profile::list(),
-            ProfileAction::Add { pack, profile } => cli::profile::add_pack(&pack, &profile),
-        },
+        } => (|| {
+            let _lock = if !dry_run { Some(lock()?) } else { None };
+            cli::sync::run(allow_hooks, dry_run)
+        })(),
+        Commands::Publish { path } => (|| {
+            let _lock = lock()?;
+            cli::publish::run(path.as_deref())
+        })(),
         Commands::Use {
             profile,
             allow_hooks,
             dry_run,
-        } => cli::use_profile::run(profile.as_deref(), allow_hooks, dry_run),
+        } => (|| {
+            let _lock = if profile.is_some() && !dry_run {
+                Some(lock()?)
+            } else {
+                None
+            };
+            cli::use_profile::run(profile.as_deref(), allow_hooks, dry_run)
+        })(),
+        Commands::Auth { action } => match action {
+            AuthAction::Login { token } => (|| {
+                let _lock = lock()?;
+                cli::auth::login(token.as_deref())
+            })(),
+            AuthAction::Logout => (|| {
+                let _lock = lock()?;
+                cli::auth::logout()
+            })(),
+            AuthAction::Status => cli::auth::status(),
+        },
+        Commands::Tap { action } => match action {
+            TapAction::Add { name } => (|| {
+                let _lock = lock()?;
+                cli::tap::add(&name)
+            })(),
+            TapAction::List => cli::tap::list(),
+            TapAction::Remove { name } => (|| {
+                let _lock = lock()?;
+                cli::tap::remove(&name)
+            })(),
+        },
+        Commands::Profile { action } => match action {
+            ProfileAction::Create { name } => (|| {
+                let _lock = lock()?;
+                cli::profile::create(&name)
+            })(),
+            ProfileAction::Delete { name } => (|| {
+                let _lock = lock()?;
+                cli::profile::delete(&name)
+            })(),
+            ProfileAction::List => cli::profile::list(),
+            ProfileAction::Add { pack, profile } => (|| {
+                let _lock = lock()?;
+                cli::profile::add_pack(&pack, &profile)
+            })(),
+        },
     };
 
     if let Err(err) = result {
