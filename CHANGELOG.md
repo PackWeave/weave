@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.4.5](https://github.com/PackWeave/weave/compare/v0.4.4...v0.4.5) (2026-03-25)
+
+
+### Features
+
+* **core:** add pack content checksum verification on install and update ([#240](https://github.com/PackWeave/weave/issues/240)) ([07c56db](https://github.com/PackWeave/weave/commit/07c56db2ea21d69d5f8326fccb722eaf6f8f0743))
+* **core:** add schema versioning to pack.toml, manifests, and lockfile ([#237](https://github.com/PackWeave/weave/issues/237)) ([a8cd93b](https://github.com/PackWeave/weave/commit/a8cd93bf959d1cba50cff09da67cc39a6368a03a)), closes [#224](https://github.com/PackWeave/weave/issues/224)
+* **skills:** add /review-prs multi-persona code review skill ([#236](https://github.com/PackWeave/weave/issues/236)) ([5ae35da](https://github.com/PackWeave/weave/commit/5ae35dab3441374c988f263f74af59384b7cf4ce))
+
+
+### Bug Fixes
+
+* **ci:** sync release PR branch on non-releasable commits ([#231](https://github.com/PackWeave/weave/issues/231)) ([d3c742f](https://github.com/PackWeave/weave/commit/d3c742f34e4502b32bb943b1871174df69a4cd50))
+* **core:** add advisory file lock to prevent concurrent mutations ([#235](https://github.com/PackWeave/weave/issues/235)) ([38549e3](https://github.com/PackWeave/weave/commit/38549e3425490d8849e392cd6d4db046d1a5faeb))
+* **core:** enforce min_tool_version check during pack install ([#233](https://github.com/PackWeave/weave/issues/233)) ([765da43](https://github.com/PackWeave/weave/commit/765da43fdfc18a90ddef4df72ba022921feb4d52))
+* **core:** rollback adapter apply on partial failure ([#234](https://github.com/PackWeave/weave/issues/234)) ([741065f](https://github.com/PackWeave/weave/commit/741065fdcac0710d05e52865c204f232fa891dca))
+
 ## [0.4.4](https://github.com/PackWeave/weave/compare/v0.4.3...v0.4.4) (2026-03-24)
 
 
