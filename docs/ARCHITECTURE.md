@@ -560,6 +560,29 @@ Panics are not used for recoverable errors. `unwrap()` and `expect()` are only a
 
 -----
 
+## Schema versioning
+
+Every persisted file format carries a `schema_version` integer field. This enables forward-compatible rejection: if a file was written by a newer weave version with a schema the current build does not understand, weave refuses to load it with a clear "please upgrade" error rather than silently misinterpreting the data.
+
+**Versioned formats:**
+
+| File | Constant | Location |
+|------|----------|----------|
+| `pack.toml` | `CURRENT_PACK_SCHEMA_VERSION` | `core/pack.rs` |
+| Profile lock files (`*.lock`) | `CURRENT_LOCKFILE_SCHEMA_VERSION` | `core/lockfile.rs` |
+| Registry `index.json` | `CURRENT_REGISTRY_SCHEMA_VERSION` | `core/registry.rs` |
+| Registry `packs/{name}.json` | `CURRENT_REGISTRY_SCHEMA_VERSION` | `core/registry.rs` |
+| Adapter tracking files (`.packweave_manifest.json`) | `CURRENT_MANIFEST_SCHEMA_VERSION` | `adapters/mod.rs` |
+
+**Rules:**
+
+1. **Default is 1.** When `schema_version` is absent, serde defaults it to `1`. This provides backward compatibility with files written before versioning was added.
+2. **Reject, never guess.** If `schema_version > CURRENT_*_SCHEMA_VERSION`, the load function returns `WeaveError::SchemaVersionTooNew`. No fallback parsing is attempted.
+3. **Bump the constant, not the code.** When a format change ships, bump the relevant `CURRENT_*` constant. Older clients will reject the new format automatically.
+4. **Registry index supports two shapes.** The `index.json` file accepts both a versioned envelope (`{"schema_version": N, "packs": {…}}`) and the legacy flat format (`{"pack-name": {…}, …}`) for backward compatibility with older registries and taps.
+
+-----
+
 ## Testing strategy
 
 - **Unit tests** live alongside the module they test (`#[cfg(test)]` blocks).

@@ -5,6 +5,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Result, WeaveError};
 
+/// Current schema version for `pack.toml` files.
+pub const CURRENT_PACK_SCHEMA_VERSION: u32 = 1;
+
+/// Serde default for pack manifests that predate schema versioning — always returns 1
+/// (the original schema), not `CURRENT_PACK_SCHEMA_VERSION`. Files that omit
+/// the field were written before versioning existed and are implicitly version 1.
+fn default_schema_version() -> u32 {
+    1
+}
+
 /// The in-memory representation of a parsed `pack.toml`.
 /// A `Pack` that exists is always structurally valid.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -151,6 +161,9 @@ pub enum PackSource {
 /// Canonical nested format: metadata under a `[pack]` section.
 #[derive(Debug, Deserialize)]
 struct PackManifest {
+    /// Pack manifest schema version. Defaults to 1 for files that predate versioning.
+    #[serde(default = "default_schema_version")]
+    schema_version: u32,
     pack: PackMetadataToml,
     #[serde(default)]
     servers: Option<Vec<McpServer>>,
@@ -188,6 +201,15 @@ impl Pack {
             path: path.to_path_buf(),
             source: Box::new(e),
         })?;
+        if manifest.schema_version == 0 || manifest.schema_version > CURRENT_PACK_SCHEMA_VERSION {
+            return Err(WeaveError::SchemaVersionTooNew {
+                file_kind: "pack manifest",
+                path: path.to_path_buf(),
+                found: manifest.schema_version,
+                supported: CURRENT_PACK_SCHEMA_VERSION,
+                current_version: env!("CARGO_PKG_VERSION"),
+            });
+        }
         let pack = Pack {
             name: manifest.pack.name,
             version: manifest.pack.version,
@@ -1041,6 +1063,60 @@ Authorization = "Bearer ${TOKEN}"
             result.is_ok(),
             "Authorization with Bearer ${{TOKEN}} should pass: {:?}",
             result.err()
+        );
+    }
+
+    // ── Schema versioning tests ──────────────────────────────────────
+
+    #[test]
+    fn parse_pack_with_explicit_schema_version_1() {
+        let toml = r#"
+schema_version = 1
+
+[pack]
+name = "test"
+version = "1.0.0"
+description = "Test"
+"#;
+        let result = Pack::from_toml(toml, &PathBuf::from("test.toml"));
+        assert!(result.is_ok(), "explicit schema_version = 1 should work");
+    }
+
+    #[test]
+    fn reject_pack_with_future_schema_version() {
+        let toml = r#"
+schema_version = 99
+
+[pack]
+name = "test"
+version = "1.0.0"
+description = "Test"
+"#;
+        let result = Pack::from_toml(toml, &PathBuf::from("test.toml"));
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("schema version 99"),
+            "expected 'schema version 99' in error: {msg}"
+        );
+        assert!(
+            msg.contains("please upgrade"),
+            "expected 'please upgrade' in error: {msg}"
+        );
+    }
+
+    #[test]
+    fn parse_pack_without_schema_version_defaults_to_1() {
+        let toml = r#"
+[pack]
+name = "test"
+version = "1.0.0"
+description = "Test"
+"#;
+        let result = Pack::from_toml(toml, &PathBuf::from("test.toml"));
+        assert!(
+            result.is_ok(),
+            "missing schema_version should default to 1 and succeed"
         );
     }
 }

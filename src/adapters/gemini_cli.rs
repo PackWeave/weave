@@ -3,7 +3,10 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::adapters::{ApplyOptions, CliAdapter, DiagnosticIssue, Severity};
+use crate::adapters::{
+    ApplyOptions, CURRENT_MANIFEST_SCHEMA_VERSION, CliAdapter, DiagnosticIssue, Severity,
+    default_manifest_schema_version,
+};
 use crate::core::pack::{McpServer, ResolvedPack, Transport};
 use crate::core::store::Store;
 use crate::error::{Result, WeaveError};
@@ -17,14 +20,27 @@ struct SettingsRecord {
 }
 
 /// Sidecar manifest tracking what weave wrote to Gemini CLI config.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct GeminiManifest {
+    #[serde(default = "default_manifest_schema_version")]
+    schema_version: u32,
     #[serde(default)]
     servers: HashMap<String, String>, // server_name -> pack_name
     #[serde(default)]
     prompt_blocks: Vec<String>,
     #[serde(default)]
     settings: HashMap<String, SettingsRecord>, // pack_name -> settings record
+}
+
+impl Default for GeminiManifest {
+    fn default() -> Self {
+        Self {
+            schema_version: CURRENT_MANIFEST_SCHEMA_VERSION,
+            servers: HashMap::new(),
+            prompt_blocks: Vec::new(),
+            settings: HashMap::new(),
+        }
+    }
 }
 
 pub struct GeminiCliAdapter {
@@ -107,7 +123,17 @@ impl GeminiCliAdapter {
             return Ok(GeminiManifest::default());
         }
         let content = util::read_file(&path)?;
-        serde_json::from_str(&content).map_err(|e| WeaveError::Json { path, source: e })
+        let manifest: GeminiManifest =
+            serde_json::from_str(&content).map_err(|e| WeaveError::Json {
+                path: path.clone(),
+                source: e,
+            })?;
+        super::check_manifest_schema_version(
+            manifest.schema_version,
+            "Gemini CLI tracking file",
+            path,
+        )?;
+        Ok(manifest)
     }
 
     fn save_manifest(&self, manifest: &GeminiManifest) -> Result<()> {
@@ -124,7 +150,17 @@ impl GeminiCliAdapter {
             return Ok(GeminiManifest::default());
         }
         let content = util::read_file(&path)?;
-        serde_json::from_str(&content).map_err(|e| WeaveError::Json { path, source: e })
+        let manifest: GeminiManifest =
+            serde_json::from_str(&content).map_err(|e| WeaveError::Json {
+                path: path.clone(),
+                source: e,
+            })?;
+        super::check_manifest_schema_version(
+            manifest.schema_version,
+            "Gemini CLI tracking file",
+            path,
+        )?;
+        Ok(manifest)
     }
 
     fn save_project_manifest(&self, manifest: &GeminiManifest) -> Result<()> {
@@ -1258,6 +1294,27 @@ mod tests {
         assert!(
             content["mcpServers"]["test-server"].get("env").is_none(),
             "env key should not be present when server has no env vars"
+        );
+    }
+
+    #[test]
+    fn reject_manifest_with_future_schema_version() {
+        let dir = TempDir::new().unwrap();
+        let home = dir.path().to_path_buf();
+        std::fs::create_dir_all(home.join(".gemini")).unwrap();
+
+        let manifest_path = home.join(".gemini/.packweave_manifest.json");
+        std::fs::write(&manifest_path, r#"{"schema_version": 99, "servers": {}}"#).unwrap();
+
+        let no_project = home.join("no-project");
+        std::fs::create_dir_all(&no_project).unwrap();
+        let adapter = GeminiCliAdapter::with_home_and_project(home, no_project);
+        let result = adapter.load_manifest();
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("schema version 99"),
+            "expected 'schema version 99' in error: {msg}"
         );
     }
 }

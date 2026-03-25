@@ -7,6 +7,10 @@
 # This is not a functional file — it's documentation.
 # Generate a real pack.toml with: weave init
 
+# Schema version of this file format. Defaults to 1 if omitted.
+# Older weave versions will reject pack.toml files with a version they don't support.
+schema_version = 1
+
 # ─────────────────────────────────────────────
 # [pack] — required
 # Core metadata about the pack.

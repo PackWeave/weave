@@ -43,8 +43,11 @@ fn validate_pack_name(name: &str) -> Result<()> {
 
 /// Generate the `pack.toml` content for a new pack.
 fn pack_toml_content(name: &str) -> String {
+    let sv = crate::core::pack::CURRENT_PACK_SCHEMA_VERSION;
     format!(
-        r#"[pack]
+        r#"schema_version = {sv}
+
+[pack]
 name = "{name}"
 version = "0.1.0"
 description = "TODO: describe what this pack does"

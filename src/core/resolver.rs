@@ -239,6 +239,7 @@ mod tests {
 
     fn pack_meta(name: &str, releases: Vec<PackRelease>) -> PackMetadata {
         PackMetadata {
+            schema_version: crate::core::registry::CURRENT_REGISTRY_SCHEMA_VERSION,
             name: name.into(),
             description: format!("{name} pack"),
             authors: vec![],
