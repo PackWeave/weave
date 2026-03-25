@@ -8,7 +8,7 @@ This document is the authoritative specification for the PackWeave registry prot
 
 The pack registry is a GitHub-hosted repository (`PackWeave/registry`) that serves pack metadata and file content. It is separate from MCP server registries (like the official MCP Registry or Smithery) — weave packs are composable bundles of MCP server configuration, system prompts, slash commands, and settings, not individual MCP server listings.
 
-The registry uses a two-tier sparse index so clients never download more than they need. Pack content is embedded directly in `packs/{name}.json` as a flat map of relative path → file content — no tarballs, no release artifacts, no SHA256 ceremony.
+The registry uses a two-tier sparse index so clients never download more than they need. Pack content is embedded directly in `packs/{name}.json` as a flat map of relative path → file content — no tarballs, no release artifacts. Integrity is verified via SHA-256 checksums embedded in each release entry.
 
 ---
 
@@ -89,13 +89,14 @@ Fetched on demand when installing or resolving a specific pack. Contains all ver
         "pack.toml": "[pack]\nname = \"filesystem\"\n...",
         "prompts/system.md": "# System prompt content...",
         "commands/review.md": "# Review command..."
-      }
+      },
+      "checksum": "sha256:a1b2c3..."
     }
   ]
 }
 ```
 
-`files` is a flat map of relative path → file content. The store writes each entry directly to `~/.packweave/packs/{name}/{version}/` — no tarball download, no SHA256 verification step. Trust is provided by TLS and GitHub as the content host.
+`files` is a flat map of relative path → file content. The store writes each entry directly to `~/.packweave/packs/{name}/{version}/` after verifying the SHA-256 checksum. No tarball download — integrity is ensured by content-addressable checksums.
 
 The client caches this per-pack after the first fetch for the lifetime of the command.
 
@@ -108,9 +109,11 @@ weave install filesystem
         │
         ├─ GET {base}/packs/filesystem.json
         │   ├─ Authorization: Bearer <token>  (if authenticated)
-        │   └─ {versions: [{version, files, dependencies}]}
+        │   └─ {versions: [{version, files, dependencies, checksum}]}
         │
         ├─ resolve: pick version satisfying constraints
+        │
+        ├─ verify SHA-256 checksum of pack content
         │
         ├─ write files from release.files to ~/.packweave/packs/filesystem/0.1.0/
         │   (path-validated: no .., no absolute paths)
@@ -400,7 +403,8 @@ WEAVE_REGISTRY_URL=https://your-registry.example.com weave search mypack
       },
       "files": {
         "<relative-path>": "file content string"
-      }
+      },
+      "checksum": "sha256:<hex-digest>"
     }
   ]
 }

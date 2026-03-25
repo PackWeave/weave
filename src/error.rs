@@ -46,7 +46,8 @@ pub enum WeaveError {
 
     #[error(
         "checksum mismatch for '{pack_name}' v{version} — expected {expected}, got {actual}. \
-         The pack content may have been tampered with or corrupted in transit."
+         The pack content may have been corrupted in transit. \
+         Try running the command again; if this persists, report it to the pack maintainer."
     )]
     ChecksumMismatch {
         pack_name: String,

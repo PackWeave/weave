@@ -127,6 +127,7 @@ src/core/             Business logic — no I/O to CLI config files here
   core/store.rs         Local pack cache (~/.packweave/packs/)
   core/registry.rs      Registry trait + GitHubRegistry + CompositeRegistry
   core/mcp_registry.rs  MCP Registry client (weave search --mcp)
+  core/checksum.rs      SHA-256 pack content integrity verification
   core/conflict.rs      Tool-level conflict detection
   core/install.rs       Install orchestration (registry + local)
   core/update.rs        Update orchestration (version comparison + apply)

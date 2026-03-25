@@ -35,6 +35,9 @@ weave install @webdev
   Resolver                 ← resolves semver, checks conflicts, builds install plan
        │
        ▼
+  Checksum                 ← verifies SHA-256 content integrity before storing
+       │
+       ▼
   Store                    ← writes inline files to ~/.packweave/packs/
        │
        ▼
@@ -93,6 +96,7 @@ src/
     mod.rs                 Module re-exports.
     config.rs              Global weave config (~/.packweave/config.toml).
     credentials.rs         Token storage, retrieval, and validation.
+    checksum.rs            SHA-256 pack content integrity verification.
     conflict.rs            Tool-level conflict detection across installed packs.
     install.rs             Install orchestration (registry + local).
     lockfile.rs            Lock file: read/write, version pinning.
@@ -525,14 +529,15 @@ Each version entry contains a `files` map of relative path → file content:
   },
   "dependencies": {
     "other-pack": "^1.0.0"
-  }
+  },
+  "checksum": "sha256:a1b2c3..."
 }
 ```
 
 The store writes each entry directly to `~/.packweave/packs/{name}/{version}/` after
-path-validating the key (rejects absolute paths, `..` components, Windows drive prefixes).
-Trust is provided by TLS and GitHub as the content host. No tarballs, no release artifacts,
-no SHA256 ceremony.
+path-validating the key (rejects absolute paths, `..` components, Windows drive prefixes)
+and verifying the SHA-256 checksum embedded in the release metadata. No tarballs, no release
+artifacts — integrity is verified via content-addressable checksums.
 
 -----
 
