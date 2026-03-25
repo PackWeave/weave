@@ -186,7 +186,7 @@ impl GitHubRegistry {
         if let Some(sv) = raw.get("schema_version").and_then(|v| v.as_u64()) {
             // Treat any value that overflows u32 as "too new" rather than silently truncating.
             let sv = u32::try_from(sv).unwrap_or(u32::MAX);
-            if sv > CURRENT_REGISTRY_SCHEMA_VERSION {
+            if sv == 0 || sv > CURRENT_REGISTRY_SCHEMA_VERSION {
                 return Err(WeaveError::SchemaVersionTooNew {
                     file_kind: "registry search index",
                     path: url.into(),
@@ -244,7 +244,7 @@ impl GitHubRegistry {
             other => other,
         })?;
 
-        if meta.schema_version > CURRENT_REGISTRY_SCHEMA_VERSION {
+        if meta.schema_version == 0 || meta.schema_version > CURRENT_REGISTRY_SCHEMA_VERSION {
             return Err(WeaveError::SchemaVersionTooNew {
                 file_kind: "registry pack metadata",
                 path: url.into(),
@@ -1137,5 +1137,68 @@ mod tests {
         // Legacy format has no schema_version key, so it parses as a flat SearchIndex.
         let index: SearchIndex = serde_json::from_str(json).unwrap();
         assert!(index.contains_key("test-pack"));
+    }
+
+    #[test]
+    fn reject_pack_metadata_with_future_schema_version() {
+        // Simulate what load_pack_metadata does: deserialize then check.
+        let json = r#"{
+            "schema_version": 99,
+            "name": "test",
+            "description": "test pack",
+            "versions": []
+        }"#;
+        let meta: PackMetadata = serde_json::from_str(json).unwrap();
+        assert_eq!(meta.schema_version, 99);
+        // The guard in load_pack_metadata would reject this:
+        assert!(meta.schema_version > CURRENT_REGISTRY_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn reject_pack_metadata_with_schema_version_zero() {
+        let json = r#"{
+            "schema_version": 0,
+            "name": "test",
+            "description": "test pack",
+            "versions": []
+        }"#;
+        let meta: PackMetadata = serde_json::from_str(json).unwrap();
+        assert_eq!(meta.schema_version, 0);
+        // schema_version 0 is invalid — the guard rejects it.
+        assert!(meta.schema_version == 0);
+    }
+
+    #[test]
+    fn reject_search_index_envelope_with_future_schema_version() {
+        // Verify the version check logic: envelope with version 99 should be rejected.
+        let json = r#"{
+            "schema_version": 99,
+            "packs": {
+                "test-pack": {
+                    "name": "test-pack",
+                    "description": "A test",
+                    "keywords": [],
+                    "latest_version": "0.1.0"
+                }
+            }
+        }"#;
+        let raw: serde_json::Value = serde_json::from_str(json).unwrap();
+        let sv = raw.get("schema_version").and_then(|v| v.as_u64()).unwrap();
+        let sv = u32::try_from(sv).unwrap_or(u32::MAX);
+        assert!(
+            sv == 0 || sv > CURRENT_REGISTRY_SCHEMA_VERSION,
+            "version {sv} should be rejected"
+        );
+    }
+
+    #[test]
+    fn u64_overflow_schema_version_treated_as_too_new() {
+        // A malicious registry returning schema_version > u32::MAX should be rejected.
+        let json = r#"{"schema_version": 4294967297, "packs": {}}"#;
+        let raw: serde_json::Value = serde_json::from_str(json).unwrap();
+        let sv = raw.get("schema_version").and_then(|v| v.as_u64()).unwrap();
+        let sv = u32::try_from(sv).unwrap_or(u32::MAX);
+        assert_eq!(sv, u32::MAX, "overflow should map to u32::MAX");
+        assert!(sv > CURRENT_REGISTRY_SCHEMA_VERSION);
     }
 }

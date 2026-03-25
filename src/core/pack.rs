@@ -201,7 +201,7 @@ impl Pack {
             path: path.to_path_buf(),
             source: Box::new(e),
         })?;
-        if manifest.schema_version > CURRENT_PACK_SCHEMA_VERSION {
+        if manifest.schema_version == 0 || manifest.schema_version > CURRENT_PACK_SCHEMA_VERSION {
             return Err(WeaveError::SchemaVersionTooNew {
                 file_kind: "pack manifest",
                 path: path.to_path_buf(),

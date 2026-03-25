@@ -27,7 +27,7 @@ pub(crate) fn check_manifest_schema_version(
     file_kind: &'static str,
     path: std::path::PathBuf,
 ) -> crate::error::Result<()> {
-    if schema_version > CURRENT_MANIFEST_SCHEMA_VERSION {
+    if schema_version == 0 || schema_version > CURRENT_MANIFEST_SCHEMA_VERSION {
         return Err(crate::error::WeaveError::SchemaVersionTooNew {
             file_kind,
             path,

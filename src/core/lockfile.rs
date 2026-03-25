@@ -61,7 +61,8 @@ impl LockFile {
             path: path.clone(),
             source: Box::new(e),
         })?;
-        if lockfile.schema_version > CURRENT_LOCKFILE_SCHEMA_VERSION {
+        if lockfile.schema_version == 0 || lockfile.schema_version > CURRENT_LOCKFILE_SCHEMA_VERSION
+        {
             return Err(WeaveError::SchemaVersionTooNew {
                 file_kind: "lock file",
                 path,
