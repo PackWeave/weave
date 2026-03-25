@@ -91,13 +91,30 @@ pub fn build_report(
     for adapter in adapters {
         let installed = adapter.is_installed();
         let (issues, tracked) = if installed {
-            let issues = adapter
-                .diagnose()
-                .with_context(|| format!("diagnosing {}", adapter.name()))?;
-            let tracked = adapter
-                .tracked_packs()
-                .with_context(|| format!("listing tracked packs for {}", adapter.name()))?;
-            (issues, tracked)
+            // Gracefully degrade when the adapter's tracking file uses a future
+            // schema version: report it as a diagnostic error instead of aborting
+            // the entire diagnose command.
+            match adapter.diagnose() {
+                Ok(issues) => {
+                    let tracked = adapter.tracked_packs().unwrap_or_default();
+                    (issues, tracked)
+                }
+                Err(crate::error::WeaveError::SchemaVersionTooNew { .. }) => {
+                    let issues = vec![DiagnosticIssue {
+                        severity: crate::adapters::Severity::Error,
+                        message: format!(
+                            "{} tracking file uses a newer schema version — upgrade weave to manage this adapter",
+                            adapter.name()
+                        ),
+                        suggestion: Some("run: cargo install packweave".to_string()),
+                        pack: None,
+                    }];
+                    (issues, std::collections::HashSet::new())
+                }
+                Err(e) => {
+                    return Err(e).context(format!("diagnosing {}", adapter.name()));
+                }
+            }
         } else {
             (Vec::new(), std::collections::HashSet::new())
         };

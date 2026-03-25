@@ -144,13 +144,15 @@ pub enum WeaveError {
 
     // Schema versioning errors
     #[error(
-        "{file_kind} at {path} uses schema version {found}, but this version of weave only supports up to version {supported} — please upgrade weave"
+        "{file_kind} at {path} uses schema version {found}, but weave v{current_version} only supports up to version {supported} — please upgrade: cargo install packweave"
     )]
     SchemaVersionTooNew {
         file_kind: &'static str,
         path: std::path::PathBuf,
         found: u32,
         supported: u32,
+        /// The running weave version, filled from `env!("CARGO_PKG_VERSION")`.
+        current_version: &'static str,
     },
 
     // Concurrency errors

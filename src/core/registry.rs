@@ -8,6 +8,9 @@ use crate::error::{Result, WeaveError};
 /// Bump when a registry format change ships that older clients must reject.
 pub const CURRENT_REGISTRY_SCHEMA_VERSION: u32 = 1;
 
+/// Serde default for registry metadata that predates schema versioning — always returns 1
+/// (the original schema), not `CURRENT_REGISTRY_SCHEMA_VERSION`. Files that omit
+/// the field were written before versioning existed and are implicitly version 1.
 fn default_registry_schema_version() -> u32 {
     1
 }
@@ -105,6 +108,8 @@ type SearchIndex = HashMap<String, PackListing>;
 /// (just the `packs` map at the top level, no wrapper).
 #[derive(Debug, Clone, Deserialize)]
 struct SearchIndexEnvelope {
+    // Checked before deserialization via raw JSON inspection in `parse_search_index`;
+    // retained for structural completeness so the envelope round-trips correctly.
     #[allow(dead_code)]
     schema_version: u32,
     packs: SearchIndex,
@@ -139,10 +144,7 @@ impl GitHubRegistry {
     }
 
     /// Fetch and cache the lightweight `index.json`.
-    ///
-    /// Supports two formats:
-    /// - **Envelope** (new): `{"schema_version": N, "packs": {…}}`
-    /// - **Flat** (legacy): `{"pack-name": {…}, …}` (no wrapper, defaults to schema v1)
+    /// Delegates format detection and version validation to [`Self::parse_search_index`].
     fn load_search_index(&self) -> Result<SearchIndex> {
         {
             let cache = self
@@ -170,19 +172,27 @@ impl GitHubRegistry {
 
     /// Parse `index.json`, trying the versioned envelope first, then the legacy
     /// flat format for backward compatibility with older registries and taps.
+    ///
+    /// - **Envelope** (new): `{"schema_version": N, "packs": {…}}`
+    /// - **Flat** (legacy): `{"pack-name": {…}, …}` (no wrapper, defaults to schema v1)
+    ///
+    /// Returns [`WeaveError::SchemaVersionTooNew`] if the envelope declares a
+    /// version newer than [`CURRENT_REGISTRY_SCHEMA_VERSION`].
     fn parse_search_index(&self, url: &str) -> Result<SearchIndex> {
         let raw: serde_json::Value =
             http_get_json(url, "registry search index", self.token.as_deref())?;
 
         // Try the new envelope format first: {"schema_version": N, "packs": {…}}
         if let Some(sv) = raw.get("schema_version").and_then(|v| v.as_u64()) {
-            let sv = sv as u32;
+            // Treat any value that overflows u32 as "too new" rather than silently truncating.
+            let sv = u32::try_from(sv).unwrap_or(u32::MAX);
             if sv > CURRENT_REGISTRY_SCHEMA_VERSION {
                 return Err(WeaveError::SchemaVersionTooNew {
                     file_kind: "registry search index",
                     path: url.into(),
                     found: sv,
                     supported: CURRENT_REGISTRY_SCHEMA_VERSION,
+                    current_version: env!("CARGO_PKG_VERSION"),
                 });
             }
             let envelope: SearchIndexEnvelope = serde_json::from_value(raw).map_err(|e| {
@@ -240,6 +250,7 @@ impl GitHubRegistry {
                 path: url.into(),
                 found: meta.schema_version,
                 supported: CURRENT_REGISTRY_SCHEMA_VERSION,
+                current_version: env!("CARGO_PKG_VERSION"),
             });
         }
 

@@ -128,14 +128,11 @@ impl GeminiCliAdapter {
                 path: path.clone(),
                 source: e,
             })?;
-        if manifest.schema_version > CURRENT_MANIFEST_SCHEMA_VERSION {
-            return Err(WeaveError::SchemaVersionTooNew {
-                file_kind: "sidecar manifest",
-                path,
-                found: manifest.schema_version,
-                supported: CURRENT_MANIFEST_SCHEMA_VERSION,
-            });
-        }
+        super::check_manifest_schema_version(
+            manifest.schema_version,
+            "Gemini CLI tracking file",
+            path,
+        )?;
         Ok(manifest)
     }
 
@@ -158,14 +155,11 @@ impl GeminiCliAdapter {
                 path: path.clone(),
                 source: e,
             })?;
-        if manifest.schema_version > CURRENT_MANIFEST_SCHEMA_VERSION {
-            return Err(WeaveError::SchemaVersionTooNew {
-                file_kind: "sidecar manifest",
-                path,
-                found: manifest.schema_version,
-                supported: CURRENT_MANIFEST_SCHEMA_VERSION,
-            });
-        }
+        super::check_manifest_schema_version(
+            manifest.schema_version,
+            "Gemini CLI tracking file",
+            path,
+        )?;
         Ok(manifest)
     }
 

@@ -110,7 +110,7 @@ The milestones below are sequential. Each one produces something usable before t
 - [ ] Enforce `min_tool_version` check during pack install (issue #197)
 - [ ] Switch Codex adapter to `toml_edit` to preserve user comments (issue #212)
 - [ ] Rollback on partial adapter apply failure — don't record install if any adapter fails (issue #221)
-- [ ] Schema versioning for pack.toml and sidecar manifests — graceful rejection of newer formats (issue #224)
+- [x] Schema versioning for pack.toml and sidecar manifests — graceful rejection of newer formats (issue #224)
 
 ### Adoption Accelerators
 

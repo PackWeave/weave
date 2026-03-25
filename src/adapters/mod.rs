@@ -13,9 +13,30 @@ use crate::error::Result;
 /// Current schema version for adapter sidecar manifest files.
 pub const CURRENT_MANIFEST_SCHEMA_VERSION: u32 = 1;
 
-/// Default schema version for serde deserialization of adapter manifests.
+/// Serde default for manifests that predate schema versioning — always returns 1
+/// (the original schema), not `CURRENT_MANIFEST_SCHEMA_VERSION`. Files that omit
+/// the field were written before versioning existed and are implicitly version 1.
 pub(crate) fn default_manifest_schema_version() -> u32 {
     1
+}
+
+/// Check that a deserialized manifest's schema version is supported by this build.
+/// Returns `SchemaVersionTooNew` if the manifest was written by a newer weave version.
+pub(crate) fn check_manifest_schema_version(
+    schema_version: u32,
+    file_kind: &'static str,
+    path: std::path::PathBuf,
+) -> crate::error::Result<()> {
+    if schema_version > CURRENT_MANIFEST_SCHEMA_VERSION {
+        return Err(crate::error::WeaveError::SchemaVersionTooNew {
+            file_kind,
+            path,
+            found: schema_version,
+            supported: CURRENT_MANIFEST_SCHEMA_VERSION,
+            current_version: env!("CARGO_PKG_VERSION"),
+        });
+    }
+    Ok(())
 }
 
 /// Options passed to [`CliAdapter::apply`] controlling optional behaviours.

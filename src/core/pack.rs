@@ -8,6 +8,9 @@ use crate::error::{Result, WeaveError};
 /// Current schema version for `pack.toml` files.
 pub const CURRENT_PACK_SCHEMA_VERSION: u32 = 1;
 
+/// Serde default for pack manifests that predate schema versioning — always returns 1
+/// (the original schema), not `CURRENT_PACK_SCHEMA_VERSION`. Files that omit
+/// the field were written before versioning existed and are implicitly version 1.
 fn default_schema_version() -> u32 {
     1
 }
@@ -158,6 +161,7 @@ pub enum PackSource {
 /// Canonical nested format: metadata under a `[pack]` section.
 #[derive(Debug, Deserialize)]
 struct PackManifest {
+    /// Pack manifest schema version. Defaults to 1 for files that predate versioning.
     #[serde(default = "default_schema_version")]
     schema_version: u32,
     pack: PackMetadataToml,
@@ -203,6 +207,7 @@ impl Pack {
                 path: path.to_path_buf(),
                 found: manifest.schema_version,
                 supported: CURRENT_PACK_SCHEMA_VERSION,
+                current_version: env!("CARGO_PKG_VERSION"),
             });
         }
         let pack = Pack {
@@ -1095,8 +1100,8 @@ description = "Test"
             "expected 'schema version 99' in error: {msg}"
         );
         assert!(
-            msg.contains("please upgrade weave"),
-            "expected 'please upgrade weave' in error: {msg}"
+            msg.contains("please upgrade"),
+            "expected 'please upgrade' in error: {msg}"
         );
     }
 
