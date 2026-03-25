@@ -613,6 +613,7 @@ mod tests {
             version: semver::Version::new(1, 0, 0),
             files: HashMap::from([("prompts/system.md".to_string(), "hi".to_string())]),
             dependencies: HashMap::new(),
+            checksum: None,
         };
         let result = Store::fetch("bad-pack", &release, None);
         assert!(result.is_err(), "fetch should fail without pack.toml");

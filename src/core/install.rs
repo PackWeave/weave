@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::adapters::{ApplyOptions, CliAdapter};
+use crate::core::checksum;
 use crate::core::config::Config;
 use crate::core::conflict;
 use crate::core::lockfile::LockFile;
@@ -132,6 +133,9 @@ pub fn install_from_registry(
     for (name, version) in &plan.to_install {
         // Fetch pack metadata from registry.
         let release = ctx.registry.fetch_version(name, version)?;
+
+        // Verify pack integrity before processing.
+        checksum::verify(name, version, &release.files, release.checksum.as_deref())?;
 
         if dry_run {
             // In dry-run mode, parse pack.toml directly from registry data
@@ -385,6 +389,7 @@ pub fn install_local(
         version: version.clone(),
         files,
         dependencies: pack.dependencies.clone(),
+        checksum: None,
     };
 
     let pack_dir = Store::fetch(name, &release, Some(&local_source))?;

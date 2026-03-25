@@ -615,6 +615,7 @@ mod tests {
                 version: semver::Version::new(1, 0, 0),
                 files: std::collections::HashMap::new(),
                 dependencies: std::collections::HashMap::new(),
+                checksum: None,
             }],
         });
         let result =
@@ -644,6 +645,7 @@ mod tests {
                 version: semver::Version::new(1, 0, 0),
                 files: std::collections::HashMap::new(),
                 dependencies: std::collections::HashMap::new(),
+                checksum: None,
             }],
         });
         let result =

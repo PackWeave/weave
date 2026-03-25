@@ -115,11 +115,31 @@ mod tests {
     #[test]
     #[serial]
     fn second_lock_fails_with_contention() {
+        // Test lock contention using a background thread that holds a lock on the
+        // same file via a separately opened file descriptor. This is more reliable
+        // than same-fd same-thread locking, which has inconsistent semantics across
+        // OSes and container runtimes (flock is per-open-file-description on Linux
+        // but per-file-descriptor on some overlayfs setups in CI).
         let tmp = tempfile::tempdir().expect("create temp dir");
+        let lock_file = tmp.path().join(".lock");
+
+        // Open the file and lock it from a background thread.
+        let file1 = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&lock_file)
+            .expect("open lock file");
+        file1.try_lock_exclusive().expect("first lock");
+
+        // Now set the env var and try acquire() — it opens a second fd to the
+        // same file and should fail because file1 holds the exclusive lock.
         let _guard = EnvGuard::set("WEAVE_TEST_STORE_DIR", tmp.path());
-        let _lock1 = acquire().expect("first acquire");
         let result = acquire();
-        assert!(result.is_err());
+        assert!(
+            result.is_err(),
+            "second acquire should fail with contention"
+        );
         let err = result.unwrap_err();
         assert!(
             err.to_string().contains("another weave process is running"),

@@ -76,30 +76,30 @@ Do not create duplicate issues — check the open issues list above first. No "B
 
 ### Step 6 — Set issue type
 
-Get the new issue's node ID and set the type:
+Get the new issue's node ID and set the type **in a single Bash call** (variables don't persist across calls):
 
 ```sh
-# Get the issue node ID
-NODE_ID=$(gh api graphql -f query='{ repository(owner: "PackWeave", name: "weave") { issue(number: <NUMBER>) { id } } }' --jq '.data.repository.issue.id')
-
-# Set the type (use the type ID from context above)
+NODE_ID=$(gh api graphql -f query='{ repository(owner: "PackWeave", name: "weave") { issue(number: <NUMBER>) { id } } }' --jq '.data.repository.issue.id') && \
 gh api graphql -f query='mutation { updateIssue(input: {id: "'$NODE_ID'", issueTypeId: "<TYPE_ID>"}) { issue { number } } }'
 ```
 
 ### Step 7 — Set blocked-by relationships
 
-If blocking issues were identified in Step 4, for each blocker:
+If blocking issues were identified in Step 4, for each blocker run **in a single Bash call** (NODE_ID from Step 6 won't persist — re-fetch it, or chain all steps together):
 
 ```sh
-# Get the blocker's node ID
-BLOCKER_ID=$(gh api graphql -f query='{ repository(owner: "PackWeave", name: "weave") { issue(number: <BLOCKER_NUMBER>) { id } } }' --jq '.data.repository.issue.id')
-
-# Set the relationship
-gh api graphql -f query='mutation { addBlockedBy(input: {issueId: "'$NODE_ID'", blockingIssueId: "'$BLOCKER_ID'"}) { issue { number } blockingIssue { number } } }'
+NODE_ID=$(gh api graphql -f query='{ repository(owner: "PackWeave", name: "weave") { issue(number: <NUMBER>) { id } } }' --jq '.data.repository.issue.id') && \
+BLOCKER_ID=$(gh api graphql -f query='{ repository(owner: "PackWeave", name: "weave") { issue(number: <BLOCKER_NUMBER>) { id } } }' --jq '.data.repository.issue.id') && \
+gh api graphql -f query='mutation { addBlockedBy(input: {issueId: "'$NODE_ID'", blockingIssueId: "'$BLOCKER_ID'"}) { issue { number } blockingIssue { number } } }' && \
+gh issue edit <NUMBER> --add-label "blocked"
 ```
 
-Also add the `blocked` label if any blockers were set:
+Repeat for each additional blocker, or loop:
 ```sh
+for BLOCKER_NUM in <NUM1> <NUM2>; do
+  BLOCKER_ID=$(gh api graphql -f query='{ repository(owner: "PackWeave", name: "weave") { issue(number: '$BLOCKER_NUM') { id } } }' --jq '.data.repository.issue.id') && \
+  gh api graphql -f query='mutation { addBlockedBy(input: {issueId: "'$NODE_ID'", blockingIssueId: "'$BLOCKER_ID'"}) { issue { number } blockingIssue { number } } }'
+done
 gh issue edit <NUMBER> --add-label "blocked"
 ```
 

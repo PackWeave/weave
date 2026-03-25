@@ -215,6 +215,7 @@ mod tests {
             version: semver::Version::new(major, minor, patch),
             files: HashMap::new(),
             dependencies: HashMap::new(),
+            checksum: None,
         }
     }
 
@@ -234,6 +235,7 @@ mod tests {
             version: semver::Version::new(major, minor, patch),
             files: HashMap::new(),
             dependencies,
+            checksum: None,
         }
     }
 
