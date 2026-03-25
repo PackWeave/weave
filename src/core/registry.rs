@@ -49,7 +49,7 @@ pub struct PackMetadata {
 ///
 /// `files` is a flat map of relative path → file content (e.g. `"pack.toml"`,
 /// `"prompts/system.md"`). The store writes these directly to disk — no tarball,
-/// no SHA256 verification, no additional network download beyond the registry JSON.
+/// no additional network download beyond the registry JSON.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PackRelease {
     pub version: semver::Version,
@@ -59,6 +59,10 @@ pub struct PackRelease {
     /// Direct dependencies of this release, keyed by pack name with a semver requirement.
     #[serde(default)]
     pub dependencies: HashMap<String, semver::VersionReq>,
+    /// SHA-256 checksum of the canonical `files` JSON. Format: `"sha256:{hex}"`.
+    /// `None` for registries that predate checksum support (verified when present).
+    #[serde(default)]
+    pub checksum: Option<String>,
 }
 
 /// The registry trait. All registry implementations must be Send + Sync.
@@ -629,6 +633,7 @@ mod tests {
                         "[pack]\nname = \"webdev\"\nversion = \"1.0.0\"\ndescription = \"Web development tools\"\n".to_string(),
                     )]),
                     dependencies: HashMap::new(),
+                    checksum: None,
                 },
                 PackRelease {
                     version: semver::Version::new(1, 1, 0),
@@ -637,6 +642,7 @@ mod tests {
                         "[pack]\nname = \"webdev\"\nversion = \"1.1.0\"\ndescription = \"Web development tools\"\n".to_string(),
                     )]),
                     dependencies: HashMap::new(),
+                    checksum: None,
                 },
             ],
         }
@@ -709,6 +715,7 @@ mod tests {
                 version: semver::Version::new(1, 0, 0),
                 files: HashMap::new(),
                 dependencies: HashMap::new(),
+                checksum: None,
             }],
         }
     }

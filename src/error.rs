@@ -44,6 +44,17 @@ pub enum WeaveError {
         actual: String,
     },
 
+    #[error(
+        "checksum mismatch for '{pack_name}' v{version} — expected {expected}, got {actual}. \
+         The pack content may have been tampered with or corrupted in transit."
+    )]
+    ChecksumMismatch {
+        pack_name: String,
+        version: semver::Version,
+        expected: String,
+        actual: String,
+    },
+
     #[error("invalid version requirement '{input}' — {reason}")]
     InvalidVersionReq { input: String, reason: String },
 

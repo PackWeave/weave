@@ -4,6 +4,7 @@
 //! parses arguments, calls these functions, and formats output.
 
 use crate::adapters::{ApplyOptions, CliAdapter};
+use crate::core::checksum;
 use crate::core::config::Config;
 use crate::core::install::{MissingEnvVar, apply_to_adapters, check_missing_env_vars};
 use crate::core::lockfile::LockFile;
@@ -165,8 +166,14 @@ pub fn update_packs(
         for (resolved_name, version) in &plan.to_install {
             let is_upgrade = profile.has_pack(resolved_name);
 
-            // Fetch from registry and store
+            // Fetch from registry, verify integrity, and store
             let release = registry.fetch_version(resolved_name, version)?;
+            checksum::verify(
+                resolved_name,
+                version,
+                &release.files,
+                release.checksum.as_deref(),
+            )?;
             let pack_dir = Store::fetch(resolved_name, &release, None)?;
 
             // Load the pack manifest

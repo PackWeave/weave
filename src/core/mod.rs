@@ -1,3 +1,4 @@
+pub mod checksum;
 pub mod config;
 pub mod conflict;
 pub mod credentials;

@@ -4,6 +4,7 @@
 //! parses arguments, calls these functions, and formats output.
 
 use crate::adapters::{ApplyOptions, CliAdapter};
+use crate::core::checksum;
 use crate::core::config::Config;
 use crate::core::pack::{Pack, PackSource, ResolvedPack};
 use crate::core::profile::{InstalledPack, Profile};
@@ -126,8 +127,9 @@ pub fn load_or_fetch_pack(
         }
     }
 
-    // Fetch from registry
+    // Fetch from registry and verify integrity
     let release = registry.fetch_version(name, version)?;
+    checksum::verify(name, version, &release.files, release.checksum.as_deref())?;
     Store::fetch(name, &release, Some(source))?;
     Store::load_pack(name, version, Some(source))
 }
