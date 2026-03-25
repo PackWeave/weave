@@ -44,21 +44,24 @@ Fetched once for `weave search` and `weave list`. Contains only what is needed t
 
 **URL:** `{registry_base_url}/index.json`
 
-**Format:** A flat JSON object mapping pack names to their listing.
+**Format:** A versioned envelope containing a flat map of pack names to their listing.
 
 ```json
 {
-  "filesystem": {
-    "name": "filesystem",
-    "description": "Read and write local files via the MCP filesystem server",
-    "keywords": ["filesystem", "files", "mcp"],
-    "latest_version": "0.1.0"
-  },
-  "github": {
-    "name": "github",
-    "description": "GitHub repos, issues, pull requests, and code search via MCP",
-    "keywords": ["github", "git", "mcp"],
-    "latest_version": "0.1.0"
+  "schema_version": 1,
+  "packs": {
+    "filesystem": {
+      "name": "filesystem",
+      "description": "Read and write local files via the MCP filesystem server",
+      "keywords": ["filesystem", "files", "mcp"],
+      "latest_version": "0.1.0"
+    },
+    "github": {
+      "name": "github",
+      "description": "GitHub repos, issues, pull requests, and code search via MCP",
+      "keywords": ["github", "git", "mcp"],
+      "latest_version": "0.1.0"
+    }
   }
 }
 ```
@@ -75,6 +78,7 @@ Fetched on demand when installing or resolving a specific pack. Contains all ver
 
 ```json
 {
+  "schema_version": 1,
   "name": "filesystem",
   "description": "Read and write local files via the MCP filesystem server",
   "authors": ["PackWeave"],
@@ -376,11 +380,14 @@ WEAVE_REGISTRY_URL=https://your-registry.example.com weave search mypack
 
 ```json
 {
-  "<pack-name>": {
-    "name": "string",
-    "description": "string",
-    "keywords": ["string"],
-    "latest_version": "semver string"
+  "schema_version": 1,
+  "packs": {
+    "<pack-name>": {
+      "name": "string",
+      "description": "string",
+      "keywords": ["string"],
+      "latest_version": "semver string"
+    }
   }
 }
 ```
@@ -389,6 +396,7 @@ WEAVE_REGISTRY_URL=https://your-registry.example.com weave search mypack
 
 ```json
 {
+  "schema_version": 1,
   "name": "string",
   "description": "string",
   "authors": ["string"],
