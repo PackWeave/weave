@@ -4,6 +4,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Result, WeaveError};
 
+/// Maximum registry schema version this build of weave can parse.
+/// Bump when a registry format change ships that older clients must reject.
+pub const CURRENT_REGISTRY_SCHEMA_VERSION: u32 = 1;
+
+fn default_registry_schema_version() -> u32 {
+    1
+}
+
 /// Summary of a pack in registry search results.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PackSummary {
@@ -18,6 +26,9 @@ pub struct PackSummary {
 /// Deserialized from `packs/{name}.json` in the sparse index.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PackMetadata {
+    /// Registry schema version. Defaults to 1 for files that predate versioning.
+    #[serde(default = "default_registry_schema_version")]
+    pub schema_version: u32,
     pub name: String,
     pub description: String,
     #[serde(default)]
@@ -89,6 +100,16 @@ struct PackListing {
 /// The lightweight search index — a flat JSON object mapping pack names to their listing.
 type SearchIndex = HashMap<String, PackListing>;
 
+/// Versioned envelope for `index.json`. New registries emit this format.
+/// Older registries that predate schema versioning emit a flat `SearchIndex`
+/// (just the `packs` map at the top level, no wrapper).
+#[derive(Debug, Clone, Deserialize)]
+struct SearchIndexEnvelope {
+    #[allow(dead_code)]
+    schema_version: u32,
+    packs: SearchIndex,
+}
+
 /// GitHub-backed registry implementation using a two-tier sparse index.
 ///
 /// - `{base_url}/index.json` — lightweight catalog fetched once for search and listing
@@ -118,6 +139,10 @@ impl GitHubRegistry {
     }
 
     /// Fetch and cache the lightweight `index.json`.
+    ///
+    /// Supports two formats:
+    /// - **Envelope** (new): `{"schema_version": N, "packs": {…}}`
+    /// - **Flat** (legacy): `{"pack-name": {…}, …}` (no wrapper, defaults to schema v1)
     fn load_search_index(&self) -> Result<SearchIndex> {
         {
             let cache = self
@@ -130,8 +155,7 @@ impl GitHubRegistry {
         }
 
         let url = format!("{}/index.json", self.base_url);
-        let index: SearchIndex =
-            http_get_json(&url, "registry search index", self.token.as_deref())?;
+        let index = self.parse_search_index(&url)?;
 
         {
             let mut cache = self
@@ -141,6 +165,36 @@ impl GitHubRegistry {
             *cache = Some(index.clone());
         }
 
+        Ok(index)
+    }
+
+    /// Parse `index.json`, trying the versioned envelope first, then the legacy
+    /// flat format for backward compatibility with older registries and taps.
+    fn parse_search_index(&self, url: &str) -> Result<SearchIndex> {
+        let raw: serde_json::Value =
+            http_get_json(url, "registry search index", self.token.as_deref())?;
+
+        // Try the new envelope format first: {"schema_version": N, "packs": {…}}
+        if let Some(sv) = raw.get("schema_version").and_then(|v| v.as_u64()) {
+            let sv = sv as u32;
+            if sv > CURRENT_REGISTRY_SCHEMA_VERSION {
+                return Err(WeaveError::SchemaVersionTooNew {
+                    file_kind: "registry search index",
+                    path: url.into(),
+                    found: sv,
+                    supported: CURRENT_REGISTRY_SCHEMA_VERSION,
+                });
+            }
+            let envelope: SearchIndexEnvelope = serde_json::from_value(raw).map_err(|e| {
+                WeaveError::Registry(format!("failed to parse registry search index: {e}"))
+            })?;
+            return Ok(envelope.packs);
+        }
+
+        // Legacy flat format: the entire JSON object is the pack map.
+        let index: SearchIndex = serde_json::from_value(raw).map_err(|e| {
+            WeaveError::Registry(format!("failed to parse registry search index: {e}"))
+        })?;
         Ok(index)
     }
 
@@ -179,6 +233,15 @@ impl GitHubRegistry {
             },
             other => other,
         })?;
+
+        if meta.schema_version > CURRENT_REGISTRY_SCHEMA_VERSION {
+            return Err(WeaveError::SchemaVersionTooNew {
+                file_kind: "registry pack metadata",
+                path: url.into(),
+                found: meta.schema_version,
+                supported: CURRENT_REGISTRY_SCHEMA_VERSION,
+            });
+        }
 
         {
             let mut cache = self.cached_packs.lock().unwrap_or_else(|e| e.into_inner());
@@ -540,6 +603,7 @@ mod tests {
 
     fn sample_metadata() -> PackMetadata {
         PackMetadata {
+            schema_version: CURRENT_REGISTRY_SCHEMA_VERSION,
             name: "webdev".into(),
             description: "Web development tools".into(),
             authors: vec!["tester".into()],
@@ -623,6 +687,7 @@ mod tests {
 
     fn sample_metadata_named(name: &str, desc: &str) -> PackMetadata {
         PackMetadata {
+            schema_version: CURRENT_REGISTRY_SCHEMA_VERSION,
             name: name.into(),
             description: desc.into(),
             authors: vec!["tester".into()],
@@ -932,6 +997,7 @@ mod tests {
     #[test]
     fn latest_version_no_releases() {
         let meta = PackMetadata {
+            schema_version: CURRENT_REGISTRY_SCHEMA_VERSION,
             name: "empty".into(),
             description: "no releases".into(),
             authors: vec![],
@@ -1002,5 +1068,63 @@ mod tests {
         assert!(is_trusted(
             "https://RAW.GITHUBUSERCONTENT.COM/PackWeave/registry/main/index.json"
         ));
+    }
+
+    // ── Schema version tests ──────────────────────────────────────────────
+
+    #[test]
+    fn parse_pack_metadata_without_schema_version_defaults_to_1() {
+        let json = r#"{
+            "name": "test",
+            "description": "test pack",
+            "versions": []
+        }"#;
+        let meta: PackMetadata = serde_json::from_str(json).unwrap();
+        assert_eq!(meta.schema_version, 1);
+    }
+
+    #[test]
+    fn parse_pack_metadata_with_explicit_schema_version() {
+        let json = r#"{
+            "schema_version": 1,
+            "name": "test",
+            "description": "test pack",
+            "versions": []
+        }"#;
+        let meta: PackMetadata = serde_json::from_str(json).unwrap();
+        assert_eq!(meta.schema_version, 1);
+    }
+
+    #[test]
+    fn parse_search_index_envelope_format() {
+        let json = r#"{
+            "schema_version": 1,
+            "packs": {
+                "test-pack": {
+                    "name": "test-pack",
+                    "description": "A test",
+                    "keywords": [],
+                    "latest_version": "0.1.0"
+                }
+            }
+        }"#;
+        let envelope: SearchIndexEnvelope = serde_json::from_str(json).unwrap();
+        assert_eq!(envelope.schema_version, 1);
+        assert!(envelope.packs.contains_key("test-pack"));
+    }
+
+    #[test]
+    fn parse_search_index_legacy_flat_format() {
+        let json = r#"{
+            "test-pack": {
+                "name": "test-pack",
+                "description": "A test",
+                "keywords": [],
+                "latest_version": "0.1.0"
+            }
+        }"#;
+        // Legacy format has no schema_version key, so it parses as a flat SearchIndex.
+        let index: SearchIndex = serde_json::from_str(json).unwrap();
+        assert!(index.contains_key("test-pack"));
     }
 }

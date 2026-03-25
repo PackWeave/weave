@@ -604,6 +604,7 @@ mod tests {
         use crate::core::registry::{MockRegistry, PackMetadata, PackRelease};
         let mut registry = MockRegistry::new();
         registry.add_pack(PackMetadata {
+            schema_version: crate::core::registry::CURRENT_REGISTRY_SCHEMA_VERSION,
             name: "my-pack".into(),
             description: "test".into(),
             authors: vec![],
@@ -632,6 +633,7 @@ mod tests {
         use crate::core::registry::{MockRegistry, PackMetadata, PackRelease};
         let mut registry = MockRegistry::new();
         registry.add_pack(PackMetadata {
+            schema_version: crate::core::registry::CURRENT_REGISTRY_SCHEMA_VERSION,
             name: "my-pack".into(),
             description: "test".into(),
             authors: vec![],
