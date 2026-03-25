@@ -105,11 +105,11 @@ The milestones below are sequential. Each one produces something usable before t
 ### Security & Correctness
 
 - [ ] `--dry-run` flag on install/sync/remove — preview changes without writing (issue #166)
-- [ ] Concurrency lock to prevent simultaneous weave operations (issue #201)
+- [x] Concurrency lock to prevent simultaneous weave operations (issue #201)
 - [ ] Pack content checksums in registry for integrity verification (issue #175)
-- [ ] Enforce `min_tool_version` check during pack install (issue #197)
+- [x] Enforce `min_tool_version` check during pack install (issue #197)
 - [ ] Switch Codex adapter to `toml_edit` to preserve user comments (issue #212)
-- [ ] Rollback on partial adapter apply failure — don't record install if any adapter fails (issue #221)
+- [x] Rollback on partial adapter apply failure — don't record install if any adapter fails (issue #221)
 - [x] Schema versioning for pack.toml and sidecar manifests — graceful rejection of newer formats (issue #224)
 
 ### Adoption Accelerators
